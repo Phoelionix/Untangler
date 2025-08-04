@@ -423,20 +423,6 @@ def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkCon
         lp_problem += pulp.lpSum(solution[i]*lp_variables[i] for i in range(len(solution))) <= len(solution)-1
 
         distances.append(value(lp_problem.objective))
-        ######next best solution########
-        # flipped_flip_variables = []
-        # values = [v.varValue for v in lp_problem.variables()]
-        # for v, val in zip(lp_problem.variables(), values):
-        #     if val == 1:
-        #         # v was 1, so flipping means (1 - v)==1
-        #         flipped_flip_variables.append(1 - v)
-        #     else:
-        #         # v==1
-        #         flipped_flip_variables.append(v)
-
-        # # require at least one variable to change
-        # lp_problem += pulp.lpSum(flipped_flip_variables) >= 1, f"force_next_best_solution_{l}"
-
 
         flipped_flip_variables = []
         flip_variables=[]
