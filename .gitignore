@@ -1,0 +1,6 @@
+output/*
+StructureGeneration/HoltonOutputs/
+StructureGeneration/HoltonScores/
+StructureGeneration/output/
+StructureGeneration/data/
+*/tmp_refinement/*
