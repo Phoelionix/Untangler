@@ -41,7 +41,7 @@ class Untangler():
         self.swapper:Swapper=None
     def set_hyper_params(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=5, 
                  wc_anneal_start=0.6,wc_anneal_loops=2, starting_num_best_swaps_considered=20,
-                 max_num_best_swaps_considered=100,num_loops_water_held=4):
+                 max_num_best_swaps_considered=100,num_loops_water_held=1):
         # NOTE Currently max wE increase is percentage based, 
         # but TODO optimal method needs to be investigated.
         self.n_best_swap_start=starting_num_best_swaps_considered
