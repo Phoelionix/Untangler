@@ -303,10 +303,8 @@ class ConstraintsHandler:
         return ConstraintsHandler(atom_constraints)
 
             
-    def load_all_constraints(self,nonbond_scores_path,nonbond_water_flipped_scores_path,ordered_atom_lookup:OrderedAtomLookup):
-        #FIXME!! need to generate geo file automatically
-        print("! Warning, loading constraints from fixed file, 1AHO_best.geo !")
-        constraints_file = f"{UntangleFunctions.pdb_data_dir()}/1AHO_best.geo" # NOTE we only read ideal.
+    def load_all_constraints(self,constraints_file,nonbond_scores_path,nonbond_water_flipped_scores_path,ordered_atom_lookup:OrderedAtomLookup):
+        print("Loading constraints from {constraints_file}")
 
         self.constraints: list[ConstraintsHandler.Constraint]=[]
         with open(constraints_file,"r") as f:
@@ -561,8 +559,9 @@ class MTSP_Solver:
         
         nonbond_water_flipped_scores_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{model_water_swapped_handle}_scorednonbond.txt"
 
+        constraints_file = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}.geo" # NOTE we only read ideal and weights.
         constraints_handler=ConstraintsHandler()
-        constraints_handler.load_all_constraints(nonbond_scores_path,nonbond_water_flipped_scores_path,self.ordered_atom_lookup)
+        constraints_handler.load_all_constraints(constraints_file,nonbond_scores_path,nonbond_water_flipped_scores_path,self.ordered_atom_lookup)
         #for n,atom in enumerate(self.ordered_atom_lookup.select_atoms_by(names=["CA","C","N"])):
         for n,atom in enumerate(self.ordered_atom_lookup.select_atoms_by()):
             if atom.element=="H":

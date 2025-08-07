@@ -1388,7 +1388,7 @@ if($?BAD) then
     exit 9
 endif
 
-#cp ${t}.geo ${outprefix}.geo
+cp ${t}.geo ${outprefix}.geo
 #cp ${t}geo.txt ${outprefix}noH.geo
 
 
