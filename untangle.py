@@ -53,8 +53,13 @@ class Untangler():
         self.wc_anneal_start = wc_anneal_start
         self.wc_anneal_loops=wc_anneal_loops
 
-    def run(self,pdb_file_path,desired_score=18.6,max_num_runs=100):
+    def run(self,pdb_file_path,hkl_file_path,desired_score=18.6,max_num_runs=100):
         # pdb_file_path: path to starting model
+        # hkl_file_path: path to reflection data.
+        # TODO Currently assume in data folder.
+        assert hkl_file_path[-4:]==".mtz", f"hkl path doesn't end in '.mtz': {hkl_file_path}"
+        self.hkl_handle = os.path.basename(hkl_file_path)[:-4] 
+        #assert os.path.dirname(hkl_file_path)[-5:-1]=="data", hkl_file_path    
         assert pdb_file_path[-4:]==".pdb", f"file path doesn't end in '.pdb': {pdb_file_path}"
         self.model_handle = os.path.basename(pdb_file_path)[:-4]
         self.current_model= Untangler.output_dir+f"{self.model_handle}_current.pdb"
@@ -69,11 +74,11 @@ class Untangler():
         self.loop=0
         
         while (self.current_score.combined > desired_score and self.loop < max_num_runs): 
-            self.step()
-            self.loop+=1
             print(f"Initial score: {self.initial_score}")
             print(f"Best score: {self.best_score}")
             print(f"Current score: {self.current_score}")
+            self.step()
+            self.loop+=1
 
         if self.current_score.combined > desired_score:
             print(f"Failed to reach target score of {desired_score}")
@@ -143,9 +148,12 @@ class Untangler():
         new_score = Untangler.Score(new_combined,new_wE,new_R)
         #deltaE = new_wE-self.current_score.wE # geometry only
         deltaE = new_combined-self.current_score.combined  # include R factor
+        max_wE_increase = self.max_wE_frac_increase*self.current_score.wE
+        if self.current_score.wE==np.inf:
+            max_wE_increase = np.inf
         p_accept = self.P_accept_swap(
             deltaE,
-            max_wE_increase=self.max_wE_frac_increase*self.current_score.wE
+            max_wE_increase=max_wE_increase
         )
         outcome,set_new_model="xXx Rejected xXx",False
         if random.random() < p_accept:
@@ -206,7 +214,8 @@ class Untangler():
               "-u",f"{wu}",
               "-n",f"{num_macro_cycles}",
               "-o",f"{self.model_handle}_{out_tag}",
-              "-s",f"{shake}"]
+              "-s",f"{shake}",
+              "-d", self.hkl_handle]
             for bool_param, flag in ([hold_water_positions,"-h"],[optimize_R,"-r"]):
                 if bool_param:
                     args.append(flag)
@@ -317,14 +326,16 @@ class Untangler():
 
 
 def main():
-    if len(sys.argv)!=2:
-        print("Usage: python3.9 Untangle.py data/1AHO_initial_model_TW.pdb")
+    if len(sys.argv)!=3:
+        print("Usage: python3.9 Untangle.py data/1AHO_initial_model_TW.pdb data/refme.mtz")
         return
 
     starting_model = sys.argv[1]
+    xray_data = sys.argv[2]
     Untangler().run(
         starting_model,
-        desired_score=18.6,
+        xray_data,
+        desired_score=17,
         max_num_runs=100
     )
 if __name__=="__main__":
