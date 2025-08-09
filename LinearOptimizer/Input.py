@@ -110,15 +110,13 @@ class Chunk():
         return self.site_num_at_depth
     def get_altloc(self):
         return self.altloc
-    # def unique_id_start(self):
-    #     return f"{self.start_resnum}_{self.depth_tag}.{self.start_resname}.{self.get_altloc()}"
-    # def unique_id_end(self):
-    #     return f"{self.end_resnum}_{self.depth_tag}.{self.end_resname}.{self.get_altloc()}"
     def get_disordered_tag(self):
-        return  f"{self.start_resnum}.{self.start_resname}x{self.end_resnum}.{self.end_resname}"
+        pass
+        # Making it clear this code isn't run because I made this so confusing. But might be useful idea e.g. for van der waals
+        #return  f"{self.start_resnum}.{self.start_resname}x{self.end_resnum}.{self.end_resname}"
     def unique_id(self):
-        #return f"{self.depth_tag}.{self.get_site_num()}.{self.get_altloc()}_{self.start_resnum}.{self.start_resname}_{self.end_resnum}.{self.end_resname}"
-        return f"{self.depth_tag}&{self.get_site_num()}.{self.get_altloc()}&{self.get_disordered_tag()}"
+        pass
+        #return f"{self.depth_tag}&{self.get_site_num()}.{self.get_altloc()}&{self.get_disordered_tag()}"
     
     def get_atoms_dict(self):
       return self.atoms_dict
@@ -142,14 +140,9 @@ class OrderedResidue(Chunk):
         return self._res.get_id()
     def get_atoms(self):
         return self.atoms_dict[self.get_resname()]
-    def unique_id_start(self):
-        return self.unique_id()
-    def unique_id_end(self):
-        return self.unique_id()
     def get_disordered_tag(self):
+        assert False 
         return  f"{self.get_resnum()}.{self.get_resname()}"
-    # def unique_id(self):
-    #     return f"{self.get_resnum()}_{self.get_resname()}.{self.get_altloc()}"
     
 
 
@@ -236,34 +229,6 @@ class ConstraintsHandler:
             self.is_flipped=is_flipped
             self.badness=badness
             self.kind="Nonbond"
-        # @staticmethod
-        # def nonbond_badness(a:Atom,b:Atom, bad_nonbond_file_path):
-        #     res_seq_num, name = OrderedAtomLookup.atom_res_seq_num(a), a.get_name()
-        #     assert res_seq_num==OrderedAtomLookup.atom_res_seq_num(b)
-        #     assert name==b.get_name()
-        #     badness=0
-        #     with open(bad_nonbond_file_path) as f:
-        #         for line in f:
-        #             line_atoms = line.strip().split()[-2:]
-        #             for line_res_num,line_name in [(int(l.split("_")[1]),l.split("_")[0]) for l in line_atoms]: # each element of the pair 
-        #                 if line_name=="O":
-        #                     # assume water... #FIXME
-        #                     continue
-        #                 clash_found = False
-        #                 if (line_res_num, line_name) == (res_seq_num, name):
-        #                     clash_found=True
-        #                 elif line_name[0]=="H":
-        #                     # Add badness to atom that hydrogen is riding on.
-        #                     try:
-        #                         UntangleFunctions.H_get_parent_fullname(line_name,[a.fullname]) # Will return error if not parent
-        #                     except:
-        #                         pass
-        #                     else:
-        #                         clash_found = True
-                                
-        #                 if clash_found:
-        #                     badness+=max(0,float(line.strip().split()[1]))
-        #     return badness
                         
       
         def get_distance(self,atoms:list[Atom]):
@@ -353,6 +318,7 @@ class ConstraintsHandler:
                         pdb1 = f"{name}     ARES     A      {res_num}"
                         self.constraints.append(ConstraintsHandler.NonbondConstraint([pdb1,pdb1],file,flipped,badness))
 
+# Ugh never do inheritance kids. TODO refactor to composition.
 class AtomChunk(OrderedResidue):
     # Just an atom c:
     def __init__(self,site_num,altloc,resnum,referenceResidue,atom:Atom,constraints_handler):
@@ -361,11 +327,6 @@ class AtomChunk(OrderedResidue):
         self.coord = atom.get_coord()
         super().__init__(altloc,resnum,referenceResidue,[atom],site_num)
         self.generate_bonds(constraints_handler)
-        self.depth_tag="ATOM"
-    # def unique_id(self):
-    #     return f"{self.get_site_num()}.{self.get_resnum()}_{self.name}.{self.get_altloc()}"
-    # def unique_id(self):
-    #     return f"{self.depth_tag}.{self.get_site_num()}.{self.get_altloc()}_{self.start_resnum}.{self.start_resname}_{self.end_resnum}.{self.end_resname}"
     def generate_bonds(self,constraints_handler:ConstraintsHandler):
         self.constraints_holder:ConstraintsHandler = \
             constraints_handler.get_constraints(self.name,self.resnum)
@@ -373,67 +334,68 @@ class AtomChunk(OrderedResidue):
         return self.coord
     def get_disordered_tag(self):
         return  f"{self.get_resnum()}.{self.name}"
-
+    def unique_id(self):
+        return f"{self.depth_tag}&{self.get_site_num()}.{self.get_altloc()}&{self.get_disordered_tag()}"
 
 
 class MTSP_Solver:
 
-    class ChunkConnection():
-        def __init__(self,A:Chunk,B:Chunk):
-            self.start = A.unique_id()
-            self.end = B.unique_id()
-            self.altlocs=[A.get_altloc(),B.get_altloc()]
-            self.res_nums=[A.start_resnum,B.end_resnum]
-            assert A.start_resnum <= B.end_resnum
-            #self.res_init_args = [[res.get_resname(),*res.get_id()] for res in (A,B)]
-            self.ts_distance=None  # NOTE As in the travelling salesman problem sense
-            self.residue_atoms:list[dict[int,list[Atom]]]=[A.get_atoms_dict(),B.get_atoms_dict()]
-            self.dry_calc=False
-        def calculated_dry(self):
-            return self.dry_calc
-        def calculate_distance(self,parent_structure_path,tmp_out_folder_path,disordered_waters:list[DisorderedAtom],dry=False,quick_wE=False):
-            # NOTE disatnces in the travelling salesman problem sense
-            print(f"Computing wE of chunks {self.start} & {self.end}")
+    # class ChunkConnection():
+    #     def __init__(self,A:Chunk,B:Chunk):
+    #         self.start = A.unique_id()
+    #         self.end = B.unique_id()
+    #         self.altlocs=[A.get_altloc(),B.get_altloc()]
+    #         self.res_nums=[A.start_resnum,B.end_resnum]
+    #         assert A.start_resnum <= B.end_resnum
+    #         #self.res_init_args = [[res.get_resname(),*res.get_id()] for res in (A,B)]
+    #         self.ts_distance=None  # NOTE As in the travelling salesman problem sense
+    #         self.residue_atoms:list[dict[int,list[Atom]]]=[A.get_atoms_dict(),B.get_atoms_dict()]
+    #         self.dry_calc=False
+    #     def calculated_dry(self):
+    #         return self.dry_calc
+    #     def calculate_distance(self,parent_structure_path,tmp_out_folder_path,disordered_waters:list[DisorderedAtom],dry=False,quick_wE=False):
+    #         # NOTE disatnces in the travelling salesman problem sense
+    #         print(f"Computing wE of chunks {self.start} & {self.end}")
             
             
-            assert parent_structure_path[-4:]==".pdb"
-            parent_model_handle = os.path.basename(parent_structure_path)[:-4]
-            builder = StructureBuilder()
-            builder.init_structure("duo")
-            builder.init_model("M")
-            builder.init_chain("D")
+    #         assert parent_structure_path[-4:]==".pdb"
+    #         parent_model_handle = os.path.basename(parent_structure_path)[:-4]
+    #         builder = StructureBuilder()
+    #         builder.init_structure("duo")
+    #         builder.init_model("M")
+    #         builder.init_chain("D")
             
-            for residue_atoms_dict in self.residue_atoms:
-                for res_num, residue_atoms in residue_atoms_dict.items(): # NOT necessarily all residue atoms
-                    init_res_args = (residue_atoms[0].get_parent().get_resname(),
-                                     *residue_atoms[0].get_parent().get_id())
-                    builder.init_seg(res_num)
-                    builder.init_residue(*init_res_args)
-                    for atom in residue_atoms:
-                        builder.init_atom(
-                            atom.get_name(),atom.get_coord(),atom.get_bfactor(),
-                            occupancy=atom.occupancy,altloc=atom.get_altloc(),fullname=atom.get_fullname(),
-                            element=atom.element
-                        )
-            #builder.init_chain("S")
-            for disordered_water in disordered_waters:
-                builder.init_seg(disordered_water.get_parent().get_id()[1])
-                #builder.init_residue(disordered_water.get_parent().get_resname(),*disordered_water.get_parent().get_id())
-                builder.init_residue(disordered_water.get_parent().get_resname(),"W",*disordered_water.get_parent().get_id()[1:])
-                for atom in disordered_water:
-                    builder.init_atom(
-                    atom.get_name(),atom.get_coord(),atom.get_bfactor(),
-                    occupancy=atom.occupancy,altloc=atom.get_altloc(),fullname=atom.get_fullname(),
-                    element=atom.element
-                    )                   
+    #         for residue_atoms_dict in self.residue_atoms:
+    #             for res_num, residue_atoms in residue_atoms_dict.items(): # NOT necessarily all residue atoms
+    #                 init_res_args = (residue_atoms[0].get_parent().get_resname(),
+    #                                  *residue_atoms[0].get_parent().get_id())
+    #                 builder.init_seg(res_num)
+    #                 builder.init_residue(*init_res_args)
+    #                 for atom in residue_atoms:
+    #                     builder.init_atom(
+    #                         atom.get_name(),atom.get_coord(),atom.get_bfactor(),
+    #                         occupancy=atom.occupancy,altloc=atom.get_altloc(),fullname=atom.get_fullname(),
+    #                         element=atom.element
+    #                     )
+    #         #builder.init_chain("S")
+    #         for disordered_water in disordered_waters:
+    #             builder.init_seg(disordered_water.get_parent().get_id()[1])
+    #             #builder.init_residue(disordered_water.get_parent().get_resname(),*disordered_water.get_parent().get_id())
+    #             builder.init_residue(disordered_water.get_parent().get_resname(),"W",*disordered_water.get_parent().get_id()[1:])
+    #             for atom in disordered_water:
+    #                 builder.init_atom(
+    #                 atom.get_name(),atom.get_coord(),atom.get_bfactor(),
+    #                 occupancy=atom.occupancy,altloc=atom.get_altloc(),fullname=atom.get_fullname(),
+    #                 element=atom.element
+    #                 )                   
 
-            connection_structure_save_path =tmp_out_folder_path+"tmpXtion_"+parent_model_handle+".pdb"
-            UntangleFunctions.save_structure(builder.get_structure(),parent_structure_path,connection_structure_save_path)
-            if dry:
-                self.ts_distance = random.random()
-                self.dry_calc=True
-                return
-            _,self.ts_distance,_ = UntangleFunctions.assess_geometry_wE(tmp_out_folder_path,connection_structure_save_path,phenixgeometry_only=quick_wE) 
+    #         connection_structure_save_path =tmp_out_folder_path+"tmpXtion_"+parent_model_handle+".pdb"
+    #         UntangleFunctions.save_structure(builder.get_structure(),parent_structure_path,connection_structure_save_path)
+    #         if dry:
+    #             self.ts_distance = random.random()
+    #             self.dry_calc=True
+    #             return
+    #         _,self.ts_distance,_ = UntangleFunctions.assess_geometry_wE(tmp_out_folder_path,connection_structure_save_path,phenixgeometry_only=quick_wE) 
 
     class AtomChunkConnection():
         def __init__(self, atom_chunks:list[AtomChunk],ts_distance,connection_type,hydrogen_names):
@@ -448,11 +410,6 @@ class MTSP_Solver:
             self.hydrogen_name_set = set(hydrogen_names)
         def get_disordered_connection_id(self):
             return f"{self.connection_type}{self.hydrogen_tag}_{'_'.join([a_chunk.get_disordered_tag() for a_chunk in self.atom_chunks])}"
-
-
-        
-
-
 
     def __init__(self,pdb_file_path:str,align_uncertainty=True):
         self.model_path = pdb_file_path
@@ -471,8 +428,7 @@ class MTSP_Solver:
                 atom.coord = mean_coord
 
 
-    #def calculate_paths(self,quick_wE=False,dry_run=False,atoms_only=False)->tuple[list[Chunk],:dict[str,dict[str,ChunkConnection]]]: #disorderedResidues:list[Residue]
-    def calculate_paths(self,quick_wE=False,dry_run=False,atoms_only=True,clash_punish_thing=False)->tuple[list[Chunk],list[AtomChunkConnection]]: #disorderedResidues:list[Residue]
+    def calculate_paths(self,quick_wE=False,dry_run=False,atoms_only=True,clash_punish_thing=False)->tuple[list[Chunk],list[AtomChunkConnection]]:
         print("Calculating geometric costs for all possible connections between chunks of atoms (pairs for bonds, triplets for angles, etc.)")
         
         tmp_out_folder_path=UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"LinearOptimizer/tmp_out/"
@@ -577,7 +533,8 @@ class MTSP_Solver:
         chunk_sets.append(atom_chunks)
         connection_types.append(MTSP_Solver.AtomChunkConnection)
 
-        ############
+
+        ############ Calculate wE for different combinations (don't need known constraints).
         #possible_connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]]={}
         
         # Add chunk connections
@@ -615,12 +572,8 @@ class MTSP_Solver:
                 res_nums=constraint.residues(),
                 exclude_H=constraint.kind not in constraints_that_include_H
             )
-            #atoms_for_constraint = self.ordered_atom_lookup.select_atoms_by(names=constraint.atom_names(),res_nums=[1],exclude_H=True)
-            # atom_chunks_selection = [chunk for chunk in atom_chunks 
-            #                          if ((chunk.name,chunk.get_resnum()) in zip(constraint.atom_names(),constraint.residues()))]
             # Generate each combination of n atoms
             combinations_iterator:list[list[Atom]] = itertools.combinations(atoms_for_constraint, constraint.num_atoms())
-            #combinations_iterator:list[list[AtomChunk]] = itertools.combinations(atom_chunks_selection, constraint.num_atoms())
             for atoms in combinations_iterator:
                 if constraint.kind!="Nonbond":
                     # Don't have two alt locs of same atom in group

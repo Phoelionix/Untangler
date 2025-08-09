@@ -18,10 +18,11 @@ calc_wE='false'
 hold_water='false'
 optimize_R='false'
 shake=0
+refine_alt_locs='false'
 
 no_mlhl=true
 
-while getopts ":o:u:c:n:s:d:w:h:r" flag; do
+while getopts ":o:u:c:n:s:d:w:h:r:a" flag; do
  case $flag in
     o) out_handle=$OPTARG
     ;;
@@ -41,6 +42,8 @@ while getopts ":o:u:c:n:s:d:w:h:r" flag; do
     ;;
     r) optimize_R='true'
     ;;
+    a) refine_alt_locs='true'
+    ;;
    \?)
    echo INVALID FLAG
    ;;
@@ -50,7 +53,8 @@ done
 
 
 
-echo $xyz_path $hkl_name $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R
+echo $xyz_path $hkl_name $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R $refine_alt_locs
+
 
 
 expected_path=$xyz_path
@@ -108,6 +112,11 @@ mv tmp.$$ $paramFile
 if $no_mlhl; then
   sed "s/target = auto ml \*mlhl ml_sad ls mli/target = *auto ml mlhl ml_sad ls mli/g" $paramFile > tmp.$$ 
   mv tmp.$$ $paramFile
+fi
+
+if $refine_alt_locs; then 
+  echo "Refining altlocs option not implemented (but easy to implement...)"
+  exit
 fi
 
 

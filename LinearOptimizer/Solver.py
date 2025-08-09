@@ -4,6 +4,7 @@
 
 import pulp as pl
 import numpy as np
+from enum import Enum
 from LinearOptimizer.Input import *
 import itertools
 import UntangleFunctions
@@ -72,55 +73,78 @@ def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkCon
 
 
 
-    class VariableID:
+    class VariableKind(Enum):
         Atom="Atom"
         Bond = "Bond"
         Nonbond="Nonbond"
         Angle = "Angle"
+    class VariableID:
 
-        def __init__():
-            pass
+        def __init__(self,name:str,kind:VariableKind):
+            self.name=name
+            self.kind = kind
+        def __repr__(self):
+            return self.name
     #bond_choices = {} # Each must sum to 1
     distance_vars = [] 
-    var_dict:dict[VariableID,dict[str,pl.LpVariable]] = {}
+    # NOTE When assigning LP variable names, the "class" of variable should follow format of variableName_other_stuff   (class of variable is variable_type.split("_")[0]) 
+    constraint_var_dict:dict[VariableID,dict[str,pl.LpVariable]] = {} 
+    site_var_dict:dict[VariableID,dict[str,dict[str,pl.LpVariable]]] 
+    var_dictionaries = dict(
+        constraints = constraint_var_dict,
+        sites = site_var_dict,
+    )
 
-    # Setup whether atoms flipped
+    # Setup where atoms are assigned.
+    # Track which are which based on original altloc.
 
+    altlocs:list[str]=
+    disordered_atom_sites:list[str] = []
     for i, (atom_id, chunk) in enumerate(chunk_sites.items()):
-        # Only iterate through each disordered atom once
-        if get(chunk.unique_id(),"altloc")=="A":
-            disordered_tag = chunk.get_disordered_tag()
+        site = VariableID(chunk.get_disordered_tag(),Literal[VariableKind.Atom])
+        disordered_atom_sites.append(site)
 
-            # var_unflipped = pl.LpVariable(f"unflipped_{disordered_tag}",
-            #                     lowBound=0,upBound=1,cat=pl.LpInteger)
-            var_flip = pl.LpVariable(f"flippedAtom_{disordered_tag}",
-                                lowBound=0,upBound=1,cat=pl.LpInteger)     
-            var_unflipped = 1-var_flip
-             
-            var_dict[disordered_tag]=dict(
-                unflipped=var_unflipped,
-                flipped = var_flip
-            )
-            lp_problem += (
-                var_flip+var_unflipped==1,
-                f"polarity_{disordered_tag}"
-            )
-
+        # var_unflipped = pl.LpVariable(f"unflipped_{disordered_atom_name}",
+        #                     lowBound=0,upBound=1,cat=pl.LpInteger)
+        # var_flip = pl.LpVariable(f"flippedAtom_{disordered_atom_name}",
+        #                     lowBound=0,upBound=1,cat=pl.LpInteger)     
+        # var_unflipped = 1-var_flip
+        from_altloc = get(chunk.unique_id(),"altloc")
+        
+        # Create variable for each possible swap to other swap
+        for to_altloc in altlocs:
+            var_atom_assignment =  pl.LpVariable(f"atomState_{site}{swap_code}",
+                lowBound=0,upBound=1,cat=pl.LpInteger)
             
-            if force_no_flips:
-                lp_problem += (
-                    var_flip==0,
-                    f"forceNoFlips_{disordered_tag}"
-                )
+            if site not in site_var_dict:
+                site_var_dict[site] = {}
+            if from_altloc not in site_var_dict[site]:
+                site_var_dict[site][from_altloc]={}
+            site_var_dict[site][from_altloc][to_altloc]=var_atom_assignment
 
-            # #TODO bad idea if we aren't allowing all waters to flip... 
-            # #elif i == 0:
-            # # XXX NOTE  "fixed" by making random...
-            # elif i == random.randint(0,len(chunk_sites)-1):
-            #     lp_problem += (
-            #         var_flip==0,
-            #         f"break_symmetry_by_fixing_{disordered_tag}_altloc"
-            #     )   
+        # Each ordered atom is assigned to one conformer from:to == n:1
+        lp_problem += (  
+            lpSum(site_var_dict[site][from_altloc])==1,
+            f"fromAltLoc_{site}_{from_altloc}"
+        )
+
+    for site in disordered_atom_sites:
+        # Each conformer is assigned one ordered atom. from:to == 1:n
+        for to_altloc in altlocs:
+            to_altloc_vars:list[LpVariable] = []
+            for from_alt_loc_dict in site_var_dict[site].values():
+                to_altloc_vars.append(from_alt_loc_dict[to_altloc])
+        lp_problem += (  
+            lpSum(to_altloc_vars)==1,
+            f"toAltLoc_{site}"
+        )
+
+        if force_no_flips:
+            for altloc in altlocs:
+                lp_problem += (
+                    site_var_dict[site][altloc][altloc]==1,
+                    f"forceNoFlips_{site}_{altloc}"
+                )  
 
     for connection_id,connection_choices in alt_connections.items():
 
@@ -134,7 +158,7 @@ def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkCon
             #var_unflipped = 1 - var_flip # TODO
             
 
-            var_dict[connection_id]=dict(
+            constraint_var_dict[connection_id]=dict(
                 unflipped=var_unflipped,
                 flipped = var_flip
             )
