@@ -19,7 +19,9 @@ hold_water='false'
 optimize_R='false'
 shake=0
 
-while getopts ":o:u:c:n:s:w:h:r" flag; do
+no_mlhl=true
+
+while getopts ":o:u:c:n:s:d:w:h:r" flag; do
  case $flag in
     o) out_handle=$OPTARG
     ;;
@@ -30,6 +32,8 @@ while getopts ":o:u:c:n:s:w:h:r" flag; do
     n) macro_cycles=$OPTARG
     ;;
     s) shake=$OPTARG
+    ;;
+    d) hkl_name=$OPTARG
     ;;
     w) calc_wE='true'
     ;;
@@ -46,7 +50,7 @@ done
 
 
 
-echo $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R
+echo $xyz_path $hkl_name $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R
 
 
 expected_path=$xyz_path
@@ -100,6 +104,12 @@ sed  "s/wxc_scale = 0.5/wxc_scale = ${wxc_scale}/g" $paramFile  > tmp.$$
 mv tmp.$$ $paramFile
 sed  "s/SHAKE_TEMPLATE/${shake}/g" $paramFile  > tmp.$$ 
 mv tmp.$$ $paramFile
+
+if $no_mlhl; then
+  sed "s/target = auto ml \*mlhl ml_sad ls mli/target = *auto ml mlhl ml_sad ls mli/g" $paramFile > tmp.$$ 
+  mv tmp.$$ $paramFile
+fi
+
 
 logs_path="../../output/refine_logs"
 if [ ! -d $logs_path ]; then
