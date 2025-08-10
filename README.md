@@ -2,9 +2,9 @@ Code for treating [confused conformers](https://bl831.als.lbl.gov/~jamesh/challe
 
 To run demo:
 
-python3.9 untangle.py data/longrangetraps_TW.pdb data/readme.mtz
+`python3.9 untangle.py data/longrangetraps_TW.pdb data/refme.mtz`
 
-NB: Currently it's assumed that the files are in data/
+NB: Currently the code assumes the input .pdb and .mtz files are in `data/`
 
 
 <CENTER><P>
