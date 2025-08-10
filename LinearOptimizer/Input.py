@@ -400,7 +400,7 @@ class MTSP_Solver:
     class AtomChunkConnection():
         def __init__(self, atom_chunks:list[AtomChunk],ts_distance,connection_type,hydrogen_names):
             self.atom_chunks = atom_chunks
-            self.altlocs=[a.get_altloc() for a in atom_chunks]
+            self.from_altlocs=[a.get_altloc() for a in atom_chunks]
             self.res_nums=[a.get_resnum() for a in atom_chunks]
             self.connection_type=connection_type
             self.ts_distance=ts_distance  # NOTE As in the travelling salesman problem sense
@@ -410,6 +410,16 @@ class MTSP_Solver:
             self.hydrogen_name_set = set(hydrogen_names)
         def get_disordered_connection_id(self):
             return f"{self.connection_type}{self.hydrogen_tag}_{'_'.join([a_chunk.get_disordered_tag() for a_chunk in self.atom_chunks])}"
+    class AtomChunkNonBondConnection(AtomChunkConnection):
+        def __init__(self, atom_chunks:list[AtomChunk],ts_distance,connection_type,hydrogen_names):
+            assert len(atom_chunks) == 2
+            super().__init__(atom_chunks,ts_distance,connection_type,hydrogen_names)
+            self.to_altloc = self.from_altlocs[1]
+            self.from_altlocs = [self.from_altlocs[0]]
+            self.from_altloc = self.from_altlocs[0]
+            self.site_name = atom_chunks[0].get_disordered_tag()
+            assert self.site_name == atom_chunks[1].get_disordered_tag()
+
 
     def __init__(self,pdb_file_path:str,align_uncertainty=True):
         self.model_path = pdb_file_path
@@ -428,7 +438,8 @@ class MTSP_Solver:
                 atom.coord = mean_coord
 
 
-    def calculate_paths(self,quick_wE=False,dry_run=False,atoms_only=True,clash_punish_thing=False)->tuple[list[Chunk],list[AtomChunkConnection]]:
+    def calculate_paths(self,quick_wE=False,dry_run=False,atoms_only=True,
+                        clash_punish_thing=False)->tuple[list[Chunk],dict[str,list[AtomChunkConnection]]]:
         print("Calculating geometric costs for all possible connections between chunks of atoms (pairs for bonds, triplets for angles, etc.)")
         
         tmp_out_folder_path=UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"LinearOptimizer/tmp_out/"
@@ -616,11 +627,11 @@ class MTSP_Solver:
                         assert constraint in ach.constraints_holder.constraints
                     #print([ch.name for ch in atom_chunks_selection])
 
-                    connection = self.AtomChunkConnection(atom_chunks_selection,distance,constraint.kind,hydrogens)
+                    if constraint.kind == "Nonbond":
+                        connection = self.AtomChunkNonBondConnection(atom_chunks_selection,distance,constraint.kind,hydrogens)
+                    else:
+                        connection = self.AtomChunkConnection(atom_chunks_selection,distance,constraint.kind,hydrogens)
                     possible_connections.append(connection)
-                    if constraint.kind=="Nonbond":
-                        assert connection.altlocs[0]!=connection.altlocs[1],connection.altlocs
-                        connection.flipped=constraint.flipped() #XXX
 
                         #print([(ch.name,ch.resnum,distance) for ch in connection.atom_chunks])
         # for connection in possible_connections:
@@ -629,7 +640,14 @@ class MTSP_Solver:
 
             
 
+        disordered_connections:dict[str,list[MTSP_Solver.AtomChunkConnection]] ={} # options for each alt connection
+        for connection in possible_connections:
+            connection_id = connection.get_disordered_connection_id()
+            if connection_id not in disordered_connections:
+                disordered_connections[connection_id]=[]
+            assert connection not in disordered_connections[connection_id] 
+            disordered_connections[connection_id].append(connection)
 
         #finest_depth_chunks=orderedResidues
         finest_depth_chunks=atom_chunks
-        return finest_depth_chunks,possible_connections
+        return finest_depth_chunks,disordered_connections

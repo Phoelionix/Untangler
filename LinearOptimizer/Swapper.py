@@ -2,17 +2,40 @@
 import numpy as np
 import os
 from UntangleFunctions import H_get_parent_fullname
+import json
 
+# TODO Before, we flagged when the altloc assignments changed. And determined swaps based off this.
+# It's not very interesting if atoms are swapped in the same way as the last atom in the backbone or sidechain
+# It would be good to again output this to a file since it's very informative.
+# But instead of flagging when flipped just flag when the assignment k-tuple changes, where the k-tuple is
+# of the form (B,D,C,A), which would mean atom at altloc A to altloc B, B to D, and D to A.
 
 class Swapper():
+    class Swap():
+        def __init__(self,res_num:int,atom_name:str,from_altloc:str,to_altloc:str):
+            self.res_num = res_num
+            self.atom_name = atom_name 
+            self.from_altloc = from_altloc
+            self.to_altloc = to_altloc
+        def atom_id(self):
+            return (self.res_num,self.atom_name,self.from_altloc)
+        def matches_id(self,res_num:str|int,atom_name:str,from_altloc:str):
+            return self.atom_id() == (int(res_num),atom_name,from_altloc)
     class SwapGroup:
         def __init__(self,badness):
             self.badness =badness
-            self.swaps: list[tuple[str]] = [] 
-        def add(self,res_seq_num,atom_name):
-            self.swaps.append((res_seq_num,atom_name))
+            self.swaps: list[Swapper.Swap] = [] 
+        def add(self,res_seq_num:str|int,atom_name:str,from_altloc,to_altloc:str):
+            self.swaps.append(Swapper.Swap(int(res_seq_num),atom_name,from_altloc=from_altloc,to_altloc=to_altloc))
         def get_atom_names(self):
-            return [swap[1] for swap in self.swaps]
+            return [swap.atom_name for swap in self.swaps]
+        def get_atom_ids(self):
+            return [swap.atom_id() for swap in self.swaps]
+        def get_to_altloc(self,res_num:str|int,atom_name:str,from_altloc:str):
+            for swap in self.swaps:
+                if swap.matches_id(res_num,atom_name,from_altloc):
+                    return swap.to_altloc
+            return swap.from_altloc # No swap!
         def __repr__(self):
             return str(self.swaps)  
         
@@ -57,6 +80,7 @@ class Swapper():
         return priority
     
     def flag_swapping(self,swap_group:SwapGroup):
+        raise Exception("Unimplemented")
         # for swap in swap_group.swaps:
         string_of_swaps =str(swap_group.swaps) 
         print(f"Swapping {string_of_swaps}")
@@ -75,30 +99,33 @@ class Swapper():
                 self.res_name = atom_entry[17:20]
                 self.atom_name_unstripped = atom_entry[12:16] 
                 self.atom_name=self.atom_name_unstripped.strip()
-                self.altloc=atom_entry[16]
+                self.altloc=atom_entry[16] # i.e. `from_altloc`
                 self.res_num =atom_entry[22:26].strip()
-        def swap_altloc(self):
-            new_altloc = dict(A="B",B="A")[self.altloc]   
+        def new_altloc(self,new_altloc:str):
             return self.atom_entry[:16]+new_altloc+self.atom_entry[17:]
         
     def clear_candidates(self):
         self.swap_groups_sorted = []
+
+    #TODO unnecessary conversion of solutions dict to new data type.
     def add_candidates(self,swaps_file_path):
-        self.sol_idx=None
+        self.sol_idx=None # XXX
         swap_group_candidates :list[Swapper.SwapGroup] = []
         with open(swaps_file_path,'r') as f:
-            for line in f.readlines():
-                if line.startswith(" "):
-                    continue
-                if line.startswith("solution"):
-                    badness = float(line.strip().split()[-1])
-                    swap_group_candidates.append(Swapper.SwapGroup(badness))
-                if line.startswith("Flagging"):
-                    swap = line.split('---')[-1]
-                    _res_num, _atom_name = swap.split('.')
-                    _atom_name = _atom_name.strip("\n") 
-                    swap_group_candidates[-1].add(_res_num, _atom_name)
-
+            assert swaps_file_path[:-5]==".json"
+            solutions =  json.load(swaps_file_path)["solutions"]
+            for solution_name, solution_dict in solutions.items():
+                badness:float = solution_dict["badness"]
+                moves: dict[str,dict[str]] = solution_dict["moves"]
+                swap_group = Swapper.SwapGroup(badness)
+                # LinearOptimizer.Solver: solution_dict[site_key][from_altloc] = to_altloc
+                for site_key in moves:
+                    res_num, atom_name = site_key.split('.')
+                    #_atom_name = _atom_name.strip("\n") 
+                    swap_group_candidates.append(swap_group)
+                    for from_altloc, to_altloc in moves[site_key].items():
+                        swap_group.add(res_num, atom_name,from_altloc,to_altloc)
+                        
         assert len(swap_group_candidates)>0, f"nothing ({swap_group_candidates}) parsed from {swaps_file_path}"
 
 
@@ -159,16 +186,13 @@ class Swapper():
         out_path = f"{os.path.abspath(os.getcwd())}/output/{model_handle}_lpSwapped.pdb"
         out_path_water_swapped = f"{os.path.abspath(os.getcwd())}/output/{model_handle}_lpSwapped_water_swapped.pdb"       
 
-        swap_group = self.swap_groups_sorted[self.sol_idx]
-        self.flag_swapping(swap_group)
+        swap_group:Swapper.SwapGroup = self.swap_groups_sorted[self.sol_idx]
+        assert isinstance(swap_group,Swapper.SwapGroup)
+        #self.flag_swapping(swap_group)
         self.sol_idx+=1 
 
         with open(model_path,'r') as f:
             new_lines = ""
-            polarity_backbone=dict(A=1,B=1) # Track polarity for each (current) conformation
-            polarity_O=dict(A=1,B=1)
-            polarity_side_chain=dict(A=1,B=1)
-            H_polarity_dict=dict()
             last_resnum=None
             for line in f.readlines():
                 # Don't change irrelevant lines
@@ -178,47 +202,25 @@ class Swapper():
                     new_lines+=line
                     continue
                 if P.res_num!=last_resnum:
-                    H_polarity_dict=dict()
+                    H_assignment_dict=dict()
                     last_resnum=P.res_num
-                polarity_dict = None
 
                 # Swap according to swaps list
                 if P.atom_name[0]=="H":
-                    polarity_dict = H_polarity_dict[H_get_parent_fullname(P.atom_name_unstripped,H_polarity_dict.keys())]
+                    to_altloc = H_assignment_dict[H_get_parent_fullname(P.atom_name_unstripped,H_assignment_dict.keys())]
                 else:
-
-                    if P.atom_name in ["CA","C","N"]:
-                        polarity_dict = polarity_backbone
-                    elif P.atom_name == "O":
-                        polarity_dict = polarity_O
-                    else:
-                        polarity_dict = polarity_side_chain
                     assert P.res_num.isnumeric()
-                    if (P.res_num,P.atom_name) in swap_group.swaps:
-                        polarity_dict[P.altloc]*=-1
+                    to_altloc = swap_group.get_to_altloc(P.res_num,P.atom_name, P.altloc)
 
                 # Alter line if polarity is negative 1
                 new_line = line
-                # if P.res_num=="37" and P.altloc == "A":
-                #     print(polarity_dict[P.altloc],P.atom_name)
-                if polarity_dict[P.altloc]==-1:
-                    new_line = P.swap_altloc()
-                elif polarity_dict[P.altloc]!=1:
-                    assert False,polarity_dict[P.altloc]
+                new_line = P.new_altloc(to_altloc)
                 new_lines+=new_line
 
                 if P.atom_name[0]!="H":
-                    # Set branches to polarity
-                    branches = dict(
-                        CA=polarity_side_chain,
-                        C=polarity_O,
-                    )
-                    if P.atom_name in branches:
-                        assert polarity_dict is polarity_backbone
-                        branches[P.atom_name][P.altloc]=polarity_dict[P.altloc]
-                    if P.atom_name_unstripped not in H_polarity_dict: # Sorry for this
-                        H_polarity_dict[P.atom_name_unstripped] = {"A":None,"B":None}
-                    H_polarity_dict[P.atom_name_unstripped][P.altloc] =polarity_dict[P.altloc]
+                    if P.atom_name_unstripped not in H_assignment_dict: # Sorry for this
+                        H_assignment_dict[P.atom_name_unstripped] = {}
+                    H_assignment_dict[P.atom_name_unstripped][P.altloc] =to_altloc
             
             
 
