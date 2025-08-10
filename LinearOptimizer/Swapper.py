@@ -194,7 +194,11 @@ class Swapper():
                     else:
                         polarity_dict = polarity_side_chain
                     assert P.res_num.isnumeric()
-                    if (P.res_num,P.atom_name) in swap_group.swaps:
+                    # BUG LinearOptimizer.Solver only flags changes going through sequence of atoms linearly. 
+                    # So if we have a swap in a side chain we will be in the wrong polarity in the main chain of following residues
+                    # This is fixed in the more_than_2 branch so not fixing this for now. 
+                    # This bug doesn't stop the algo from reaching the solution from longrangetraps.pdb anyway.
+                    if (P.res_num,P.atom_name) in swap_group.swaps:  
                         polarity_dict[P.altloc]*=-1
 
                 # Alter line if polarity is negative 1
@@ -252,7 +256,3 @@ class Swapper():
             for line in f.readlines():
                 lines.append(line)
         Swapper.MakeSwapWaterFileByLines(lines,out_path)
-
-    
-        
-# %%
