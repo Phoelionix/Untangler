@@ -221,12 +221,12 @@ class ConstraintsHandler:
     class NonbondConstraint(Constraint):
         # Consider one atom site. 
         # Try switching. Check nonbond clash.
-        def __init__(self,atom_ids,bad_nonbond_file_path,is_flipped,badness,ideal=0,weight=1):
+        def __init__(self,atom_ids,bad_nonbond_file_path,to_altloc,badness,ideal=0,weight=1):
             assert len (atom_ids)==2 
             assert len(set(atom_ids))==1
             super().__init__(atom_ids,ideal,weight)
             self.bad_nonbond_file_path=bad_nonbond_file_path
-            self.is_flipped=is_flipped
+            self.to_altloc=to_altloc
             self.badness=badness
             self.kind="Nonbond"
                         
@@ -268,8 +268,8 @@ class ConstraintsHandler:
         return ConstraintsHandler(atom_constraints)
 
             
-    def load_all_constraints(self,constraints_file,nonbond_scores_path,nonbond_water_flipped_scores_path,ordered_atom_lookup:OrderedAtomLookup):
-        print("Loading constraints from {constraints_file}")
+    def load_all_constraints(self,constraints_file:str,nonbond_scores_path:str,ordered_atom_lookup:OrderedAtomLookup):
+        print(f"Loading constraints from {constraints_file}")
 
         self.constraints: list[ConstraintsHandler.Constraint]=[]
         with open(constraints_file,"r") as f:
@@ -298,11 +298,11 @@ class ConstraintsHandler:
                     ideal,weight = float(ideal), float(weight)
                     #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
                     self.constraints.append(ConstraintsHandler.AngleConstraint((pdb1,pdb2,pdb3),ideal,weight))  
-        #Nonbond clashes
-        nonbond_pdbs=[]
-        for file,flipped in zip((nonbond_scores_path, nonbond_water_flipped_scores_path),(False,True)):
-            with open(file) as f:
+        # Nonbond 'clashes'
+        if nonbond_scores_path is not None:
+            with open(nonbond_scores_path) as f:
                 for line in f:
+                    to_altloc=something_we_need_to_add
                     badness = float(line.strip().split()[1])
                     if badness <= 0:
                         continue
@@ -316,7 +316,10 @@ class ConstraintsHandler:
                             # assume water... # FIXME # distinguish between water 
                             continue 
                         pdb1 = f"{name}     ARES     A      {res_num}"
-                        self.constraints.append(ConstraintsHandler.NonbondConstraint([pdb1,pdb1],file,flipped,badness))
+                        self.constraints.append(ConstraintsHandler.NonbondConstraint([pdb1,pdb1], nonbond_scores_path ,to_altloc,badness))
+        else:
+            print("WARNING: nonbond issues (including bad water-protein geometry) was not added")
+            print("(Currently not implemented)")
 
 # Ugh never do inheritance kids. TODO refactor to composition.
 class AtomChunk(OrderedResidue):
@@ -339,6 +342,10 @@ class AtomChunk(OrderedResidue):
 
 
 class MTSP_Solver:
+    ### This commented out code computes wE for combinations of larger groups of atoms.  
+    # Could be useful in future as a quick coarse step... but would probably be better 
+    # to build up from the atom-site approach, coding the wE measure directly.   
+    ### 
 
     # class ChunkConnection():
     #     def __init__(self,A:Chunk,B:Chunk):
@@ -450,6 +457,7 @@ class MTSP_Solver:
         chunk_sets = []
         connection_types=[]
         if not atoms_only:
+            assert False
             orderedResidues: list[OrderedResidue]= [] # residues for each conformation
             self.dry_run=dry_run
             for res_num,referenceResidue in zip(self.ordered_atom_lookup.get_residue_nums(),self.ordered_atom_lookup.get_residue_sources()):
@@ -487,6 +495,7 @@ class MTSP_Solver:
             #return f"{atom.get_name()}.{atom.get_altloc()}{OrderedAtomLookup.atom_res_seq_num(atom)}"
             return atom_id_from_params(atom.get_name(),atom.get_altloc(),OrderedAtomLookup.atom_res_seq_num(atom))
 
+        
         # generate nonbond files
         debug_no_wE = False
         geo_log_out_folder = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/HoltonOutputs/"
@@ -499,6 +508,7 @@ class MTSP_Solver:
 
         # Hacky way to add punishment for not swapping clashes for CURRENT model
         # TODO FIXME no this won't work it will be saying BOTH are bad - we don't necessarily want both to swap! 
+        '''
         def add_clashes_to_nonbond(handle,clashes_factor = 10)->str:
             nonbond_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_scorednonbond.txt"
             clashes_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_clashes.txt"
@@ -517,6 +527,7 @@ class MTSP_Solver:
         if clash_punish_thing:
             nonbond_scores_path = add_clashes_to_nonbond(model_handle)
         
+        
         # Don't add clashes... because too costly. But if there are clashes we will get them next loop. #TODO find better way
         model_water_swapped_handle=model_handle+"WS"
         model_water_swapped_path=UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{model_water_swapped_handle}.pdb"
@@ -525,10 +536,12 @@ class MTSP_Solver:
             UntangleFunctions.assess_geometry_wE(geo_log_out_folder,model_water_swapped_path) 
         
         nonbond_water_flipped_scores_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{model_water_swapped_handle}_scorednonbond.txt"
+        '''
+        nonbond_scores_path = None # TEMPORARY
 
         constraints_file = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}.geo" # NOTE we only read ideal and weights.
         constraints_handler=ConstraintsHandler()
-        constraints_handler.load_all_constraints(constraints_file,nonbond_scores_path,nonbond_water_flipped_scores_path,self.ordered_atom_lookup)
+        constraints_handler.load_all_constraints(constraints_file,nonbond_scores_path,self.ordered_atom_lookup)
         #for n,atom in enumerate(self.ordered_atom_lookup.select_atoms_by(names=["CA","C","N"])):
         for n,atom in enumerate(self.ordered_atom_lookup.select_atoms_by()):
             if atom.element=="H":
@@ -546,34 +559,36 @@ class MTSP_Solver:
 
 
         ############ Calculate wE for different combinations (don't need known constraints).
-        #possible_connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]]={}
+        '''
+        possible_connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]]={}
         
         # Add chunk connections
-        # for chunk_set,connection_type in zip(chunk_sets,connection_types):
-        #     for n,A in enumerate(chunk_set):
-        #         possible_connections[A.unique_id()]={}
-        #         for m,B in enumerate(chunk_set):
-        #             if B==A:
-        #                 continue
-        #             if connection_type is MTSP_Solver.AtomChunkConnection:
-        #                 if n>=m:
-        #                     continue
-        #                 connection = self.AtomChunkConnection(A,B)
-        #                 connection.calculate_distance()
-        #                 if connection.ts_distance is not None:
-        #                     #print(connection.ts_distance)
-        #                     possible_connections[A.unique_id()][B.unique_id()]=connection
-        #             elif connection_type is MTSP_Solver.ChunkConnection:
-        #                 if B.start_resnum-A.end_resnum!=1:
-        #                     continue
-        #                 connection = self.ChunkConnection(A,B)
-        #                 connection.calculate_distance(self.model_path,tmp_out_folder_path,self.ordered_atom_lookup.disordered_waters,quick_wE=quick_wE,dry=dry_run)
-        #                 possible_connections[A.unique_id()][B.unique_id()]=connection
-        #                 #print(connection.ts_distance)
-        #             else: assert False, connection_type
-        #         for connection in possible_connections[A.unique_id()].values():
-        #             print(connection.A.get_disordered_tag(),connection.A.altloc,connection.B.get_disordered_tag(),connection.B.altloc,connection.ts_distance)
-        ############
+        for chunk_set,connection_type in zip(chunk_sets,connection_types):
+            for n,A in enumerate(chunk_set):
+                possible_connections[A.unique_id()]={}
+                for m,B in enumerate(chunk_set):
+                    if B==A:
+                        continue
+                    if connection_type is MTSP_Solver.AtomChunkConnection:
+                        if n>=m:
+                            continue
+                        connection = self.AtomChunkConnection(A,B)
+                        connection.calculate_distance()
+                        if connection.ts_distance is not None:
+                            #print(connection.ts_distance)
+                            possible_connections[A.unique_id()][B.unique_id()]=connection
+                    elif connection_type is MTSP_Solver.ChunkConnection:
+                        if B.start_resnum-A.end_resnum!=1:
+                            continue
+                        connection = self.ChunkConnection(A,B)
+                        connection.calculate_distance(self.model_path,tmp_out_folder_path,self.ordered_atom_lookup.disordered_waters,quick_wE=quick_wE,dry=dry_run)
+                        possible_connections[A.unique_id()][B.unique_id()]=connection
+                        #print(connection.ts_distance)
+                    else: assert False, connection_type
+                for connection in possible_connections[A.unique_id()].values():
+                    print(connection.A.get_disordered_tag(),connection.A.altloc,connection.B.get_disordered_tag(),connection.B.altloc,connection.ts_distance)
+        '''
+        ###########
 
         possible_connections:list[MTSP_Solver.AtomChunkConnection]=[]
         for constraint in constraints_handler.constraints:
