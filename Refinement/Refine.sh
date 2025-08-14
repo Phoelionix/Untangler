@@ -104,7 +104,7 @@ paramFile=${out_handle}_initial_refine.eff
 
 cd $(dirname "$0")
 mkdir -p tmp_refinement
-rm tmp_refinement/$paramFile
+rm -f tmp_refinement/$paramFile
 cp $paramFileTemplate tmp_refinement/$paramFile
 cp $xyz_path tmp_refinement/${xyz_handle}.pdb
 
