@@ -14,6 +14,7 @@ if [ ! -f $modelPDBPath ]; then
 fi
 
 
+mkdir -p HoltonOutputs
 cd HoltonOutputs
 
 ../../Measures/untangle_score.csh ../$modelPDBPath get_individual_residue_scores=True

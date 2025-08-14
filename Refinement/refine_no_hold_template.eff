@@ -254,7 +254,7 @@ refinement {
       }
       sites {
         atom_selection = None
-        shake = None
+        shake = SHAKE_TEMPLATE
         switch_rotamers = max_distant min_distant exact_match fix_outliers
         translate = 0 0 0
         rotate = 0 0 0

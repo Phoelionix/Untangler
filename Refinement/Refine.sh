@@ -1,3 +1,7 @@
+# bash Refine.sh ../data/4et8.pdb refined -d ../data/lys_galli_aug_real.mtz -n 5 -s 3 -gzt
+
+# TODO folder with file containing commands used, shell file, and .eff file. 
+
 xyz_path=$1; 
 out_tag=$2; shift 2
 
@@ -5,7 +9,7 @@ xyz_file=${xyz_path##*/}
 xyz_handle=${xyz_file%.*}
 
 
-out_handle=${xyz_handle}_${out_tag}
+out_handle_override='false'
 
 # defaults
 hkl_name=refme
@@ -18,12 +22,15 @@ calc_wE='false'
 hold_water='false'
 optimize_R='false'
 shake=0
-
+refine_no_hold='false'
 no_mlhl=true
+generate_r_free='false'
+turn_off_bulk_solvent='false'
 
-while getopts ":o:u:c:n:s:d:w:h:r" flag; do
+while getopts ":o:u:c:n:s:d:whrgtz" flag; do
  case $flag in
     o) out_handle=$OPTARG
+       out_handle_override='false'
     ;;
     u) wu=$OPTARG
     ;;
@@ -34,12 +41,20 @@ while getopts ":o:u:c:n:s:d:w:h:r" flag; do
     s) shake=$OPTARG
     ;;
     d) hkl_name=$OPTARG
+       hkl_name=${hkl_name##*/}
+       hkl_name=${hkl_name%.*}
     ;;
     w) calc_wE='true'
     ;;
     h) hold_water='true'
     ;;
     r) optimize_R='true'
+    ;;
+    g) generate_r_free='true'
+    ;;
+    t) turn_off_bulk_solvent='true'
+    ;;
+    z) refine_no_hold='true'
     ;;
    \?)
    echo INVALID FLAG
@@ -48,9 +63,12 @@ while getopts ":o:u:c:n:s:d:w:h:r" flag; do
 done
 
 
+if ! $out_handle_override; then
+  out_handle=${xyz_handle}-${hkl_name}_${out_tag}
 
+fi 
 
-echo $xyz_path $hkl_name $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R
+echo $xyz_path $hkl_name $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R $generate_r_free $refine_no_hold $turn_off_bulk_solvent
 
 
 expected_path=$xyz_path
@@ -73,12 +91,19 @@ if $hold_water; then
     paramFileTemplate=refine_water_hold_optimize_R_template.eff
   fi
 fi
+
+#TEMPORARY
+if $refine_no_hold; then
+  paramFileTemplate=refine_no_hold_template.eff
+fi
+
 #paramFileTemplate=refine_water_bond_length_hold_template.eff
 #paramFileTemplate=refine_water_hold_template_free_necessary_waters.eff
 
 paramFile=${out_handle}_initial_refine.eff
 
 cd $(dirname "$0")
+mkdir -p tmp_refinement
 rm tmp_refinement/$paramFile
 cp $paramFileTemplate tmp_refinement/$paramFile
 cp $xyz_path tmp_refinement/${xyz_handle}.pdb
@@ -110,6 +135,15 @@ if $no_mlhl; then
   mv tmp.$$ $paramFile
 fi
 
+if $generate_r_free; then
+  sed  "s/generate = False/generate = True/g" $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
+fi
+
+if $turn_off_bulk_solvent; then 
+  sed "s/bulk_solvent_and_scale = True/bulk_solvent_and_scale = False/g" $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
+fi
 
 logs_path="../../output/refine_logs"
 if [ ! -d $logs_path ]; then
