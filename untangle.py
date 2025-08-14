@@ -63,6 +63,7 @@ class Untangler():
         assert pdb_file_path[-4:]==".pdb", f"file path doesn't end in '.pdb': {pdb_file_path}"
         self.model_handle = os.path.basename(pdb_file_path)[:-4]
         self.current_model= Untangler.output_dir+f"{self.model_handle}_current.pdb"
+        os.makedirs(Untangler.output_dir,exist_ok=True)
         shutil.copy(pdb_file_path,self.current_model)
         self.swapper = Swapper()
 
