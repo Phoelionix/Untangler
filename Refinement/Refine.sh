@@ -30,7 +30,7 @@ turn_off_bulk_solvent='false'
 while getopts ":o:u:c:n:s:d:whrgtz" flag; do
  case $flag in
     o) out_handle=$OPTARG
-       out_handle_override='false'
+       out_handle_override='true'
     ;;
     u) wu=$OPTARG
     ;;
