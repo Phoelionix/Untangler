@@ -1,3 +1,21 @@
+#===========================================================================
+# Untangler: Free ensemble models from local minima with the wrong altlocs 
+# Copyright (C)  2025 Spencer Passmore (spencerpassmore@swin.edu.au)
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#===========================================================================
+
 # Purpose: Get geometric badness for all possible "groups" of atoms that 
 # we have geometric measures for, to pass to LinearOptimizer.Solver.
 #
@@ -23,7 +41,7 @@ import numpy as np
 import itertools
 
 class OrderedAtomLookup: #TODO pandas?
-    def __init__(self,atoms:list[DisorderedAtom],waters=False): # TODO type hint for sequence?
+    def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False): # TODO type hint for sequence?
         self.disordered_waters=[]
         self.ordered_atoms:list[Atom] = []
         self.serial_num_to_disordered_num_dict={}
@@ -35,7 +53,9 @@ class OrderedAtomLookup: #TODO pandas?
             is_water= UntangleFunctions.res_is_water(disorderedAtom.get_parent())
             if is_water:
                 self.disordered_waters.append(disorderedAtom)
-            if is_water !=waters:
+            if is_water and not waters:
+                continue
+            if not is_water and not protein:
                 continue
             
             assert type(disorderedAtom)==DisorderedAtom, type(disorderedAtom)  # Not sure if a single altloc atom will still be stored as a disorderedatom by Bio.PDB
@@ -304,7 +324,7 @@ class ConstraintsHandler:
 
             
     def load_all_constraints(self,constraints_file,nonbond_scores_path,nonbond_water_flipped_scores_path,ordered_atom_lookup:OrderedAtomLookup):
-        print("Loading constraints from {constraints_file}")
+        print(f"Loading constraints from {constraints_file}")
 
         self.constraints: list[ConstraintsHandler.Constraint]=[]
         with open(constraints_file,"r") as f:
@@ -335,6 +355,7 @@ class ConstraintsHandler:
                     self.constraints.append(ConstraintsHandler.AngleConstraint((pdb1,pdb2,pdb3),ideal,weight))  
         #Nonbond clashes
         nonbond_pdbs=[]
+        print("WARNING: assuming residue numbers are all unique")
         for file,flipped in zip((nonbond_scores_path, nonbond_water_flipped_scores_path),(False,True)):
             with open(file) as f:
                 for line in f:
@@ -347,9 +368,10 @@ class ConstraintsHandler:
                         if name[0] == "H":
                             nonH_in_res = ordered_atom_lookup.select_atoms_by(res_nums=[res_num],exclude_H=True)
                             name = UntangleFunctions.H_get_parent_fullname(name,set([nonH.get_fullname() for nonH in nonH_in_res]))
-                        if name == "O":
-                            # assume water... # FIXME # distinguish between water 
-                            continue 
+                        # if name == "O":
+                        #     # assume water... # FIXME # distinguish between water 
+                        #     continue 
+                        # TODO assume no duplicates
                         pdb1 = f"{name}     ARES     A      {res_num}"
                         self.constraints.append(ConstraintsHandler.NonbondConstraint([pdb1,pdb1],file,flipped,badness))
 
@@ -454,12 +476,12 @@ class MTSP_Solver:
 
 
 
-    def __init__(self,pdb_file_path:str,align_uncertainty=True):
+    def __init__(self,pdb_file_path:str,align_uncertainty=True,allow_water_sites_to_flip=True):
         self.model_path = pdb_file_path
         original_structure = PDBParser().get_structure("struct",pdb_file_path)
         if align_uncertainty:
             self.align_uncertainty(original_structure)
-        self.ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),waters=False)
+        self.ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),protein=True,waters=allow_water_sites_to_flip)
     def align_uncertainty(self,structure:Structure.Structure):
         # in x-ray data and geom.
         for atom in structure.get_atoms():

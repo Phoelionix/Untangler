@@ -81,9 +81,13 @@ fi
 # if ${shake}; then
 #     paramFileTemplate=refine_water_hold_and_shake_protein_template.eff
 # fi
-paramFileTemplate=refine_water_bond_length_hold_template.eff
+
+
+#paramFileTemplate=refine_water_bond_length_hold_template.eff
+paramFileTemplate=refine_no_hold_template.eff
 if $optimize_R; then 
-  paramFileTemplate=refine_water_bond_length_hold_optimize_R_template.eff
+  #paramFileTemplate=refine_water_bond_length_hold_optimize_R_template.eff
+  paramFileTemplate=refine_no_hold_optimize_R_template.eff
 fi
 if $hold_water; then
   paramFileTemplate=refine_water_hold_template.eff

@@ -15,7 +15,7 @@ class Untangler():
     output_dir = f"{working_dir}/output/"
     refine_shell_file=f"Refinement/Refine.sh"
     ####
-    debug_skip_refine = False # Requires files to already have been generated (up to the point you are debugging).
+    debug_skip_refine = False # Skip refinement stages. Requires files to already have been generated (up to the point you are debugging).
     class Score():
         def __init__(self,combined,wE,R_work):
             self.wE=wE
