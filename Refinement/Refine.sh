@@ -30,7 +30,7 @@ turn_off_bulk_solvent='false'
 while getopts ":o:u:c:n:s:d:whrgtz" flag; do
  case $flag in
     o) out_handle=$OPTARG
-       out_handle_override='false'
+       out_handle_override='true'
     ;;
     u) wu=$OPTARG
     ;;
@@ -104,7 +104,7 @@ paramFile=${out_handle}_initial_refine.eff
 
 cd $(dirname "$0")
 mkdir -p tmp_refinement
-rm tmp_refinement/$paramFile
+rm -f tmp_refinement/$paramFile
 cp $paramFileTemplate tmp_refinement/$paramFile
 cp $xyz_path tmp_refinement/${xyz_handle}.pdb
 

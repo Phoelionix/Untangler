@@ -328,7 +328,7 @@ class Untangler():
 
 def main():
     if len(sys.argv)!=3:
-        print("Usage: python3.9 Untangle.py data/1AHO_initial_model_TW.pdb data/refme.mtz")
+        print("Usage: python3.9 untangle.py data/myInitialModel.pdb data/myReflections.mtz")
         return
 
     starting_model = sys.argv[1]
@@ -336,7 +336,7 @@ def main():
     Untangler().run(
         starting_model,
         xray_data,
-        desired_score=17,
+        desired_score=18.4,
         max_num_runs=100
     )
 if __name__=="__main__":
