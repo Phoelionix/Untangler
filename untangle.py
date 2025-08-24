@@ -16,7 +16,7 @@ class Untangler():
     refine_shell_file=f"Refinement/Refine.sh"
     ####
     debug_skip_refine = False # Skip refinement stages. Requires files to already have been generated (up to the point you are debugging).
-    debug_skip_initial_refine=True
+    debug_skip_initial_refine=False
     class Score():
         def __init__(self,combined,wE,R_work):
             self.wE=wE
@@ -30,7 +30,7 @@ class Untangler():
 
     def __init__(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=8, 
                  wc_anneal_start=0.6,wc_anneal_loops=2, starting_num_best_swaps_considered=20,
-                 max_num_best_swaps_considered=100,num_loops_water_held=0):
+                 max_num_best_swaps_considered=100,num_loops_water_held=1):
         self.set_hyper_params(acceptance_temperature,max_wE_frac_increase,num_end_loop_refine_cycles,
                               wc_anneal_start,wc_anneal_loops, starting_num_best_swaps_considered,
                               max_num_best_swaps_considered,num_loops_water_held)
@@ -43,7 +43,7 @@ class Untangler():
         self.swaps_history:list[Swapper.SwapGroup] = [] 
     def set_hyper_params(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=8, 
                  wc_anneal_start=0.6,wc_anneal_loops=2, starting_num_best_swaps_considered=20,
-                 max_num_best_swaps_considered=100,num_loops_water_held=0):
+                 max_num_best_swaps_considered=100,num_loops_water_held=1):
         # NOTE Currently max wE increase is percentage based, 
         # but TODO optimal method needs to be investigated.
         self.n_best_swap_start=starting_num_best_swaps_considered
@@ -155,7 +155,7 @@ class Untangler():
                 unswap_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,out_handle=self.model_handle,num_solutions=1,force_sulfur_bridge_swap_solutions=False)
                 unswapper = Swapper()
                 unswapper.add_candidates(unswap_file_path)
-                if len(unswapper.swap_groups_sorted[0].swaps)!=0: # TODO or if unswaps == swaps
+                if len(unswapper.swap_groups_sorted[0].swaps)!=0:
                     working_model, _ = unswapper.run(working_model)
 
                     working_model=self.regular_refine(working_model,debug_skip=self.debug_skip_refine)
@@ -171,7 +171,7 @@ class Untangler():
         #return working_model 
     def write_swaps_history(self):
         with open(f"{self.output_dir}refine_logs/swapHistory_{self.model_handle}.txt","w") as f:
-            f.writelines('\n'.join([str(swap) for swap in self.swaps_history]))
+            f.writelines('\n'.join(self.swaps_history))
 
     def propose_model(self,working_model):
         
@@ -218,11 +218,9 @@ class Untangler():
         return self.refine(
             model_path,
             "unrestrained",
-            #num_macro_cycles=1,
-            num_macro_cycles=3,
+            num_macro_cycles=1,
             wc=0,
-            #hold_water_positions=True,
-            hold_water_positions=self.holding_water(),
+            hold_water_positions=True,
             **kwargs
         )
     
@@ -232,8 +230,7 @@ class Untangler():
             "loopEnd",
             num_macro_cycles=self.num_end_loop_refine_cycles,
             wc=min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
-            #hold_water_positions= self.holding_water(),  
-            hold_water_positions= True,
+            hold_water_positions= self.holding_water(),  # even when False, bond distances are still held (refine_water_bond_length_hold_template.eff)
             **kwargs
         )
     def holding_water(self)->bool:
