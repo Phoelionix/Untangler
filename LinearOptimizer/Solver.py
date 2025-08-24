@@ -33,6 +33,15 @@ import UntangleFunctions
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkConnection],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True): # 
 
+    # This sucks but is fixed in more_than_two branch.
+    #first_atom_id = "1.N"
+    first_atom_id = None
+    lowest_site_num = np.inf
+    for chunk_site in chunk_sites.values():
+        if chunk_site.get_site_num() < lowest_site_num:
+            lowest_site_num = chunk_site.get_site_num()
+            first_atom_id = chunk_site.get_disordered_tag()
+
     nodes = [chunk.unique_id() for chunk in chunk_sites.values()]
 
     def get_variables(unique_id)->dict:
@@ -200,7 +209,7 @@ def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkCon
             if  force_sulfur_bridge_swap_solutions \
                 and [ch.element for ch in connection.atom_chunks]==["S","S"]:
                 forced_swap_solutions.append(
-                    var_dict[atom_a]["flipped"]==var_dict[atom_b]["flipped"]==1
+                    var_dict[atom_a]["flipped"]==var_dict[atom_b]["flipped"]==1 - var_dict[first_atom_id]["flipped"]
                 )
 
 
@@ -415,14 +424,7 @@ def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkCon
         bonds_to_flip=[]
         bonds_to_flip_arrays.append(bonds_to_flip)
 
-        # This sucks but is fixed in more_than_two branch.
-        #first_atom_id = "1.N"
-        first_atom_id = None
-        lowest_site_num = np.inf
-        for chunk_site in chunk_sites.values():
-            if chunk_site.get_site_num() < lowest_site_num:
-                lowest_site_num = chunk_site.get_site_num()
-                first_atom_id = chunk_site.get_disordered_tag()
+
         assert f"flippedAtom_{first_atom_id}" in [v.name for v in lp_problem.variables()] 
         if "flippedAtom" in nonzero_variables:
             # Start with opposite polarity

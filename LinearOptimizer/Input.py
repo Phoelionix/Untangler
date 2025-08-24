@@ -355,6 +355,7 @@ class ConstraintsHandler:
                     self.constraints.append(ConstraintsHandler.AngleConstraint((pdb1,pdb2,pdb3),ideal,weight))  
         #Nonbond clashes
         print("WARNING: assuming residue numbers are all unique")
+        # TODO why badnonbond excludes negatives but scorednonbond doesn't?
         for file,flipped in zip((nonbond_scores_path, nonbond_water_flipped_scores_path),(False,True)):
             if file is None:
                 continue
@@ -375,6 +376,7 @@ class ConstraintsHandler:
                         # TODO we are assuming no duplicates
                         pdb1 = f"{name}     ARES     A      {res_num}"
                         self.constraints.append(ConstraintsHandler.NonbondConstraint([pdb1,pdb1],file,flipped,badness))
+                        #TODO flawed since we are requiring pdb1 to flip and not pdb2. What if pdb2 flipping is better?
 
 class AtomChunk(OrderedResidue):
     # Just an atom c:
