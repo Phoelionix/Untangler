@@ -16,7 +16,7 @@ class Untangler():
     refine_shell_file=f"Refinement/Refine.sh"
     ####
     debug_skip_refine = False # Skip refinement stages. Requires files to already have been generated (up to the point you are debugging).
-    debug_skip_initial_refine=False
+    debug_skip_initial_refine=False 
     class Score():
         def __init__(self,combined,wE,R_work):
             self.wE=wE
@@ -28,7 +28,7 @@ class Untangler():
         def inf_bad_score()->'Untangler.Score':
             return Untangler.Score(np.inf,np.inf,np.inf)
 
-    def __init__(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=8, 
+    def __init__(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=5, 
                  wc_anneal_start=0.6,wc_anneal_loops=2, starting_num_best_swaps_considered=20,
                  max_num_best_swaps_considered=100,num_loops_water_held=1):
         self.set_hyper_params(acceptance_temperature,max_wE_frac_increase,num_end_loop_refine_cycles,
@@ -40,8 +40,7 @@ class Untangler():
         self.initial_score=self.current_score=self.best_score=None
         self.best_score=self.current_score
         self.swapper:Swapper=None
-        self.swaps_history:list[Swapper.SwapGroup] = [] 
-    def set_hyper_params(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=8, 
+    def set_hyper_params(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=5, 
                  wc_anneal_start=0.6,wc_anneal_loops=2, starting_num_best_swaps_considered=20,
                  max_num_best_swaps_considered=100,num_loops_water_held=1):
         # NOTE Currently max wE increase is percentage based, 
@@ -122,14 +121,13 @@ class Untangler():
         pre_swap_model = working_model
         while self.swapper.solutions_remaining()>0: 
             ### Swap on unrestrained model ###
-            working_model, swaps = self.swapper.run(pre_swap_model)
-            
+            working_model, _ = self.swapper.run(pre_swap_model)
+
             # Swap waters
             atoms, connections = Solver.MTSP_Solver(working_model, protein_sites=False,water_sites=True).calculate_paths(
             clash_punish_thing=False,
             nonbonds=True 
             )
-            print("Allotting waters")
             waters_swapped_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
                                                     out_handle=self.model_handle,
                                                     num_solutions=1,
@@ -139,9 +137,7 @@ class Untangler():
             if len(water_swapper.swap_groups_sorted[0].swaps)!=0:
                 print("Found better water altloc allotments")
                 working_model, _ = water_swapper.run(working_model)
-            print("Waters unchanged")
-
-            print(f"Refining for {swaps}")
+            
             working_model=self.regular_refine(working_model,debug_skip=self.debug_skip_refine)
             new_model_was_accepted = self.propose_model(working_model)
 
@@ -164,14 +160,9 @@ class Untangler():
                     print("Continuing, no unswaps found")
 
             if new_model_was_accepted:
-                self.swaps_history.append(swaps)
-                self.write_swaps_history()
                 break
         
         #return working_model 
-    def write_swaps_history(self):
-        with open(f"{self.output_dir}refine_logs/swapHistory_{self.model_handle}.txt","w") as f:
-            f.writelines('\n'.join(self.swaps_history))
 
     def propose_model(self,working_model):
         

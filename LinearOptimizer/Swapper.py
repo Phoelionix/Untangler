@@ -170,7 +170,7 @@ class Swapper():
         
     def solutions_remaining(self):
         return len(self.swap_groups_sorted) - self.sol_idx
-    def run(self,model_path) -> tuple[str,SwapGroup]:
+    def run(self,model_path):
         assert model_path[-4:]==".pdb", model_path
         model_handle = os.path.basename(model_path)[:-4]
         out_path = f"{os.path.abspath(os.getcwd())}/output/{model_handle}_lpSwapped.pdb"
@@ -250,9 +250,9 @@ class Swapper():
         with open(out_path,'w') as f:
             f.writelines(new_lines)
         
-        #self.MakeSwapWaterFileByLines(new_lines.split("\n"),out_path_water_swapped)
+        self.MakeSwapWaterFileByLines(new_lines.split("\n"),out_path_water_swapped)
 
-        return out_path,swap_group
+        return out_path,out_path_water_swapped
                     
     @staticmethod
     def MakeSwapWaterFileByLines(lines,out_path):
