@@ -354,9 +354,10 @@ class ConstraintsHandler:
                     #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
                     self.constraints.append(ConstraintsHandler.AngleConstraint((pdb1,pdb2,pdb3),ideal,weight))  
         #Nonbond clashes
-        nonbond_pdbs=[]
         print("WARNING: assuming residue numbers are all unique")
         for file,flipped in zip((nonbond_scores_path, nonbond_water_flipped_scores_path),(False,True)):
+            if file is None:
+                continue
             with open(file) as f:
                 for line in f:
                     badness = float(line.strip().split()[1])
@@ -371,7 +372,7 @@ class ConstraintsHandler:
                         # if name == "O":
                         #     # assume water... # FIXME # distinguish between water 
                         #     continue 
-                        # TODO assume no duplicates
+                        # TODO we are assuming no duplicates
                         pdb1 = f"{name}     ARES     A      {res_num}"
                         self.constraints.append(ConstraintsHandler.NonbondConstraint([pdb1,pdb1],file,flipped,badness))
 
@@ -476,14 +477,15 @@ class MTSP_Solver:
 
 
 
-    def __init__(self,pdb_file_path:str,align_uncertainty=True,allow_water_sites_to_flip=True):
+    def __init__(self,pdb_file_path:str,protein_sites,water_sites, align_uncertainty=False):
         self.model_path = pdb_file_path
         original_structure = PDBParser().get_structure("struct",pdb_file_path)
         if align_uncertainty:
             self.align_uncertainty(original_structure)
-        self.ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),protein=True,waters=allow_water_sites_to_flip)
+        self.ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),protein=protein_sites,waters=water_sites)
     def align_uncertainty(self,structure:Structure.Structure):
         # in x-ray data and geom.
+        # Experimental and doesn't help.
         for atom in structure.get_atoms():
             a,b = atom.__iter__()
             coord_diff = np.sqrt(np.sum((a.get_coord()-b.get_coord())**2))
@@ -494,7 +496,7 @@ class MTSP_Solver:
 
 
     #def calculate_paths(self,quick_wE=False,dry_run=False,atoms_only=False)->tuple[list[Chunk],:dict[str,dict[str,ChunkConnection]]]: #disorderedResidues:list[Residue]
-    def calculate_paths(self,quick_wE=False,dry_run=False,atoms_only=True,clash_punish_thing=False)->tuple[list[Chunk],list[AtomChunkConnection]]: #disorderedResidues:list[Residue]
+    def calculate_paths(self,quick_wE=False,dry_run=False,atoms_only=True,clash_punish_thing=False,nonbonds=True)->tuple[list[Chunk],list[AtomChunkConnection]]: #disorderedResidues:list[Residue]
         print("Calculating geometric costs for all possible connections between chunks of atoms (pairs for bonds, triplets for angles, etc.)")
         
         tmp_out_folder_path=UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"LinearOptimizer/tmp_out/"
@@ -541,45 +543,49 @@ class MTSP_Solver:
         def atom_id(atom:Atom):
             #return f"{atom.get_name()}.{atom.get_altloc()}{OrderedAtomLookup.atom_res_seq_num(atom)}"
             return atom_id_from_params(atom.get_name(),atom.get_altloc(),OrderedAtomLookup.atom_res_seq_num(atom))
-
-        # generate nonbond files
-        debug_no_wE = False
-        geo_log_out_folder = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/HoltonOutputs/"
-        if not debug_no_wE:
-            UntangleFunctions.assess_geometry_wE(geo_log_out_folder,self.model_path) 
+        
+        nonbond_scores_path=nonbond_water_flipped_scores_path=None
         assert self.model_path[-4:]==".pdb"
         model_handle = os.path.basename(self.model_path)[:-4]
-        nonbond_scores_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{model_handle}_scorednonbond.txt"
-        
 
-        # Hacky way to add punishment for not swapping clashes for CURRENT model
-        # TODO FIXME no this won't work it will be saying BOTH are bad - we don't necessarily want both to swap! 
-        def add_clashes_to_nonbond(handle,clashes_factor = 10)->str:
-            nonbond_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_scorednonbond.txt"
-            clashes_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_clashes.txt"
-            combined_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_nonbond_clashes_combined.txt"
-            shutil.copy(nonbond_path,combined_path)
-            with open(combined_path,'a') as f:
-                with open(clashes_path) as clashes_file:
-                    for line in clashes_file:
-                        #pdb1 = f"{name}     ARES     A      {res_num}"
-                        res_num = [int(entry.split()[1]) for entry in line.split("|")[1:]] 
-                        name = [entry.strip().split()[-1] for entry in line.split("|")[1:]] 
-                        badness = float(line.split()[1])
-                        new_line = f"CLASH   {badness} XXXXX XXXXX XXXXX X |  {name[0]}_{res_num[0]} {name[1]}_{res_num[1]}"
-                        f.write(new_line)
-            return combined_path
-        if clash_punish_thing:
-            nonbond_scores_path = add_clashes_to_nonbond(model_handle)
-        
-        # Don't add clashes... because too costly. But if there are clashes we will get them next loop. #TODO find better way
-        model_water_swapped_handle=model_handle+"WS"
-        model_water_swapped_path=UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{model_water_swapped_handle}.pdb"
-        if not debug_no_wE:
-            Swapper.MakeSwapWaterFile(self.model_path,model_water_swapped_path)
-            UntangleFunctions.assess_geometry_wE(geo_log_out_folder,model_water_swapped_path) 
-        
-        nonbond_water_flipped_scores_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{model_water_swapped_handle}_scorednonbond.txt"
+        if nonbonds:
+            # generate nonbond files
+            debug_no_wE = False
+            geo_log_out_folder = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/HoltonOutputs/"
+            if not debug_no_wE:
+                UntangleFunctions.assess_geometry_wE(geo_log_out_folder,self.model_path) 
+            nonbond_scores_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{model_handle}_scorednonbond.txt"
+            
+
+            # Hacky way to add punishment for not swapping clashes for CURRENT model
+            # TODO FIXME no this won't work it will be saying BOTH are bad - we don't necessarily want both to swap! 
+            def add_clashes_to_nonbond(handle,clashes_factor = 10)->str:
+                nonbond_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_scorednonbond.txt"
+                clashes_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_clashes.txt"
+                combined_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_nonbond_clashes_combined.txt"
+                shutil.copy(nonbond_path,combined_path)
+                with open(combined_path,'a') as f:
+                    with open(clashes_path) as clashes_file:
+                        for line in clashes_file:
+                            #pdb1 = f"{name}     ARES     A      {res_num}"
+                            res_num = [int(entry.split()[1]) for entry in line.split("|")[1:]] 
+                            name = [entry.strip().split()[-1] for entry in line.split("|")[1:]] 
+                            badness = float(line.split()[1])
+                            new_line = f"CLASH   {badness} XXXXX XXXXX XXXXX X |  {name[0]}_{res_num[0]} {name[1]}_{res_num[1]}"
+                            f.write(new_line)
+                return combined_path
+            if clash_punish_thing:
+                nonbond_scores_path = add_clashes_to_nonbond(model_handle)
+            
+            # Don't add clashes... because too costly. But if there are clashes we will get them next loop. #TODO find better way
+            model_water_swapped_handle=model_handle+"WS"
+            model_water_swapped_path=UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{model_water_swapped_handle}.pdb"
+            if not debug_no_wE:
+                Swapper.MakeSwapWaterFile(self.model_path,model_water_swapped_path)
+                UntangleFunctions.assess_geometry_wE(geo_log_out_folder,model_water_swapped_path) 
+            
+            nonbond_water_flipped_scores_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{model_water_swapped_handle}_scorednonbond.txt"
+
 
         constraints_file = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}.geo" # NOTE we only read ideal and weights.
         constraints_handler=ConstraintsHandler()

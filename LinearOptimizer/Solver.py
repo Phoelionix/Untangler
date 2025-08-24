@@ -414,10 +414,15 @@ def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkCon
         
         bonds_to_flip=[]
         bonds_to_flip_arrays.append(bonds_to_flip)
-        # print("KEYS")
-        # for key in nonzero_variables:
-        #     print(key)
-        first_atom_id = "1.N"
+
+        # This sucks but is fixed in more_than_two branch.
+        #first_atom_id = "1.N"
+        first_atom_id = None
+        lowest_site_num = np.inf
+        for chunk_site in chunk_sites.values():
+            if chunk_site.get_site_num() < lowest_site_num:
+                lowest_site_num = chunk_site.get_site_num()
+                first_atom_id = chunk_site.get_disordered_tag()
         assert f"flippedAtom_{first_atom_id}" in [v.name for v in lp_problem.variables()] 
         if "flippedAtom" in nonzero_variables:
             # Start with opposite polarity
@@ -428,6 +433,12 @@ def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkCon
                 water_start_res_num = 65 # XXX
                 if int(key.split('.')[0]) >= water_start_res_num:
                     bonds_to_flip.append(f"WATER---{key}")
+
+        if "flipped" not in nonzero_variables:
+            #TODO assert that we are only looking at waters
+            for chunk_site in chunk_sites.values():
+                assert chunk_site.name == "O"
+            nonzero_variables["flipped"] = []
         for variable in nonzero_variables["flipped"]:
             variable_type,N,M = variable.split("_")
             N_res_num, N_name  = N.split('.') 
