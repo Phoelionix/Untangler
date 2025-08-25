@@ -20,6 +20,7 @@ wxc_scale=0.5
 macro_cycles=5
 calc_wE='false'
 hold_water='false'
+hold_protein='false'
 optimize_R='false'
 shake=0
 refine_no_hold='false'
@@ -27,7 +28,7 @@ no_mlhl=true
 generate_r_free='false'
 turn_off_bulk_solvent='false'
 
-while getopts ":o:u:c:n:s:d:whrgtz" flag; do
+while getopts ":o:u:c:n:s:d:whprgtz" flag; do
  case $flag in
     o) out_handle=$OPTARG
        out_handle_override='true'
@@ -47,6 +48,8 @@ while getopts ":o:u:c:n:s:d:whrgtz" flag; do
     w) calc_wE='true'
     ;;
     h) hold_water='true'
+    ;;
+    p) hold_protein='true'
     ;;
     r) optimize_R='true'
     ;;
@@ -94,6 +97,10 @@ if $hold_water; then
   if $optimize_R; then 
     paramFileTemplate=refine_water_hold_optimize_R_template.eff
   fi
+fi
+
+if $hold_protein; then
+  paramFileTemplate=refine_protein_hold_template.eff
 fi
 
 #TEMPORARY

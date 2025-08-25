@@ -31,7 +31,9 @@ import UntangleFunctions
 
 
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]],out_handle:str): # 
-def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkConnection],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True): # 
+def solve(chunk_sites: dict[str,AtomChunk],connections:list[MTSP_Solver.AtomChunkConnection],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True,
+          protein_sites=True,water_sites=True): # 
+    # protein_sites, water_sites: Whether these can be swapped.
 
     # This sucks but is fixed in more_than_two branch.
     #first_atom_id = "1.N"
@@ -112,7 +114,6 @@ def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkCon
     var_dict:dict[VariableID,dict[str,pl.LpVariable]] = {}
 
     # Setup whether atoms flipped
-
     for i, (atom_id, chunk) in enumerate(chunk_sites.items()):
         # Only iterate through each disordered atom once
         if get(chunk.unique_id(),"altloc")=="A":
@@ -134,11 +135,14 @@ def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkCon
             )
 
             
-            if force_no_flips:
+            if (force_no_flips 
+                or  (not protein_sites and not chunk.is_water) 
+                or (not water_sites and chunk.is_water )) :
                 lp_problem += (
                     var_flip==0,
                     f"forceNoFlips_{disordered_tag}"
                 )
+             
 
             # #TODO bad idea if we aren't allowing all waters to flip... 
             # #elif i == 0:
@@ -151,9 +155,9 @@ def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkCon
 
     for connection_id,connection_choices in alt_connections.items():
 
-
+        # NOTE: This is way overcomplicated but it's fixed in the more_than_two branch
         constraint_type = connection_id.split('_')[0]
-        if constraint_type == VariableID.Bond: #TODO make mtsp_input.py use this too.
+        if constraint_type in (VariableID.Bond, VariableID.Nonbond): #TODO make LinearOptimizer/Input.py use this too.
             var_flip = pl.LpVariable(f"flipped_{connection_id}",
                                 lowBound=0,upBound=1,cat=pl.LpInteger)
             var_unflipped = pl.LpVariable(f"unflipped_{connection_id}",
@@ -183,6 +187,7 @@ def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkCon
 
             distance_vars.append(var_flip * distance_flipped)
             distance_vars.append(var_unflipped * distance_unflipped)
+            #assert False, (distance_vars[-1],distance_vars[-2]) 
             
             # choose one polarity
             lp_problem += (
@@ -192,6 +197,8 @@ def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkCon
             ### Constrain atom flips
             # NB:var_flip and var_unflipped are whether the bond **between** atoms is flipped
             # flipped constraint
+
+            # This is getting it backwards. The bonds, angles, etc. should be set to be active when all the atoms they contain are active. See the more_than_two branch. 
             atom_a,atom_b = disordered_atom_ids
             lp_problem += (
                  (var_dict[atom_a]["flipped"]+  var_dict[atom_b]["flipped"])>=var_flip,
@@ -213,20 +220,6 @@ def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkCon
                 )
 
 
-
-
-    # Nonbonds
-    for connection_id, connection_choices in alt_connections.items():
-        constraint_type = connection_id.split('_')[0]
-        if constraint_type == VariableID.Nonbond:
-            for connection in connection_choices:
-                disordered_atom_ids = [ch.get_disordered_tag() for ch in connection.atom_chunks]
-                assert connection.altlocs[0]!=connection.altlocs[1], connection.altlocs
-                flipped = connection.flipped #XXX
-                var = var_dict[connection.atom_chunks[0].get_disordered_tag()]["flipped" if flipped else "unflipped"]
-                distance_vars.append(var*connection.ts_distance)
-                #print(var*connection.ts_distance)
-
     for connection_id,connection_choices in alt_connections.items():
         constraint_type = connection_id.split('_')[0]
         if constraint_type == VariableID.Angle:
@@ -237,7 +230,6 @@ def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkCon
                 tag = "_".join(ch.unique_id() for ch in connection.atom_chunks)
                 if connection.hydrogen_tag!="":
                     tag = connection.hydrogen_tag+"_"+tag
-                print("TAG:",tag)
                 var_active = pl.LpVariable(f"{constraint_type}_{tag}",
                                     lowBound=0,upBound=1,cat=pl.LpInteger)
                 vars.append(var_active)
@@ -402,8 +394,11 @@ def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkCon
             f.write(f"Status: {LpStatus[lp_problem.status]}\n")
 
             for v in lp_problem.variables():
-                if v.varValue > 0:
-                    f.write(f"{v.name} = {v.varValue}\n")
+                try:
+                    if v.varValue > 0:
+                        f.write(f"{v.name} = {v.varValue}\n")
+                except:
+                    raise Exception(v,v.varValue)
             f.write(f"Total distance = {value(lp_problem.objective)}")
             
 
@@ -443,6 +438,8 @@ def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkCon
             nonzero_variables["flipped"] = []
         for variable in nonzero_variables["flipped"]:
             variable_type,N,M = variable.split("_")
+            if variable_type != "Bond":
+                continue
             N_res_num, N_name  = N.split('.') 
             M_res_num, M_name = M.split('.') 
 

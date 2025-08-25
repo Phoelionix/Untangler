@@ -43,7 +43,7 @@ class Untangler():
         self.swaps_history:list[Swapper.SwapGroup] = [] 
     def set_hyper_params(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=8, 
                  wc_anneal_start=0.6,wc_anneal_loops=2, starting_num_best_swaps_considered=20,
-                 max_num_best_swaps_considered=100,num_loops_water_held=0):
+                 max_num_best_swaps_considered=100,num_loops_water_held=1):
         # NOTE Currently max wE increase is percentage based, 
         # but TODO optimal method needs to be investigated.
         self.n_best_swap_start=starting_num_best_swaps_considered
@@ -98,21 +98,23 @@ class Untangler():
         # self.propose_model(working_model)
         self.refinement_loop()
 
-    def refinement_loop(self,two_swaps=True):
+    def refinement_loop(self,two_swaps=True,allot_protein_independent_of_waters=True):  # big reason to allot independently is we get a huge number of nearly identical solutions from swapping waters around.
         # working_model stores the path of the current model. It changes value during the loop.
         # TODO if stuck (tried all candidate swap sets for the loop), do random flips or engage Metr.Hastings or track all the new model scores and choose the best.
         working_model = self.refine_for_positions(self.current_model,debug_skip=self.debug_skip_refine) 
         
         self.swapper.clear_candidates()
-        atoms, connections = Solver.MTSP_Solver(working_model, protein_sites=True,water_sites=False).calculate_paths(
+        atoms, connections = Solver.MTSP_Solver(working_model,ignore_waters=allot_protein_independent_of_waters).calculate_paths(
             clash_punish_thing=False,
-            nonbonds=False   # Use later when swapping waters. i.e. we look for the best protein conformation and allot waters after.
+            nonbonds=True   # Note this won't look at nonbonds with water if ignore_waters=True.
         )
         num_best_solutions=min(self.loop+self.n_best_swap_start,self.n_best_swap_max) # increase num solutions we search over time...
         swaps_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
                                         out_handle=self.model_handle,
                                         num_solutions=num_best_solutions,
-                                        force_sulfur_bridge_swap_solutions=True)
+                                        force_sulfur_bridge_swap_solutions=True,
+                                        protein_sites=True, 
+                                        water_sites= not allot_protein_independent_of_waters)
         
         # Translate candidate solutions from LinearOptimizer into swaps lists
         # Try proposing each solution until one is accepted or we run out.
@@ -124,22 +126,26 @@ class Untangler():
             ### Swap on unrestrained model ###
             working_model, swaps = self.swapper.run(pre_swap_model)
             
-            # Swap waters
-            atoms, connections = Solver.MTSP_Solver(working_model, protein_sites=False,water_sites=True).calculate_paths(
-            clash_punish_thing=False,
-            nonbonds=True 
-            )
-            print("Allotting waters")
-            waters_swapped_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
-                                                    out_handle=self.model_handle,
-                                                    num_solutions=1,
-                                                    force_sulfur_bridge_swap_solutions=False)
-            water_swapper = Swapper()
-            water_swapper.add_candidates(waters_swapped_path)
-            if len(water_swapper.swap_groups_sorted[0].swaps)!=0:
-                print("Found better water altloc allotments")
-                working_model, _ = water_swapper.run(working_model)
-            print("Waters unchanged")
+            if allot_protein_independent_of_waters:
+                # Swap waters
+                atoms, connections = Solver.MTSP_Solver(working_model,ignore_waters=False).calculate_paths(
+                clash_punish_thing=False,
+                nonbonds=True 
+                )
+                print("Allotting waters")
+                waters_swapped_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
+                                                        out_handle=self.model_handle,
+                                                        num_solutions=1,
+                                                        force_sulfur_bridge_swap_solutions=False,
+                                                        protein_sites=False,
+                                                        water_sites=True)
+                water_swapper = Swapper()
+                water_swapper.add_candidates(waters_swapped_path)
+                if len(water_swapper.swap_groups_sorted[0].swaps)!=0:
+                    print("Found better water altloc allotments")
+                    working_model, _ = water_swapper.run(working_model)
+                else:
+                    print("Waters unchanged")
 
             print(f"Refining for {swaps}")
             working_model=self.regular_refine(working_model,debug_skip=self.debug_skip_refine)
@@ -147,12 +153,13 @@ class Untangler():
 
             if not new_model_was_accepted and two_swaps:
                 #### Swap again on restrained model. Take Best solution only.  ###
-                atoms, connections = Solver.MTSP_Solver(working_model,protein_sites=True,water_sites=False).calculate_paths(
+                atoms, connections = Solver.MTSP_Solver(working_model).calculate_paths(
                     clash_punish_thing=False,
                     nonbonds=True
                 )
         
-                unswap_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,out_handle=self.model_handle,num_solutions=1,force_sulfur_bridge_swap_solutions=False)
+                unswap_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,out_handle=self.model_handle,num_solutions=1,
+                                                force_sulfur_bridge_swap_solutions=False,protein_sites=True,water_sites=True)
                 unswapper = Swapper()
                 unswapper.add_candidates(unswap_file_path)
                 if len(unswapper.swap_groups_sorted[0].swaps)!=0: # TODO or if unswaps == swaps
@@ -221,8 +228,8 @@ class Untangler():
             #num_macro_cycles=1,
             num_macro_cycles=3,
             wc=0,
-            #hold_water_positions=True,
-            hold_water_positions=self.holding_water(),
+            hold_water_positions=True,
+            #hold_water_positions=self.holding_water(),
             **kwargs
         )
     
@@ -232,13 +239,24 @@ class Untangler():
             "loopEnd",
             num_macro_cycles=self.num_end_loop_refine_cycles,
             wc=min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
-            #hold_water_positions= self.holding_water(),  
-            hold_water_positions= True,
+            hold_water_positions= self.holding_water(),  
+            #hold_water_positions= True,
             **kwargs
         )
+        # return self.refine(
+        #     model_path,
+        #     "loopEnd",
+        #     num_macro_cycles=self.num_end_loop_refine_cycles,
+        #     wc=min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
+        #     #hold_water_positions= self.holding_water(),  
+        #     hold_protein_positions = True,
+        #     **kwargs
+        # )
+
     def holding_water(self)->bool:
         return self.loop<self.num_loops_water_held
-    def refine(self,model_path,out_tag,num_macro_cycles,wc=1,wu=1,optimize_R=False,hold_water_positions=False,debug_skip=False,shake=0)->str:
+    def refine(self,model_path,out_tag,num_macro_cycles,wc=1,wu=1,optimize_R=False,hold_water_positions=False,hold_protein_positions=False,debug_skip=False,shake=0)->str:
+        assert (not hold_water_positions) or (not hold_protein_positions) 
         assert model_path[-4:]==".pdb", model_path
         out_model_handle = os.path.basename(model_path)[:-4]
         if not debug_skip:
@@ -250,7 +268,7 @@ class Untangler():
               "-o",f"{self.model_handle}_{out_tag}",
               "-s",f"{shake}",
               "-d", self.hkl_handle]
-            for bool_param, flag in ([hold_water_positions,"-h"],[optimize_R,"-r"]):
+            for bool_param, flag in ([hold_water_positions,"-h"],[optimize_R,"-r"],[hold_protein_positions,"-p"]):
                 if bool_param:
                     args.append(flag)
             print (f"Running {args}")
