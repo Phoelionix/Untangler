@@ -226,7 +226,7 @@ class Untangler():
             model_path,
             "unrestrained",
             #num_macro_cycles=1,
-            num_macro_cycles=3,
+            num_macro_cycles=1,
             wc=0,
             hold_water_positions=True,
             #hold_water_positions=self.holding_water(),
