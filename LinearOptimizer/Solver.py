@@ -1,21 +1,3 @@
-#===========================================================================
-# Untangler: Free ensemble models from local minima with the wrong altlocs 
-# Copyright (C)  2025 Spencer Passmore (spencerpassmore@swin.edu.au)
-
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#===========================================================================
-
 # Finds assignment of altlocs that minimizes the geometric "badness" defined in LinearOptimizer.Input. 
 # It may be easier to think about it as connecting up the atoms in a way that minimizes the total energy.
 
@@ -424,10 +406,6 @@ def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkCon
             if first_atom_id in nonzero_variables["flippedAtom"]:
                 bonds_to_flip.append(f"START---{first_atom_id}")
                 print(f"Flagging swap of {first_atom_id}")
-            for key in nonzero_variables["flippedAtom"]:
-                water_start_res_num = 65 # XXX
-                if int(key.split('.')[0]) >= water_start_res_num:
-                    bonds_to_flip.append(f"WATER---{key}")
         for variable in nonzero_variables["flipped"]:
             variable_type,N,M = variable.split("_")
             N_res_num, N_name  = N.split('.') 

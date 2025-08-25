@@ -1068,7 +1068,7 @@ geometry_restraints.edits {
   }
   reference_model {
     enabled = False
-    file = None
+    file = ../data/ground_truth_water.pdb
     use_starting_model_as_reference = False
     sigma = 0
     limit = 15
