@@ -32,7 +32,7 @@ import UntangleFunctions
 
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: dict[str,AtomChunk],connections:list[MTSP_Solver.AtomChunkConnection],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True,
-          protein_sites=True,water_sites=True): # 
+          protein_sites:bool=True,water_sites:bool=True): # 
     # protein_sites, water_sites: Whether these can be swapped.
 
     # This sucks but is fixed in more_than_two branch.
@@ -105,6 +105,7 @@ def solve(chunk_sites: dict[str,AtomChunk],connections:list[MTSP_Solver.AtomChun
         Atom="Atom"
         Bond = "Bond"
         Nonbond="Nonbond"
+        Clash="Clash"
         Angle = "Angle"
 
         def __init__():
@@ -142,6 +143,14 @@ def solve(chunk_sites: dict[str,AtomChunk],connections:list[MTSP_Solver.AtomChun
                     var_flip==0,
                     f"forceNoFlips_{disordered_tag}"
                 )
+
+            # Remove equivalent solutins - set solution to one where altlocs for first (disordered) atom in protein sequence is left unchanged.
+            if protein_sites:
+                if (chunk.get_disordered_tag()==first_atom_id):
+                    lp_problem += (
+                        var_flip==0,
+                        f"anchorSymmetry_{disordered_tag}"
+                    )
              
 
             # #TODO bad idea if we aren't allowing all waters to flip... 
@@ -157,7 +166,7 @@ def solve(chunk_sites: dict[str,AtomChunk],connections:list[MTSP_Solver.AtomChun
 
         # NOTE: This is way overcomplicated but it's fixed in the more_than_two branch
         constraint_type = connection_id.split('_')[0]
-        if constraint_type in (VariableID.Bond, VariableID.Nonbond): #TODO make LinearOptimizer/Input.py use this too.
+        if constraint_type in (VariableID.Bond, VariableID.Nonbond,VariableID.Clash): #TODO make LinearOptimizer/Input.py use this too.
             var_flip = pl.LpVariable(f"flipped_{connection_id}",
                                 lowBound=0,upBound=1,cat=pl.LpInteger)
             var_unflipped = pl.LpVariable(f"unflipped_{connection_id}",
@@ -214,6 +223,7 @@ def solve(chunk_sites: dict[str,AtomChunk],connections:list[MTSP_Solver.AtomChun
                 f"atomUnflippedB_{connection_id}")
             
             if  force_sulfur_bridge_swap_solutions \
+                and constraint_type == VariableID.Bond \
                 and [ch.element for ch in connection.atom_chunks]==["S","S"]:
                 forced_swap_solutions.append(
                     var_dict[atom_a]["flipped"]==var_dict[atom_b]["flipped"]==1 - var_dict[first_atom_id]["flipped"]
@@ -459,6 +469,8 @@ def solve(chunk_sites: dict[str,AtomChunk],connections:list[MTSP_Solver.AtomChun
         flipped_flip_variables = []
         flip_variables=[]
         for chunk in chunk_sites.values():
+            if protein_sites and chunk.is_water: # not interested in different solutions for water. 
+                continue # This means water atoms may or may not swap for the single solution where no protein atoms swap.
             var = var_dict[chunk.get_disordered_tag()]["flipped"]
             val = var.varValue
             flip_variables.append(var)

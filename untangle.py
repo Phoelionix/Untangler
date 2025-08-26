@@ -16,7 +16,7 @@ class Untangler():
     refine_shell_file=f"Refinement/Refine.sh"
     ####
     debug_skip_refine = False # Skip refinement stages. Requires files to already have been generated (up to the point you are debugging).
-    debug_skip_initial_refine=True
+    debug_skip_initial_refine=False
     class Score():
         def __init__(self,combined,wE,R_work):
             self.wE=wE
@@ -98,7 +98,7 @@ class Untangler():
         # self.propose_model(working_model)
         self.refinement_loop()
 
-    def refinement_loop(self,two_swaps=True,allot_protein_independent_of_waters=True):  # big reason to allot independently is we get a huge number of nearly identical solutions from swapping waters around.
+    def refinement_loop(self,two_swaps=True,allot_protein_independent_of_waters=False): 
         # working_model stores the path of the current model. It changes value during the loop.
         # TODO if stuck (tried all candidate swap sets for the loop), do random flips or engage Metr.Hastings or track all the new model scores and choose the best.
         working_model = self.refine_for_positions(self.current_model,debug_skip=self.debug_skip_refine) 
@@ -106,7 +106,8 @@ class Untangler():
         self.swapper.clear_candidates()
         atoms, connections = Solver.MTSP_Solver(working_model,ignore_waters=allot_protein_independent_of_waters).calculate_paths(
             clash_punish_thing=False,
-            nonbonds=True   # Note this won't look at nonbonds with water if ignore_waters=True.
+            nonbonds=True,   # Note this won't look at nonbonds with water if ignore_waters=True. 
+            water_water_nonbond = False  # This is so we don't get a huge number of nearly identical solutions from swapping waters around.
         )
         num_best_solutions=min(self.loop+self.n_best_swap_start,self.n_best_swap_max) # increase num solutions we search over time...
         swaps_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
@@ -114,7 +115,8 @@ class Untangler():
                                         num_solutions=num_best_solutions,
                                         force_sulfur_bridge_swap_solutions=True,
                                         protein_sites=True, 
-                                        water_sites= not allot_protein_independent_of_waters)
+                                        water_sites= not allot_protein_independent_of_waters,
+                                        )
         
         # Translate candidate solutions from LinearOptimizer into swaps lists
         # Try proposing each solution until one is accepted or we run out.
@@ -127,7 +129,7 @@ class Untangler():
             working_model, swaps = self.swapper.run(pre_swap_model)
             
             if allot_protein_independent_of_waters:
-                # Swap waters
+                ## Swap waters with protein altlocs fixed
                 atoms, connections = Solver.MTSP_Solver(working_model,ignore_waters=False).calculate_paths(
                 clash_punish_thing=False,
                 nonbonds=True 
@@ -153,20 +155,44 @@ class Untangler():
 
             if not new_model_was_accepted and two_swaps:
                 #### Swap again on restrained model. Take Best solution only.  ###
-                atoms, connections = Solver.MTSP_Solver(working_model).calculate_paths(
+                atoms, connections = Solver.MTSP_Solver(working_model,ignore_waters=allot_protein_independent_of_waters).calculate_paths(
                     clash_punish_thing=False,
                     nonbonds=True
                 )
         
                 unswap_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,out_handle=self.model_handle,num_solutions=1,
-                                                force_sulfur_bridge_swap_solutions=False,protein_sites=True,water_sites=True)
+                                                force_sulfur_bridge_swap_solutions=False,protein_sites=True,water_sites=not allot_protein_independent_of_waters)
                 unswapper = Swapper()
                 unswapper.add_candidates(unswap_file_path)
                 if len(unswapper.swap_groups_sorted[0].swaps)!=0: # TODO or if unswaps == swaps
+                    #TODO make all of this a function...
                     working_model, _ = unswapper.run(working_model)
 
                     working_model=self.regular_refine(working_model,debug_skip=self.debug_skip_refine)
                     new_model_was_accepted = self.propose_model(working_model)
+
+                    if allot_protein_independent_of_waters:
+                        # Swap waters
+                        atoms, connections = Solver.MTSP_Solver(working_model,ignore_waters=False).calculate_paths(
+                        clash_punish_thing=False,
+                        nonbonds=True 
+                        )
+                        print("unswap: Allotting waters")
+                        waters_swapped_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
+                                                                out_handle=self.model_handle,
+                                                                num_solutions=1,
+                                                                force_sulfur_bridge_swap_solutions=False,
+                                                                protein_sites=False,
+                                                                water_sites=True)
+                        water_swapper = Swapper()
+                        water_swapper.add_candidates(waters_swapped_path)
+                        if len(water_swapper.swap_groups_sorted[0].swaps)!=0:
+                            print("unswap: Found better water altloc allotments")
+                            working_model, _ = water_swapper.run(working_model)
+                    else:
+                        print("unswap: Waters unchanged")
+
+
                 else:
                     print("Continuing, no unswaps found")
 
@@ -222,21 +248,25 @@ class Untangler():
         return model_path
 
     def refine_for_positions(self,model_path,**kwargs)->str:
-        return self.refine(
-            model_path,
-            "unrestrained",
-            #num_macro_cycles=1,
-            num_macro_cycles=1,
-            wc=0,
-            hold_water_positions=True,
-            #hold_water_positions=self.holding_water(),
-            **kwargs
-        )
+        num_macro_cycles = 3
+        # No idea why need to do this. But otherwise it jumps at 1_xyzrec
+        next_model = model_path
+        for n in range(num_macro_cycles):
+            next_model = self.refine(
+                next_model,
+                f"unrestrained-mc{n}",
+                num_macro_cycles=1,
+                wc=0,
+                hold_water_positions=True,
+                #hold_water_positions=self.holding_water(),
+                **kwargs
+            )
+        return next_model
     
     def regular_refine(self,model_path,**kwargs)->str:
         return self.refine(
             model_path,
-            "loopEnd",
+            f"loopEnd{self.loop}",
             num_macro_cycles=self.num_end_loop_refine_cycles,
             wc=min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
             hold_water_positions= self.holding_water(),  
