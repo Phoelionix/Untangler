@@ -28,12 +28,15 @@ class Untangler():
         def inf_bad_score()->'Untangler.Score':
             return Untangler.Score(np.inf,np.inf,np.inf)
 
+    # TODO keep refining while Rfree decreasing.
     def __init__(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=8, 
                  wc_anneal_start=0.6,wc_anneal_loops=2, starting_num_best_swaps_considered=20,
-                 max_num_best_swaps_considered=100,num_loops_water_held=0):
+                 max_num_best_swaps_considered=100,num_unrestrained_macro_cycles=3,
+                 num_loops_water_held=0):
         self.set_hyper_params(acceptance_temperature,max_wE_frac_increase,num_end_loop_refine_cycles,
                               wc_anneal_start,wc_anneal_loops, starting_num_best_swaps_considered,
-                              max_num_best_swaps_considered,num_loops_water_held)
+                              max_num_best_swaps_considered,num_unrestrained_macro_cycles, 
+                              num_loops_water_held)
         self.previously_swapped = []
         self.model_handle=None
         self.current_model=None
@@ -43,11 +46,13 @@ class Untangler():
         self.swaps_history:list[Swapper.SwapGroup] = [] 
     def set_hyper_params(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=8, 
                  wc_anneal_start=0.6,wc_anneal_loops=2, starting_num_best_swaps_considered=20,
-                 max_num_best_swaps_considered=100,num_loops_water_held=1):
+                 max_num_best_swaps_considered=100,num_unrestrained_macro_cycles=3,
+                 num_loops_water_held=0):
         # NOTE Currently max wE increase is percentage based, 
         # but TODO optimal method needs to be investigated.
         self.n_best_swap_start=starting_num_best_swaps_considered
         self.n_best_swap_max = max_num_best_swaps_considered
+        self.num_unrestrained_macro_cycles=num_unrestrained_macro_cycles
         self.max_wE_frac_increase=max_wE_frac_increase
         self.acceptance_temperature=acceptance_temperature
         self.num_end_loop_refine_cycles=num_end_loop_refine_cycles
@@ -248,10 +253,9 @@ class Untangler():
         return model_path
 
     def refine_for_positions(self,model_path,**kwargs)->str:
-        num_macro_cycles = 3
         # No idea why need to do this. But otherwise it jumps at 1_xyzrec
         next_model = model_path
-        for n in range(num_macro_cycles):
+        for n in range(self.num_unrestrained_macro_cycles):
             next_model = self.refine(
                 next_model,
                 f"unrestrained-mc{n}",
@@ -417,7 +421,7 @@ def main():
     Untangler().run(
         starting_model,
         xray_data,
-        desired_score=18.4,
+        desired_score=18.41,
         max_num_runs=100
     )
 if __name__=="__main__":

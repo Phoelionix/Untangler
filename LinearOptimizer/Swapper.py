@@ -49,6 +49,7 @@ class Swapper():
         pct = badness/100
 
         # Prioritise exploring big changes that don't score much worse
+        #TODO Single or odd number of swaps should be flagged as interesting
         interesting_swaps = [s for s in swap_group.swaps if s[1][0] not in ["O","H"]]
         num_separated_swaps = 0
         last_swap_start_res_num=-1

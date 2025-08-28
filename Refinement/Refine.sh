@@ -3,7 +3,7 @@
 # TODO folder with file containing commands used, shell file, and .eff file. 
 
 xyz_path=$1; 
-out_tag=$2; shift 2
+out_tag=$2; shift 2 # redundant?
 
 xyz_file=${xyz_path##*/}
 xyz_handle=${xyz_file%.*}
