@@ -6,7 +6,7 @@
 
 data_manager {
   miller_array {
-    file = "../../data/HKL_TEMPLATE.mtz"
+    file = "../../../data/HKL_TEMPLATE.mtz"
     labels {
       name = None
       type = *x_ray neutron electron
@@ -78,7 +78,7 @@ data_manager {
       }
     }
   }
-  default_miller_array = "../../data/HKL_TEMPLATE.mtz"
+  default_miller_array = "../../../data/HKL_TEMPLATE.mtz"
   model {
     file = "XYZ_TEMPLATE.pdb"
     type = *x_ray neutron electron reference
@@ -1145,7 +1145,7 @@ geometry_restraints.edits {
   }
   gui {
     base_output_dir = None
-    tmp_dir = None
+    tmp_dir = "tmp"
     send_notification = False
     notify_email = None
     add_hydrogens = False

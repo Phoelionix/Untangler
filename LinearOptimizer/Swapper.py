@@ -102,6 +102,7 @@ class Swapper():
     def clear_candidates(self):
         self.swap_groups_sorted = []
     def add_candidates(self,swaps_file_path):
+        # Sort candidates by score then add to end of queue. So it will go through one loaded set first, then next if no improvements found there.
         self.sol_idx=None
         swap_group_candidates :list[Swapper.SwapGroup] = []
         with open(swaps_file_path,'r') as f:

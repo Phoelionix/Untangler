@@ -115,11 +115,18 @@ paramFile=${out_handle}_initial_refine.eff
 
 cd $(dirname "$0")
 mkdir -p tmp_refinement
-rm -f tmp_refinement/$paramFile
-cp $paramFileTemplate tmp_refinement/$paramFile
-cp $xyz_path tmp_refinement/${xyz_handle}.pdb
 
-cd tmp_refinement
+
+mkdir -p tmp_refinement/$out_handle # Do refinement in own directory in attempt to stop seg faults when parallel. Possibly issue is due to the annoying .status.pkl file that is created
+
+rm -f tmp_refinement/$out_handle/$paramFile
+cp $paramFileTemplate tmp_refinement/$out_handle/$paramFile
+cp $xyz_path tmp_refinement/$out_handle/${xyz_handle}.pdb
+
+
+cd tmp_refinement/$out_handle
+
+
 sed "s/XYZ_TEMPLATE/${xyz_handle}/g" $paramFile > tmp.$$
 mv tmp.$$ $paramFile
 sed  "s/HKL_TEMPLATE/${hkl_name}/g" $paramFile  > tmp.$$
@@ -156,17 +163,27 @@ if $turn_off_bulk_solvent; then
   mv tmp.$$ $paramFile
 fi
 
-logs_path="../../output/refine_logs"
+logs_path="../../../output/refine_logs"
 if [ ! -d $logs_path ]; then
   mkdir $logs_path
 fi
 
-phenix.refine $paramFile > ../../output/refine_logs/${out_handle}.log
+# Broad sweep attempt to stop phenix segfaulting when run in parallel
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export VECLIB_MAXIMUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
 
+export TMPDIR=$PWD/tmp
+mkdir -p $TMPDIR
 
-mv ${out_handle}_${serial}.pdb ../../output/${out_handle}.pdb  
+phenix.refine $paramFile > $logs_path/${out_handle}.log
+unset TMPDIR
 
-cd .. 
+mv ${out_handle}_${serial}.pdb ../../../output/${out_handle}.pdb  
+
+cd ../.. 
 
 if $calc_wE; then
   cd ../StructureGeneration
