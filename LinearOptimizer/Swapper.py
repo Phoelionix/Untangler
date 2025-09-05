@@ -1,4 +1,21 @@
-#%%
+#===========================================================================
+# Untangler: Free ensemble models from local minima with the wrong altlocs 
+# Copyright (C)  2025 Spencer Passmore (spencerpassmore@swin.edu.au)
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#===========================================================================
+
 import numpy as np
 import os
 from UntangleFunctions import H_get_parent_fullname
@@ -55,6 +72,7 @@ class Swapper():
         pct = badness/100
 
         # Prioritise exploring big changes that don't score much worse
+        #TODO Single or odd number of swaps should be flagged as interesting
         interesting_swaps = [s for s in swap_group.swaps if s[1][0] not in ["O","H"]]
         num_separated_swaps = 0
         last_swap_start_res_num=-1
@@ -107,7 +125,7 @@ class Swapper():
     def clear_candidates(self):
         self.swap_groups_sorted = []
 
-    #TODO unnecessary conversion of solutions dict to new data type.
+    #TODO this is an unnecessary conversion of the solutions dict to a new data type (Swapper.SwapGroup).
     def add_candidates(self,swaps_file_path):
         self.sol_idx=None # XXX
         swap_group_candidates :list[Swapper.SwapGroup] = []
@@ -180,15 +198,15 @@ class Swapper():
         
     def solutions_remaining(self):
         return len(self.swap_groups_sorted) - self.sol_idx
-    def run(self,model_path):
+    def run(self,model_path) -> tuple[str,SwapGroup]:
         assert model_path[-4:]==".pdb", model_path
         model_handle = os.path.basename(model_path)[:-4]
         out_path = f"{os.path.abspath(os.getcwd())}/output/{model_handle}_lpSwapped.pdb"
         out_path_water_swapped = f"{os.path.abspath(os.getcwd())}/output/{model_handle}_lpSwapped_water_swapped.pdb"       
 
-        swap_group:Swapper.SwapGroup = self.swap_groups_sorted[self.sol_idx]
+        swap_group: Swapper.SwapGroup = self.swap_groups_sorted[self.sol_idx]
         assert isinstance(swap_group,Swapper.SwapGroup)
-        #self.flag_swapping(swap_group)
+        self.flag_swapping(swap_group)
         self.sol_idx+=1 
 
         with open(model_path,'r') as f:
@@ -198,8 +216,14 @@ class Swapper():
                 # Don't change irrelevant lines
             
                 P = Swapper.PDB_Params(line)
-                if not P.valid or P.res_name == "HOH":
+                if not P.valid:
                     new_lines+=line
+                    continue
+                if P.res_name == "HOH":
+                    if (P.res_num,P.atom_name) in swap_group.swaps:
+                        new_lines += P.swap_altloc()
+                    else:
+                        new_lines += line 
                     continue
                 if P.res_num!=last_resnum:
                     H_assignment_dict=dict()
@@ -228,9 +252,9 @@ class Swapper():
         with open(out_path,'w') as f:
             f.writelines(new_lines)
         
-        self.MakeSwapWaterFileByLines(new_lines.split("\n"),out_path_water_swapped)
+        #self.MakeSwapWaterFileByLines(new_lines.split("\n"),out_path_water_swapped)
 
-        return out_path,out_path_water_swapped
+        return out_path,swap_group
                     
     @staticmethod
     def MakeSwapWaterFileByLines(lines,out_path):
@@ -254,7 +278,3 @@ class Swapper():
             for line in f.readlines():
                 lines.append(line)
         Swapper.MakeSwapWaterFileByLines(lines,out_path)
-
-    
-        
-# %%

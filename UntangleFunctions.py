@@ -45,7 +45,20 @@ def save_structure(structure:Structure,header_reference_file_path,out_path,comme
             f2.write(f.read())
     os.remove(tmp_path)
 
-def assess_geometry_wE(log_out_folder_path,pdb_file_path,phenixgeometry_only=False):
+def get_score(score_file,phenixgeometry_only=False):
+    with open(score_file,'r') as f:
+        for line in f: 
+            if line.strip() != "":
+                print(line)
+                combined_score,wE_score,Rwork, Rfree = [float(v) for v in line.split()[:4]]
+                if phenixgeometry_only:
+                    print(f"Python read wE (quick): {wE_score}")
+                else:
+                    print(f"Python read wE: {wE_score}")
+                return combined_score,wE_score,Rwork, Rfree
+
+
+def create_score_file(log_out_folder_path,pdb_file_path,phenixgeometry_only=False):
     holton_folder_path = UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/"
 
     #generate_holton_data_shell_file=self.holton_folder_path+'GenerateHoltonData.sh'
@@ -65,18 +78,19 @@ def assess_geometry_wE(log_out_folder_path,pdb_file_path,phenixgeometry_only=Fal
         subprocess.run(args,stdout=log)
     print("finished")
     print("--==--")
+    return score_file_name(pdb_file_path)
 
-    score_file = holton_folder_path+f'HoltonOutputs/{handle}_score.txt'
-    with open(score_file,'r') as f:
-        for line in f: 
-            if line.strip() != "":
-                print(line)
-                combined_score,wE_score,Rwork = [float(v) for v in line.split()[:3]]
-                if phenixgeometry_only:
-                    print(f"Python read wE (quick): {wE_score}")
-                else:
-                    print(f"Python read wE: {wE_score}")
-                return combined_score,wE_score,Rwork
+def score_file_name(pdb_file_path):
+    holton_folder_path = UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/"
+    assert pdb_file_path[-4:]==".pdb"
+    handle = os.path.basename(pdb_file_path)[:-4]
+    return holton_folder_path+f'HoltonOutputs/{handle}_score.txt'
+
+def assess_geometry_wE(log_out_folder_path,pdb_file_path,phenixgeometry_only=False):
+    score_file = create_score_file(log_out_folder_path,pdb_file_path,phenixgeometry_only)
+    assert score_file == score_file_name(pdb_file_path)
+    return get_score(score_file,phenixgeometry_only=phenixgeometry_only)
+
             
 def res_is_water(res):
     return res.get_id()[0]!= " " or res.get_resname()=="HOH"

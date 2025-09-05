@@ -6,3 +6,4 @@ StructureGeneration/data/
 */tmp_refinement/*
 *__pycache__*
 data/*
+.vscode/*

@@ -1,13 +1,16 @@
 #%%
+from typing import Any
 from LinearOptimizer import Solver
 from LinearOptimizer.Swapper import Swapper
-from UntangleFunctions import assess_geometry_wE, get_R,pdb_data_dir
+from UntangleFunctions import assess_geometry_wE, get_R,pdb_data_dir,create_score_file,get_score,score_file_name
 import subprocess
 import os, sys
 import numpy as np
 import shutil
 import random
-
+from types import SimpleNamespace 
+from multiprocessing import Pool
+from time import sleep
 
 
 class Untangler():
@@ -15,37 +18,47 @@ class Untangler():
     output_dir = f"{working_dir}/output/"
     refine_shell_file=f"Refinement/Refine.sh"
     ####
-    debug_skip_refine = False # Requires files to already have been generated (up to the point you are debugging).
+    debug_skip_refine = False # Skip refinement stages. Requires files to already have been generated (up to the point you are debugging).
+    debug_skip_initial_refine=True
+    debug_skip_unrestrained_refine=False
+    num_threads=10
     class Score():
-        def __init__(self,combined,wE,R_work):
+        def __init__(self,combined,wE,R_work,R_free):
             self.wE=wE
             self.combined=combined  
             self.R_work=R_work
+            self.R_free = R_free
         def __repr__(self):
-            return f"{self.combined} | wE: {self.wE} Rwork: {self.R_work}"
+            return f"{self.combined} | wE: {self.wE} Rwork: {self.R_work} Rfree: {self.R_free}"
         @staticmethod
         def inf_bad_score()->'Untangler.Score':
-            return Untangler.Score(np.inf,np.inf,np.inf)
+            return Untangler.Score(np.inf,np.inf,np.inf,np.inf)
 
-    def __init__(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=5, 
-                 wc_anneal_start=0.6,wc_anneal_loops=2, starting_num_best_swaps_considered=20,
-                 max_num_best_swaps_considered=100,num_loops_water_held=1):
+    # TODO keep refining while Rfree decreasing.
+    def __init__(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=8,  #8,
+                 wc_anneal_start=0.6,wc_anneal_loops=2, starting_num_best_swaps_considered=20, # 20,
+                 max_num_best_swaps_considered=100,num_unrestrained_macro_cycles=3,
+                 num_loops_water_held=0):
         self.set_hyper_params(acceptance_temperature,max_wE_frac_increase,num_end_loop_refine_cycles,
                               wc_anneal_start,wc_anneal_loops, starting_num_best_swaps_considered,
-                              max_num_best_swaps_considered,num_loops_water_held)
+                              max_num_best_swaps_considered,num_unrestrained_macro_cycles, 
+                              num_loops_water_held)
         self.previously_swapped = []
         self.model_handle=None
         self.current_model=None
         self.initial_score=self.current_score=self.best_score=None
         self.best_score=self.current_score
         self.swapper:Swapper=None
-    def set_hyper_params(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=5, 
-                 wc_anneal_start=0.6,wc_anneal_loops=2, starting_num_best_swaps_considered=20,
-                 max_num_best_swaps_considered=100,num_loops_water_held=1):
+        self.swaps_history:list[Swapper.SwapGroup] = [] 
+    def set_hyper_params(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=2,  # 8,
+                 wc_anneal_start=0.6,wc_anneal_loops=2, starting_num_best_swaps_considered=5, # 20,
+                 max_num_best_swaps_considered=100,num_unrestrained_macro_cycles=3,
+                 num_loops_water_held=0):
         # NOTE Currently max wE increase is percentage based, 
         # but TODO optimal method needs to be investigated.
         self.n_best_swap_start=starting_num_best_swaps_considered
         self.n_best_swap_max = max_num_best_swaps_considered
+        self.num_unrestrained_macro_cycles=num_unrestrained_macro_cycles
         self.max_wE_frac_increase=max_wE_frac_increase
         self.acceptance_temperature=acceptance_temperature
         self.num_end_loop_refine_cycles=num_end_loop_refine_cycles
@@ -63,11 +76,11 @@ class Untangler():
         assert pdb_file_path[-4:]==".pdb", f"file path doesn't end in '.pdb': {pdb_file_path}"
         self.model_handle = os.path.basename(pdb_file_path)[:-4]
         self.current_model= Untangler.output_dir+f"{self.model_handle}_current.pdb"
+        os.makedirs(Untangler.output_dir,exist_ok=True)
         shutil.copy(pdb_file_path,self.current_model)
         self.swapper = Swapper()
 
-        initial_model=self.initial_refine(self.current_model,debug_skip=self.debug_skip_refine) 
-        #initial_model=self.initial_refine(self.current_model,debug_skip=True)  
+        initial_model=self.initial_refine(self.current_model,debug_skip=(self.debug_skip_refine or self.debug_skip_initial_refine)) 
         self.initial_score = Untangler.Score(*assess_geometry_wE(self.output_dir,initial_model))
         self.current_score = self.best_score = Untangler.Score.inf_bad_score()# i.e. force accept first solution
         shutil.copy(initial_model,self.current_model)
@@ -92,62 +105,167 @@ class Untangler():
 
 
     def step(self):
-        # working_model = self.refinement_loop()
-        # self.propose_model(working_model)
         self.refinement_loop()
 
-    def refinement_loop(self,two_swaps=True):
-        # working_model stores the path of the current model. It changes value during the loop.
-        # TODO if stuck (tried all candidate swap sets for the loop), do random flips or engage Metr.Hastings or track all the new model scores and choose the best.
-        working_model = self.refine_for_positions(self.current_model,debug_skip=self.debug_skip_refine) 
+
+    def candidate_models_from_swapper(self,swapper:Swapper,num_solutions,model_to_swap:str,allot_protein_independent_of_waters:bool)->list[str]: #TODO refactor as method of Swapper class
         
-        self.swapper.clear_candidates()
-        #for align_uncertainty in [False,True]:  # Not sophisticated enough yet.
-        for align_uncertainty in [False]:
-            atoms, connections = Solver.MTSP_Solver(working_model,align_uncertainty=align_uncertainty).calculate_paths(clash_punish_thing=True)
-            num_best_solutions=min(self.loop+self.n_best_swap_start,self.n_best_swap_max) # increase num solutions we search over time...
-            swaps_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
-                                           out_handle=self.model_handle,
-                                           num_solutions=num_best_solutions,
-                                           force_sulfur_bridge_swap_solutions=True)
-            
-            # Translate candidate solutions from LinearOptimizer into swaps lists
-            # Try proposing each solution until one is accepted or we run out.
-            self.swapper.add_candidates(swaps_file_path) # Note sorted then added to end. So it will go through one loaded set first, then next if no improvements found there.
+        swapper.clear_candidates()
+        atoms, connections = Solver.MTSP_Solver(model_to_swap,ignore_waters=allot_protein_independent_of_waters).calculate_paths(
+            clash_punish_thing=False,
+            nonbonds=True,   # Note this won't look at nonbonds with water if ignore_waters=True. 
+            water_water_nonbond = False  # This is so we don't get a huge number of nearly identical solutions from swapping waters around.
+        )
+        swaps_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
+                                        out_handle=self.model_handle,
+                                        num_solutions=num_solutions,
+                                        force_sulfur_bridge_swap_solutions=True,
+                                        protein_sites=True, 
+                                        water_sites= not allot_protein_independent_of_waters,
+                                        )
         
-        pre_swap_model = working_model
+        # Translate candidate solutions from LinearOptimizer into swaps lists
+        # Try proposing each solution until one is accepted or we run out.
+        swapper.add_candidates(swaps_file_path) #
+    
+        candidate_models=[]
+        candidate_swaps=[]
+        candidate_model_dir = f"{self.output_dir}/{self.model_handle}_swapOptions_{self.loop}/"
+        os.makedirs(candidate_model_dir,exist_ok=True)
+        # Remove files from any previous call
+        for file in os.listdir(candidate_model_dir):
+            os.remove(candidate_model_dir + file) 
+
+        i = 0
         while self.swapper.solutions_remaining()>0: 
             ### Swap on unrestrained model ###
-            working_model, _ = self.swapper.run(pre_swap_model)
-            working_model=self.regular_refine(working_model,debug_skip=self.debug_skip_refine)
-
-            new_model_was_accepted = self.propose_model(working_model)
-
-            if not new_model_was_accepted and two_swaps:
-                #### Swap again on restrained model. Take Best solution only.  ###
-                atoms, connections = Solver.MTSP_Solver(working_model,align_uncertainty=False).calculate_paths()
-                unswap_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,out_handle=self.model_handle,num_solutions=1,force_sulfur_bridge_swap_solutions=False)
-                unswapper = Swapper()
-                unswapper.add_candidates(unswap_file_path)
-                if len(unswapper.swap_groups_sorted[0].swaps)!=0:
-                    working_model, _ = unswapper.run(working_model)
-
-                    working_model=self.regular_refine(working_model,debug_skip=self.debug_skip_refine)
-                    new_model_was_accepted = self.propose_model(working_model)
+            working_model, swapGroup = swapper.run(model_to_swap)
+            
+            swap_sequence = [swapGroup]
+            if allot_protein_independent_of_waters:
+                ## Swap waters with protein altlocs fixed
+                atoms, connections = Solver.MTSP_Solver(working_model,ignore_waters=False).calculate_paths(
+                clash_punish_thing=False,
+                nonbonds=True 
+                )
+                print("Allotting waters")
+                waters_swapped_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
+                                                        out_handle=self.model_handle,
+                                                        num_solutions=1,
+                                                        force_sulfur_bridge_swap_solutions=False,
+                                                        protein_sites=False,
+                                                        water_sites=True)
+                water_swapper = Swapper()
+                water_swapper.add_candidates(waters_swapped_path)
+                waterSwapGroup = []
+                if len(water_swapper.swap_groups_sorted[0].swaps)!=0:
+                    print("Found better water altloc allotments")
+                    working_model, waterSwapGroup = water_swapper.run(working_model)
                 else:
-                    print("Continuing, no unswaps found")
+                    print("Waters unchanged")
+                swap_sequence.append(waterSwapGroup)
+            
+                
+            moved_path =  f"{candidate_model_dir }{i}.pdb"
+            candidate_models.append(moved_path)
+            candidate_swaps.append(swap_sequence)
+            shutil.move(working_model,moved_path) 
+            i+=1
+        return candidate_models,candidate_swaps
+    
+    def determine_best_model(self,model_dir, minimize_R=True,minimize_wE=True):
+        assert minimize_R or minimize_wE # both is okay too
 
-            if new_model_was_accepted:
-                break
+        models = os.listdir(model_dir)
+        models = [f"{model_dir}{m}"  for m in models]
+        best_both_decrease = np.inf
+        best = np.inf
+        best_model=None
+
+        global pooled_method # not sure if this is a good idea. Did this because it tries to pickle but fails if local. Try replacing with line: multiprocessing.set_start_method(‘fork’)
+        def pooled_method(i):
+            create_score_file(self.output_dir,models[i])
+
+        with Pool(self.num_threads) as p:
+            p.map(pooled_method,range(len(models)))
+                
+
+        for model in models:
+            print(model)
+            combined, wE,Rwork, Rfree = get_score(score_file_name(model))
+            print("Python read | model score wE Rwork Rfree | ",model,combined, wE, Rwork, Rfree)
+            if minimize_wE != minimize_R:
+                meas = Rfree if minimize_R else wE 
+                if meas < best:
+                    best = meas
+                    best_model = model
+
+            else: 
+                # Find best Combined Score, but where both decrease relative to current score if possible.
+
+                if Rfree < self.current_score.R_free and wE < self.current_score.wE:
+                    assert combined < self.current_score.combined
+                    if combined < best_both_decrease:
+                        best_both_decrease = combined
+                        best_model = model
+                if best_both_decrease == np.inf and combined < best:
+                    best = combined # this score is no longer used if a result is found where both wE and Rfree decrease
+                    best_model = model
+        assert best_model is not None
+        print("Best:",best_model)
+        return best_model
+                
+
+
+
+
+
+    def refinement_loop(self,two_swaps=False,allot_protein_independent_of_waters=False): 
+        # working_model stores the path of the current model. It changes value during the loop.
+        # TODO if stuck (tried all candidate swap sets for the loop), do random flips or engage Metr.Hastings or track all the new model scores and choose the best.
+        working_model = self.refine_for_positions(self.current_model,debug_skip=self.debug_skip_refine or self.debug_skip_unrestrained_refine) 
         
-        #return working_model 
+            
+        num_best_solutions=min(self.loop+self.n_best_swap_start,self.n_best_swap_max) # increase num solutions we search over time...
+        cand_models,cand_swaps = self.candidate_models_from_swapper(self.swapper,num_best_solutions,working_model,allot_protein_independent_of_waters)
+        refined_model_dir = self.regular_batch_refine(cand_models,debug_skip=self.debug_skip_refine)
+        working_model = self.determine_best_model(refined_model_dir)
+        #### TODO Sucks make better ####
+        best_model_that_was_refined = os.path.basename(working_model).split("_")[-1]
+        candidate_model_dir = f"{self.output_dir}/{self.model_handle}_swapOptions_{self.loop}/"
+        best_model_that_was_refined = candidate_model_dir+best_model_that_was_refined
+        ################################
+        swaps = cand_swaps[cand_models.index(best_model_that_was_refined)]
+        
+        new_model_was_accepted = self.propose_model(working_model)
+        
+        if not new_model_was_accepted and two_swaps:
+            #### Swap again on restrained model. Take Best solution only.  ###
+            unswapper=Swapper()
+            cand_models,cand_swaps = self.candidate_models_from_swapper(unswapper,1,working_model,allot_protein_independent_of_waters)
+
+            raise Exception("Unimplemented")
+            if "unswapper.swap_groups_sorted[0].swaps has a non water swap": # TODO or if unswaps == swaps
+                working_model = self.determine_best_model(refined_model_dir)
+                swaps += cand_swaps[cand_models.index(working_model)]
+                new_model_was_accepted = self.propose_model(working_model)
+
+            else:
+                print("Continuing, no unswaps found")
+
+        if new_model_was_accepted:
+            self.swaps_history.append(swaps)
+            self.write_swaps_history()
+        
+    def write_swaps_history(self):
+        with open(f"{self.output_dir}refine_logs/swapHistory_{self.model_handle}.txt","w") as f:
+            f.writelines('\n'.join([str(swap) for swap in self.swaps_history]))
 
     def propose_model(self,working_model):
         
-        new_combined, new_wE,new_R = assess_geometry_wE(self.output_dir,working_model)
-        new_score = Untangler.Score(new_combined,new_wE,new_R)
+        new_score = Untangler.Score(*assess_geometry_wE(self.output_dir,working_model))
         #deltaE = new_wE-self.current_score.wE # geometry only
-        deltaE = new_combined-self.current_score.combined  # include R factor
+        deltaE = new_score.combined-self.current_score.combined  # include R factor
         max_wE_increase = self.max_wE_frac_increase*self.current_score.wE
         if self.current_score.wE==np.inf:
             max_wE_increase = np.inf
@@ -172,58 +290,154 @@ class Untangler():
     def initial_refine(self,model_path,**kwargs)->str:
         # Try to get atoms as close to their true positions as possible
         for wc, wu, n_cycles in zip([1,0.5,0.2,0.1],[1,0,0,0],[2,4,5,5]):
-            model_path = self.refine(
-                model_path,
+
+            refine_params = self.get_refine_params(
                 "initial",
+                model_path=model_path,
                 num_macro_cycles=n_cycles,
                 wc=wc,
                 wu=wu,
                 hold_water_positions=True,
+            )
+            model_path = self.refine(
+                refine_params,
                 **kwargs
             )
         return model_path
 
     def refine_for_positions(self,model_path,**kwargs)->str:
-        return self.refine(
-            model_path,
-            "unrestrained",
-            num_macro_cycles=1,
-            wc=0,
-            hold_water_positions=True,
-            **kwargs
-        )
+        # No idea why need to do this. But otherwise it jumps at 1_xyzrec
+        next_model = model_path
+        for n in range(self.num_unrestrained_macro_cycles):
+            refine_params = self.get_refine_params(
+                f"unrestrained-mc{n}",
+                model_path=next_model,
+                num_macro_cycles=1,
+                wc=0,
+                hold_water_positions=True,
+            )
+            next_model = self.refine(
+                refine_params,
+                **kwargs
+            )
+        return next_model
     
+        
+    def regular_batch_refine(self,model_paths,**kwargs):
+        param_set = []
+        for i, model in enumerate(model_paths):
+            param_set.append(self.get_refine_params(
+                f"loopEnd{self.loop}-{i+1}",
+                model_path=model,
+                num_macro_cycles=self.num_end_loop_refine_cycles,
+                wc=min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
+                hold_water_positions=self.holding_water(),
+                ))
+        return self.batch_refine(f"loopEnd{self.loop}",param_set,**kwargs)
+
+
     def regular_refine(self,model_path,**kwargs)->str:
-        return self.refine(
-            model_path,
-            "loopEnd",
+
+        refine_params = self.get_refine_params(
+            f"loopEnd{self.loop}",
+            model_path=model_path,
             num_macro_cycles=self.num_end_loop_refine_cycles,
             wc=min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
-            hold_water_positions= self.holding_water(),  # even when False, bond distances are still held (refine_water_bond_length_hold_template.eff)
+            hold_water_positions=self.holding_water(),
+        )
+        return self.refine(
+            refine_params,
             **kwargs
         )
+        # return self.refine(
+        #     model_path,
+        #     "loopEnd",
+        #     num_macro_cycles=self.num_end_loop_refine_cycles,
+        #     wc=min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
+        #     #hold_water_positions= self.holding_water(),  
+        #     hold_protein_positions = True,
+        #     **kwargs
+        # )
+
     def holding_water(self)->bool:
         return self.loop<self.num_loops_water_held
-    def refine(self,model_path,out_tag,num_macro_cycles,wc=1,wu=1,optimize_R=False,hold_water_positions=False,debug_skip=False,shake=0)->str:
-        assert model_path[-4:]==".pdb", model_path
-        out_model_handle = os.path.basename(model_path)[:-4]
+    def refine(self,refine_params:(tuple[SimpleNamespace,list[str]]),debug_skip=False)->str:
+        # assert model_path[-4:]==".pdb", model_path
+        P, args = refine_params
         if not debug_skip:
-            args=["bash", 
-              f"{self.working_dir}/{self.refine_shell_file}",f"{model_path}",f"{out_tag}",
-              "-c",f"{wc}",
-              "-u",f"{wu}",
-              "-n",f"{num_macro_cycles}",
-              "-o",f"{self.model_handle}_{out_tag}",
-              "-s",f"{shake}",
-              "-d", self.hkl_handle]
-            for bool_param, flag in ([hold_water_positions,"-h"],[optimize_R,"-r"]):
-                if bool_param:
-                    args.append(flag)
-            print (f"Running {args}")
+            print (f"Running {P}")
             subprocess.run(args)#,stdout=log)
-        out_path = f"{self.output_dir}/{self.model_handle}_{out_tag}.pdb"
+        out_path = f"{self.output_dir}/{self.model_handle}_{P.out_tag}.pdb"
 
         return out_path
+    
+    #def get_refine_params(self,param_dict: SimpleNamespace | dict[str,Any]):
+    def get_refine_params(self, out_tag=None, model_path=None,num_macro_cycles=None, # mandatory
+                          wc=1,wu=1, shake=0, optimize_R=False,
+                          hold_water_positions=False,hold_protein_positions=False):
+        assert (not hold_water_positions) or (not hold_protein_positions) 
+        param_dict = locals()
+        del param_dict["self"]
+
+        P_defaults = dict(out_tag=None,model_path=None,num_macro_cycles=None, # mandatory
+                          wc=1,wu=1, shake=0, optimize_R=False,
+                          hold_water_positions=False,hold_protein_positions=False,
+                          debug_skip=False)
+        
+        if type(param_dict) is SimpleNamespace:
+            param_dict:dict[str,Any] = vars(param_dict)
+        for key, default_value in P_defaults.items():
+            if key not in param_dict:
+                param_dict[key] = default_value 
+        assert P_defaults.keys() == param_dict.keys() 
+        P = SimpleNamespace(**param_dict)
+  
+        args=["bash", 
+            f"{self.working_dir}/{self.refine_shell_file}",f"{P.model_path}",f"{P.out_tag}",
+            "-c",f"{P.wc}",
+            "-u",f"{P.wu}",
+            "-n",f"{P.num_macro_cycles}",
+            "-o",f"{self.model_handle}_{P.out_tag}",
+            "-s",f"{P.shake}",
+            "-d", self.hkl_handle]
+        for bool_param, flag in ([P.hold_water_positions,"-h"],[P.optimize_R,"-r"],[P.hold_protein_positions,"-p"]):
+            if bool_param:
+                args.append(flag)
+        return P, args
+
+    def batch_refine(self,batch_tag,refine_arg_sets:list[dict[str]],debug_skip=False)->str:
+        out_directory = f"{self.output_dir}/{self.model_handle}_{batch_tag}/"
+        os.makedirs(out_directory,exist_ok=True) 
+        # Remove files from any previous call
+        for file in os.listdir(out_directory):
+            os.remove(out_directory + file) 
+
+        # TODO folder in output/refine_logs/
+        
+        global pooled_method # not sure if this is a good idea. Did this because it tries to pickle but fails if local. Try replacing with line: multiprocessing.set_start_method(‘fork’)
+        def pooled_method(i):
+            max_attempts=3
+            attempt=0
+            while True:
+                sleep(2*i) # Desperate attempt to reduce phenix seg faults.
+                print(f"Refining {i+1}/{len(refine_arg_sets)}")
+                out_path = self.refine(refine_arg_sets[i])
+                out_directory = f"{self.output_dir}/{self.model_handle}_{batch_tag}/"
+                if os.path.exists(out_path):
+                    shutil.move(out_path,f"{out_directory}{batch_tag}_{i}.pdb") 
+                    break
+                elif attempt < max_attempts:
+                    attempt+=1
+                    print(f"Warning: refinement {i} failed for unknown reason! Retrying...")
+                else:
+                    print(f"Warning: refinement {i} failed {max_attempts} times! Skipping...")
+                    break
+        if not debug_skip:
+            with Pool(self.num_threads) as p:
+                p.map(pooled_method,range(len(refine_arg_sets)))
+        return out_directory
+
+
 
 
     def P_accept_swap(self,deltaE,max_wE_increase,metropolis_hastings=True): 
@@ -235,99 +449,106 @@ class Untangler():
         return np.exp(-deltaE/(k*self.acceptance_temperature))
 
 
-    # def refine_for_positions_costly(self,model_path,**kwargs)->str:
-    #     #TODO reduce num cycles if Rfree doesn't decrease.
-    #     #  
-    #     reflections_path=pdb_data_dir()+"refme.mtz" # NOTE
+    def refine_for_positions_costly(self,model_path,**kwargs)->str:
+        #TODO reduce num cycles if Rfree doesn't decrease.
+        #  
 
-    #     #model_path_A=model_path_B=model_path_C=model_path_D=model_path_E=model_path
+        refine_param_sets  = []
 
-    #     #TODO parallelise
-    #     model_path_A = self.refine(
-    #         model_path,
-    #         "unrestrained_A",
-    #         #num_macro_cycles=3,
-    #         num_macro_cycles=2,
-    #         wc=0,
-    #         hold_water_positions=True,
-    #         **kwargs
-    #     )
-    #     model_path_B = self.refine(
-    #         model_path,
-    #         "unrestrained_B",
-    #         num_macro_cycles=2,
-    #         wc=0.1,
-    #         shake=0.03,
-    #         hold_water_positions=True,
-    #         **kwargs
-    #     )
-    #     model_path_B = self.refine(
-    #         model_path_B,
-    #         "unrestrained_B",
-    #         num_macro_cycles=1,
-    #         wc=0,
-    #         wu=1,
-    #         hold_water_positions=True,
-    #         **kwargs
-    #     )
 
-    #     # model_path_C = self.refine(
-    #     #     model_path,
-    #     #     "unrestrained_C",
-    #     #     num_macro_cycles=2,
-    #     #     optimize_R=True,
-    #     #     hold_water_positions=True,
-    #     #     **kwargs
-    #     # )
-    #     model_path_D = self.refine(
-    #         model_path,
-    #         "unrestrained_D",
-    #         num_macro_cycles=2,
-    #         optimize_R=True,
-    #         hold_water_positions=self.holding_water(),
-    #         **kwargs
-    #     )
+        #model_path_A=model_path_B=model_path_C=model_path_D=model_path_E=model_path
 
-    #     # model_path_E = self.refine(
-    #     #     model_path,
-    #     #     "unrestrained_E",
-    #     #     num_macro_cycles=3,
-    #     #     wc=0,
-    #     #     shake=0.03,
-    #     #     hold_water_positions=True,
-    #     #     **kwargs
-    #     # )
-    #     model_path_F = self.refine(
-    #         model_path,
-    #         "unrestrained_F",
-    #         #num_macro_cycles=5,
-    #         num_macro_cycles=3,
-    #         wc=0.1,
-    #         wu=0,
-    #         hold_water_positions=self.holding_water(),
-    #         **kwargs
-    #     )
-    #     lowest_Rfree_model=None
-    #     lowest_Rfree = np.inf
-    #     R_dict = {}
-    #     with open(f"{self.output_dir}refine_logs/{self.model_handle}_position_refine_Rs.txt","w") as f:
-    #         #for m_path in (model_path_A,model_path_B,model_path_C,model_path_D,model_path_E,model_path_F):
-    #         for m_path in (model_path_A,model_path_B,model_path_D,model_path_F):
-    #             Rwork,Rfree = get_R(m_path,reflections_path)
-    #             R_dict[m_path] = f"Rwork: {Rwork}, Rfree: {Rfree}"
-    #             if Rfree < lowest_Rfree:
-    #                 lowest_Rfree_model=m_path
-    #                 lowest_Rfree=Rfree
-    #                 print(f"Current positions model (Rwork | Rfree) - ({Rwork} | {Rfree})")
-    #             f.write(f"{m_path.split('/')[-1]} | {R_dict[m_path]}\n")
-    #     return lowest_Rfree_model
+        refine_param_sets.append(dict(
+            #num_macro_cycles=3,
+            num_macro_cycles=2,
+            wc=0,
+            hold_water_positions=True,
+            **kwargs
+        ))
+
+        assert False, "TODO: Sequential refine in batch"
+        refine_param_sets.append(
+            [dict(
+            num_macro_cycles=2,
+            wc=0.1,
+            shake=0.03,
+            hold_water_positions=True,
+            **kwargs
+            ),
+
+            dict(
+            num_macro_cycles=1,
+            wc=0,
+            wu=1,
+            hold_water_positions=True,
+            **kwargs)
+            ]
+        )
+
+        # model_path_C = self.refine(
+        #     model_path,
+        #     "unrestrained_C",
+        #     num_macro_cycles=2,
+        #     optimize_R=True,
+        #     hold_water_positions=True,
+        #     **kwargs
+        # )
+        refine_param_sets.append(dict(
+            model_path,
+            "unrestrained_D",
+            num_macro_cycles=2,
+            optimize_R=True,
+            hold_water_positions=self.holding_water(),
+            **kwargs
+        ))
+
+        # model_path_E = self.refine(
+        #     model_path,
+        #     "unrestrained_E",
+        #     num_macro_cycles=3,
+        #     wc=0,
+        #     shake=0.03,
+        #     hold_water_positions=True,
+        #     **kwargs
+        # )
+        refine_param_sets.append(dict(
+            model_path,
+            "unrestrained_F",
+            #num_macro_cycles=5,
+            num_macro_cycles=3,
+            wc=0.1,
+            wu=0,
+            hold_water_positions=self.holding_water(),
+            **kwargs
+        ))
+        out_dir = self.batch_refine(model_path,"unrestrained_options",refine_param_sets)
+
+
+
+        lowest_Rfree_model=None
+        lowest_Rfree = np.inf
+        R_dict = {}
+        reflections_path=pdb_data_dir()+"refme.mtz" # NOTE
+        # with open(f"{self.output_dir}refine_logs/{self.model_handle}_position_refine_Rs.txt","w") as f:
+        #     #for m_path in (model_path_A,model_path_B,model_path_C,model_path_D,model_path_E,model_path_F):
+        #     for m_path in (os.listdir(out_dir)):
+        #         Rwork,Rfree = get_R(m_path,reflections_path)
+        #         R_dict[m_path] = f"Rwork: {Rwork}, Rfree: {Rfree}"
+        #         if Rfree < lowest_Rfree:
+        #             lowest_Rfree_model=m_path
+        #             lowest_Rfree=Rfree
+        #             print(f"Current positions model (Rwork | Rfree) - ({Rwork} | {Rfree})")
+        #         f.write(f"{m_path.split('/')[-1]} | {R_dict[m_path]}\n")
+        best_model = self.determine_best_model(out_dir,minimize_wE=False)
+
+        return lowest_Rfree_model
 
 
 
 
 def main():
     if len(sys.argv)!=3:
-        print("Usage: python3.9 Untangle.py data/1AHO_initial_model_TW.pdb data/refme.mtz")
+        print("Usage: python3.9 untangle.py data/myInitialModel.pdb data/myReflections.mtz")
         return
 
     starting_model = sys.argv[1]
@@ -335,7 +556,7 @@ def main():
     Untangler().run(
         starting_model,
         xray_data,
-        desired_score=17,
+        desired_score=18.41,
         max_num_runs=100
     )
 if __name__=="__main__":

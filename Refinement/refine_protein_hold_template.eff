@@ -144,7 +144,7 @@ refinement {
                  *individual_adp group_adp tls occupancies group_anomalous \
                  den
     sites {
-      individual = None
+      individual = "water"
       torsion_angles = None
       rigid_body = None
     }
@@ -253,7 +253,7 @@ refinement {
         scale_adp = None
       }
       sites {
-        atom_selection = None
+        atom_selection = not water
         shake = SHAKE_TEMPLATE
         switch_rotamers = max_distant min_distant exact_match fix_outliers
         translate = 0 0 0

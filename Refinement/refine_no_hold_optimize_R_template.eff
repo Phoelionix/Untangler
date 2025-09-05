@@ -982,9 +982,9 @@ geometry_restraints.edits {
     mode = every_macro_cycle *second_and_before_last once first first_half
   }
   target_weights {
-    optimize_xyz_weight = False
-    optimize_adp_weight = False
-    wxc_scale = 0.5
+    optimize_xyz_weight = True
+    optimize_adp_weight = True
+    wxc_scale = 1.1
     wxu_scale = 1
     wc = 1
     wu = 1
@@ -997,7 +997,7 @@ geometry_restraints.edits {
     wnc_scale = 0.5
     wnu_scale = 1
     rmsd_cutoff_for_gradient_filtering = 3
-    force_optimize_weights = False
+    force_optimize_weights = True
     weight_selection_criteria {
       bonds_rmsd = None
       angles_rmsd = None

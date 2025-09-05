@@ -1,3 +1,21 @@
+#===========================================================================
+# Untangler: Free ensemble models from local minima with the wrong altlocs 
+# Copyright (C)  2025 Spencer Passmore (spencerpassmore@swin.edu.au)
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#===========================================================================
+
 # Finds assignment of altlocs that minimizes the geometric "badness" defined in LinearOptimizer.Input. 
 # It may be easier to think about it as connecting up the atoms in a way that minimizes the total energy.
 
@@ -22,7 +40,20 @@ import json
 
 
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]],out_handle:str): # 
-def solve(chunk_sites: dict[str,Chunk],disordered_connections:dict[str,list[MTSP_Solver.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True): # 
+def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[MTSP_Solver.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True,
+          protein_sites:bool=True,water_sites:bool=True): # 
+    # protein_sites, water_sites: Whether these can be swapped.
+
+    """
+    # This sucks but is fixed in more_than_two branch. HOW
+    #first_atom_id = "1.N"
+    first_atom_id = None
+    lowest_site_num = np.inf
+    for chunk_site in chunk_sites.values():
+        if chunk_site.get_site_num() < lowest_site_num:
+            lowest_site_num = chunk_site.get_site_num()
+            first_atom_id = chunk_site.get_disordered_tag()
+    """
 
     nodes = [chunk.unique_id() for chunk in chunk_sites.values()]
 
@@ -55,9 +86,12 @@ def solve(chunk_sites: dict[str,Chunk],disordered_connections:dict[str,list[MTSP
         Atom="Atom"
         Bond = "Bond"
         Nonbond="Nonbond"
+        Clash="Clash"
         Angle = "Angle"
     class VariableID:
-
+        @staticmethod
+        def Atom(chunk:AtomChunk):
+            return VariableID(chunk.get_disordered_tag(),VariableKind.Atom)
         def __init__(self,name:str,kind:VariableKind):
             self.name=name
             self.kind = kind
@@ -83,8 +117,10 @@ def solve(chunk_sites: dict[str,Chunk],disordered_connections:dict[str,list[MTSP
     # def site_variable_name(site: VariableID, from_altloc:str, to_altloc:str):
     #     return f"atomState_{site}_{from_altloc}.{to_altloc}"
     disordered_atom_sites:list[str] = []
+    
+    # Setup whether atoms flipped
     for i, (atom_id, chunk) in enumerate(chunk_sites.items()):
-        site = VariableID(chunk.get_disordered_tag(),Literal[VariableKind.Atom])
+        site = VariableID.Atom(Chunk)
         disordered_atom_sites.append(site)
 
 
@@ -165,7 +201,7 @@ def solve(chunk_sites: dict[str,Chunk],disordered_connections:dict[str,list[MTSP
                 assignment_options[to_altloc]=[]
                 for ch in ordered_conection_option.atom_chunks:
                     from_altloc = ch.get_altloc()
-                    site = VariableID(chunk.get_disordered_tag(),Literal[VariableKind.Atom])
+                    site = VariableID.Atom(chunk)
                     assignment_options[to_altloc].append(site_var_dict[site][from_altloc][to_altloc])
             # if variable is inactive, cannot have all atoms assigned to the same altloc.
             # Note that since every connection option is looped through, this also means 
@@ -265,8 +301,11 @@ def solve(chunk_sites: dict[str,Chunk],disordered_connections:dict[str,list[MTSP
             f.write(f"Status: {LpStatus[lp_problem.status]}\n")
 
             for v in lp_problem.variables():
-                if v.varValue > 0:
-                    f.write(f"{v.name} = {v.varValue}\n")
+                try:
+                    if v.varValue > 0:
+                        f.write(f"{v.name} = {v.varValue}\n")
+                except:
+                    raise Exception(v,v.varValue)
             f.write(f"Total distance = {value(lp_problem.objective)}")
             
 
@@ -304,11 +343,15 @@ def solve(chunk_sites: dict[str,Chunk],disordered_connections:dict[str,list[MTSP
         flipped_flip_variables = []
         flip_variables=[]
         for chunk in chunk_sites.values():
-            var = var_dict[chunk.get_disordered_tag()]["flipped"]
-            val = var.varValue
-            flip_variables.append(var)
-            if val == 1:
-                flipped_flip_variables.append(1-var)
+            if protein_sites and chunk.is_water: # not interested in different solutions for water. 
+                continue # This means water atoms may or may not swap for the single solution where no protein atoms swap.
+            site = VariableID.Atom(chunk)
+            for from_altloc in site_var_dict[site]:
+                for to_altloc, var in site_var_dict[site][from_altloc].items():
+                    val = var.varValue
+                    flip_variables.append(var)
+                    if val == 1:
+                        flipped_flip_variables.append(1-var)
         if len(flipped_flip_variables) == 0:
             # Require one variable to be flipped
             lp_problem += pulp.lpSum(flip_variables) >= 1, f"force_next_best_solution_{l}"
