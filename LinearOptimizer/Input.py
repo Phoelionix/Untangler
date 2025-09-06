@@ -636,7 +636,7 @@ class MTSP_Solver:
             return f"{self.connection_type}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
 
 
-    def __init__(self,pdb_file_path:str, align_uncertainty=False,ignore_waters=False):
+    def __init__(self,pdb_file_path:str, align_uncertainty=False,ignore_waters=False,altloc_subset_size=3):
         # Note if we ignore waters then we aren't considering nonbond clashes between macromolecule and water.
         self.model_path = pdb_file_path
         original_structure = PDBParser().get_structure("struct",pdb_file_path)
@@ -644,7 +644,7 @@ class MTSP_Solver:
             self.align_uncertainty(original_structure)
         self.ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),
                                                      protein=True,waters=not ignore_waters,
-                                                     altloc_subset_size=6)   
+                                                     altloc_subset_size=altloc_subset_size)   
     def align_uncertainty(self,structure:Structure.Structure):
         # in x-ray data and geom.
         # Experimental and doesn't help.
@@ -716,6 +716,10 @@ class MTSP_Solver:
         assert self.model_path[-4:]==".pdb"
         model_handle = os.path.basename(self.model_path)[:-4]
 
+        nonbonds = False ###################### XXX TEMPORARY !!!!!!!!!!!!!!!!!!!!!!!!!
+        print("WARNING: nonbonds force disabled for debugging")
+        water_clashes=[]
+        nonbond_scores_files = []
         if nonbonds:
 
 

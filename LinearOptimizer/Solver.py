@@ -296,7 +296,10 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
         lp_problem.writeLP(f"{out_dir}/TSP_{out_handle}.lp")
 
-        lp_problem.solve()
+        NTHREADS=16
+        solver = PULP_CBC_CMD(threads=NTHREADS)
+        lp_problem.solve(solver=solver)
+        #lp_problem.solve()
 
         def get_status(verbose=False):
             print("Status:", LpStatus[lp_problem.status])
