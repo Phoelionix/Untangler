@@ -36,19 +36,19 @@ class Swapper():
             self.to_altloc = to_altloc
         def atom_id(self):
             return (self.res_num,self.atom_name,self.from_altloc)
-        def matches_id(self,res_num:str|int,atom_name:str,from_altloc:str):
+        def matches_id(self,res_num,atom_name:str,from_altloc:str):
             return self.atom_id() == (int(res_num),atom_name,from_altloc)
     class SwapGroup:
         def __init__(self,badness):
             self.badness =badness
             self.swaps: list[Swapper.Swap] = [] 
-        def add(self,res_seq_num:str|int,atom_name:str,from_altloc,to_altloc:str):
+        def add(self,res_seq_num,atom_name:str,from_altloc,to_altloc:str):
             self.swaps.append(Swapper.Swap(int(res_seq_num),atom_name,from_altloc=from_altloc,to_altloc=to_altloc))
         def get_atom_names(self):
             return [swap.atom_name for swap in self.swaps]
         def get_atom_ids(self):
             return [swap.atom_id() for swap in self.swaps]
-        def get_to_altloc(self,res_num:str|int,atom_name:str,from_altloc:str):
+        def get_to_altloc(self,res_num,atom_name:str,from_altloc:str):
             for swap in self.swaps:
                 if swap.matches_id(res_num,atom_name,from_altloc):
                     return swap.to_altloc
@@ -202,7 +202,6 @@ class Swapper():
         assert model_path[-4:]==".pdb", model_path
         model_handle = os.path.basename(model_path)[:-4]
         out_path = f"{os.path.abspath(os.getcwd())}/output/{model_handle}_lpSwapped.pdb"
-        out_path_water_swapped = f"{os.path.abspath(os.getcwd())}/output/{model_handle}_lpSwapped_water_swapped.pdb"       
 
         swap_group: Swapper.SwapGroup = self.swap_groups_sorted[self.sol_idx]
         assert isinstance(swap_group,Swapper.SwapGroup)
@@ -221,7 +220,7 @@ class Swapper():
                     continue
                 if P.res_name == "HOH":
                     if (P.res_num,P.atom_name) in swap_group.swaps:
-                        new_lines += P.swap_altloc()
+                        new_lines += P.new_altloc()
                     else:
                         new_lines += line 
                     continue
@@ -256,25 +255,25 @@ class Swapper():
 
         return out_path,swap_group
                     
-    @staticmethod
-    def MakeSwapWaterFileByLines(lines,out_path):
-        # swap waters
-        water_swapped_lines = ""
-        for line in lines:
-            P = Swapper.PDB_Params(line)
-            if (not P.valid) or (not P.res_name=="HOH"):
-                water_swapped_lines+=line+"\n"
-            else:
-                water_swapped_lines+=P.swap_altloc()+"\n"
-        #print(water_swapped_lines)
-        with open(out_path,'w') as f:
-            f.writelines(water_swapped_lines)
+    # @staticmethod
+    # def MakeSwapWaterFileByLines(lines,out_path):
+    #     # swap waters
+    #     water_swapped_lines = ""
+    #     for line in lines:
+    #         P = Swapper.PDB_Params(line)
+    #         if (not P.valid) or (not P.res_name=="HOH"):
+    #             water_swapped_lines+=line+"\n"
+    #         else:
+    #             water_swapped_lines+=P.swap_altloc()+"\n"
+    #     #print(water_swapped_lines)
+    #     with open(out_path,'w') as f:
+    #         f.writelines(water_swapped_lines)
 
-    @staticmethod
-    def MakeSwapWaterFile(in_pdb_file, out_path):
-        # swap waters
-        lines = []
-        with open(in_pdb_file) as f:
-            for line in f.readlines():
-                lines.append(line)
-        Swapper.MakeSwapWaterFileByLines(lines,out_path)
+    # @staticmethod
+    # def MakeSwapWaterFile(in_pdb_file, out_path):
+    #     # swap waters
+    #     lines = []
+    #     with open(in_pdb_file) as f:
+    #         for line in f.readlines():
+    #             lines.append(line)
+    #     Swapper.MakeSwapWaterFileByLines(lines,out_path)

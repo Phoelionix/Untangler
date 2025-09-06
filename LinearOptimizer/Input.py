@@ -175,17 +175,17 @@ class OrderedResidue(Chunk):
     
 class ConstraintsHandler:
     class Constraint():
-        def __init__(self,atom_ids,ideal,weight):
-            self.atom_id = atom_ids
+        def __init__(self,atom_ids:list[str],ideal:float,weight:float):
+            self.site_tags = [DisorderedTag(pdb.strip().split()[-1], pdb[:4].strip()) for pdb in atom_ids]
             self.ideal = ideal
             self.weight = weight
             self.kind=None # Why do this when can just check type??
         def num_atoms(self):
-            return len(self.atom_id)
+            return len(self.site_tags)
         def atom_names(self):
-            return [pdb[:4].strip() for pdb in self.atom_id]
+            return [site.atom_name() for site in self.site_tags]
         def residues(self):
-            return [int(pdb.strip().split()[-1]) for pdb in self.atom_id]
+            return [site.resnum() for site in self.site_tags]
         def get_distance(self,atoms:list[Atom]):
             raise Exception("abstract method")
         def get_ordered_atoms(self,candidate_atoms:list[Atom])->list[Atom]:
@@ -299,30 +299,33 @@ class ConstraintsHandler:
 
     def __init__(self,constraints:list[Constraint]=[]):
         self.constraints:list[ConstraintsHandler.Constraint]=constraints
+        self.atom_constraints:dict[DisorderedTag,list[ConstraintsHandler.Constraint]]={}
 
-    def atom_in_constraints(self,atom_name,res_num):
-        for constraint in self.constraints:
-            for other_name,other_res_num in zip(constraint.atom_names(), constraint.residues()):
-                if atom_name== other_name and res_num==other_res_num:
-                    return True
-        return False
+    # def atom_in_constraints(self,atom_name,res_num):
+    #     for constraint in self.constraints:
+    #         for other_name,other_res_num in zip(constraint.atom_names(), constraint.residues()):
+    #             if atom_name== other_name and res_num==other_res_num:
+    #                 return True
+    #     return False
 
-    def get_constraints(self,atom_name,res_num):
-        atom_constraints:list[ConstraintsHandler.Constraint] = [] 
-        for constraint in self.constraints:
-            for other_atom_name, other_res_num in zip(constraint.atom_names(),constraint.residues()):
-                # print("---")
-                # print(other_atom_name)
-                # print(other_res_num)
-                # print(atom_name)
-                # print(res_num)
-                if other_atom_name == atom_name and other_res_num==res_num:
-                    atom_constraints.append(constraint)
-        return ConstraintsHandler(atom_constraints)
+    def get_constraints(self,site:'DisorderedTag',no_constraints_ok=False):
+        if site not in self.atom_constraints:
+            if no_constraints_ok:
+                return ConstraintsHandler([])
 
-            
-    def load_all_constraints(self,constraints_file,nonbond_scores_path,nonbond_water_flipped_scores_path,water_clashes,ordered_atom_lookup:OrderedAtomLookup,water_water_nonbond:bool):
-        print(f"Loading constraints from {constraints_file}")
+            raise Exception(f"No constraints found for {site}")
+        return ConstraintsHandler(self.atom_constraints[site])
+
+    def add(self,constraint:Constraint):
+        self.constraints.append(constraint)
+        # For each disordered atom site, track constraints it must use
+        for site in constraint.site_tags:
+            if site not in self.atom_constraints:
+                self.atom_constraints[site]=[]
+            self.atom_constraints[site].append(constraint)
+
+    def load_all_constraints(self,constraints_file,nonbond_scores_files,water_clashes,ordered_atom_lookup:OrderedAtomLookup,water_water_nonbond:bool):
+        print(f"Parsing constraints in {constraints_file}")
 
         self.constraints: list[ConstraintsHandler.Constraint]=[]
         with open(constraints_file,"r") as f:
@@ -338,7 +341,7 @@ class ConstraintsHandler:
                         continue
                     ideal,weight = float(ideal), float(weight)
                     #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
-                    self.constraints.append(ConstraintsHandler.BondConstraint((pdb1,pdb2),ideal,weight))  
+                    self.add(ConstraintsHandler.BondConstraint((pdb1,pdb2),ideal,weight))
                 if line.startswith("angle"):
                     constraint = lines[i:i+5]
                     pdb1=constraint[0].strip().split("\"")[1]
@@ -350,17 +353,13 @@ class ConstraintsHandler:
                         continue
                     ideal,weight = float(ideal), float(weight)
                     #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
-                    self.constraints.append(ConstraintsHandler.AngleConstraint((pdb1,pdb2,pdb3),ideal,weight))  
-       
+                    self.add(ConstraintsHandler.AngleConstraint((pdb1,pdb2,pdb3),ideal,weight))
        
         # Add nonbonds that are flagged as issues for current structure AND when waters are swapped
         print("WARNING: assuming residue numbers are all unique")
-        pdb_ids_added = []
-        for file,flipped_water in zip((nonbond_scores_path, nonbond_water_flipped_scores_path),(False,True)):
+        NB_pdb_ids_added = []
+        for file in (nonbond_scores_files):
         
-
-            if file is None:
-                continue
             with open(file) as f:
 
                 lines = f.readlines()
@@ -400,40 +399,11 @@ class ConstraintsHandler:
                         ideal = float(ideal)
                         pdb_ids = (pdb1,pdb2)
                         pdb_ids_flipped = (pdb2,pdb1)
-                        if pdb_ids not in pdb_ids_added and pdb_ids_flipped not in pdb_ids_added:
-                            self.constraints.append(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal))
-                            pdb_ids_added.append(pdb_ids)          
+                        if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
+                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal))
+                            NB_pdb_ids_added.append(pdb_ids)          
 
-
-                #for line in f:
-                    #ideal_separation = float(line.strip().split()[4])
-                    #atom_a,atom_b = line.strip().split()[-2:]
-                    # for atom in atom_a,atom_b:
-                    #     name, res_num = atom.split("_")[0],int(atom.split("_")[1])
-                    #     if name[0] == "H":
-                    #         nonH_in_res = ordered_atom_lookup.select_atoms_by(res_nums=[res_num],exclude_H=True)
-                    #         name = UntangleFunctions.H_get_parent_fullname(name,set([nonH.get_fullname() for nonH in nonH_in_res]))
-                    #     # if name == "O":
-                    #     #     # assume water... # FIXME # distinguish between water 
-                    #     #     continue 
-                    #     # TODO we are assuming no duplicates
-                    #     pdb1 = f"{name}     ARES     A      {res_num}"
-                    #     self.constraints.append(ConstraintsHandler.NonbondConstraint([pdb1,pdb1],file,flipped,badness))
-                    #pdb_ids = []
-                    # for atom in atom_a,atom_b:
-                    #     name, res_num = atom.split("_")[0],int(atom.split("_")[1])
-                    #     if name[0] == "H":
-                    #         nonH_in_res = ordered_atom_lookup.select_atoms_by(res_nums=[res_num],exclude_H=True)
-                    #         name = UntangleFunctions.H_get_parent_fullname(name,set([nonH.get_fullname() for nonH in nonH_in_res]))
-                    #     # if name == "O":
-                    #     #     # assume water... # FIXME # distinguish between water 
-                    #     #     continue 
-                    #     # TODO we are assuming no duplicates
-                    #     pdb_ids.append(f"{name}     ARES     A      {res_num}")
-                    # if pdb_ids not in pdb_ids_added:
-                    #     self.constraints.append(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal_separation))
-                    #     pdb_ids_added.append(pdb_ids)
-        num_nonbonded_from_geo = len(pdb_ids_added)
+        num_nonbonded_from_geo = len(NB_pdb_ids_added)
         waters = ordered_atom_lookup.select_atoms_by(protein=False)
         ideal_water_separation=2.200
         for atom in waters:
@@ -445,10 +415,10 @@ class ConstraintsHandler:
                     pdb2 = f"{other_atom.name}     ARES     A      {OrderedAtomLookup.atom_res_seq_num(other_atom)}"
                     pdb_ids = (pdb1,pdb2)
                     pdb_ids_flipped = (pdb2,pdb1)
-                    if pdb_ids not in pdb_ids_added and pdb_ids_flipped not in pdb_ids_added:
-                        self.constraints.append(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal_water_separation))
-                        pdb_ids_added.append(pdb_ids)     
-        num_nonbonded_extra = len(pdb_ids_added)-num_nonbonded_from_geo
+                    if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
+                        self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal_water_separation))
+                        NB_pdb_ids_added.append(pdb_ids)     
+        num_nonbonded_extra = len(NB_pdb_ids_added)-num_nonbonded_from_geo
 
         print(f"Nonbonded from geo: {num_nonbonded_from_geo}, extra: {num_nonbonded_extra}")
 
@@ -456,7 +426,7 @@ class ConstraintsHandler:
             pdb_ids = [f"{n}     ARES     A      {r}" for (n,r) in zip(name,res_num)]
             self.constraints.append(ConstraintsHandler.ClashConstraint(pdb_ids,altloc,badness))
 
-# Ugh never do inheritance kids. TODO refactor to composition.
+# Ugh, never do inheritance. TODO refactor to composition.
 class AtomChunk(OrderedResidue):
     # Just an atom c:
     def __init__(self,site_num,altloc,resnum,referenceResidue,atom:Atom,is_water:bool,constraints_handler):
@@ -468,13 +438,32 @@ class AtomChunk(OrderedResidue):
         self.generate_bonds(constraints_handler)
     def generate_bonds(self,constraints_handler:ConstraintsHandler):
         self.constraints_holder:ConstraintsHandler = \
-            constraints_handler.get_constraints(self.name,self.resnum)
+            constraints_handler.get_constraints(self.get_disordered_tag(),no_constraints_ok=self.is_water)
+            
     def get_coord(self):
         return self.coord
     def get_disordered_tag(self):
-        return  f"{self.get_resnum()}.{self.name}"
+        return DisorderedTag(self.get_resnum(),self.name)
     def unique_id(self):
         return f"{self.depth_tag}&{self.get_site_num()}.{self.get_altloc()}&{self.get_disordered_tag()}"
+
+class DisorderedTag():
+    def __init__(self,res_num,atom_name):
+        self._resnum, self._name = int(res_num),str(atom_name)
+    def resnum(self):
+        return self._resnum
+    def atom_name(self):
+        return self._name 
+    def __repr__(self):
+        return f"{self.resnum()}.{self.atom_name()}"
+    
+    def __hash__(self):
+        return hash((self._resnum, self.atom_name()))
+
+    def __eq__(self, other:'DisorderedTag'):
+        return (self._resnum, self.atom_name()) == (other._resnum, other.atom_name())
+    def __ne__(self, other):
+        return not(self == other)
 
 
 class MTSP_Solver:
@@ -538,7 +527,7 @@ class MTSP_Solver:
     #             self.ts_distance = random.random()
     #             self.dry_calc=True
     #             return
-    #         _,self.ts_distance,_ = UntangleFunctions.assess_geometry_wE(tmp_out_folder_path,connection_structure_save_path,phenixgeometry_only=quick_wE) 
+    #         _,self.ts_distance,_ = UntangleFunctions.assess_geometry_wE(connection_structure_save_path,tmp_out_folder_path,phenixgeometry_only=quick_wE) 
 
     class AtomChunkConnection():
         def __init__(self, atom_chunks:list[AtomChunk],ts_distance,connection_type,hydrogen_names):
@@ -583,8 +572,9 @@ class MTSP_Solver:
                 atom.coord = mean_coord
 
 
-    def calculate_paths(self,quick_wE=False,dry_run=False,atoms_only=True,
-                        clash_punish_thing=False,nonbonds=True,water_water_nonbond=True)->tuple[list[Chunk],dict[str,list[AtomChunkConnection]]]: #disorderedResidues:list[Residue]
+    def calculate_paths(self,quick_wE=False, dry_run=False,atoms_only=True,
+                        clash_punish_thing=False,nonbonds=True,water_water_nonbond=True,
+                        debug_skip_wE_calc=False,)->tuple[list[Chunk],dict[str,list[AtomChunkConnection]]]: #disorderedResidues:list[Residue]
         print("Calculating geometric costs for all possible connections between chunks of atoms (pairs for bonds, triplets for angles, etc.)")
         
         tmp_out_folder_path=UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"LinearOptimizer/tmp_out/"
@@ -637,14 +627,6 @@ class MTSP_Solver:
         model_handle = os.path.basename(self.model_path)[:-4]
 
         if nonbonds:
-            # generate nonbond files
-            debug_no_wE = False
-            geo_log_out_folder = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/HoltonOutputs/"
-            if not debug_no_wE:
-                UntangleFunctions.assess_geometry_wE(geo_log_out_folder,self.model_path) 
-            #nonbond_scores_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{model_handle}_scorednonbond.txt"
-            nonbond_scores_path = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}.geo"
-            
 
 
             # CLASH 26.6682 0.79 | A  62 AARG  HD2| S 128 AHOH  O 
@@ -669,27 +651,47 @@ class MTSP_Solver:
                         #new_line = f"CLASH   {badness} XXXXX XXXXX XXXXX X |  {name[0]}_{res_num[0]} {name[1]}_{res_num[1]}"
                         clashes.append((name, res_num, badness, altloc))
                 return clashes
-            # if clash_punish_thing:
-            #     assert False
-            #     nonbond_scores_path = add_clashes_to_nonbond(model_handle)
+
             
+            # generate nonbond files
+            geo_log_out_folder = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/HoltonOutputs/"
+            if not debug_skip_wE_calc:
+                UntangleFunctions.assess_geometry_wE(self.model_path,geo_log_out_folder) 
+
+            nonbond_scores_path = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}.geo"
+
+            nonbond_scores_files = [nonbond_scores_path]
+
+
+
             model_water_swapped_handle=model_handle+"WS"
             model_water_swapped_path=UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{model_water_swapped_handle}.pdb"
-            if not debug_no_wE:
-                Swapper.MakeSwapWaterFile(self.model_path,model_water_swapped_path)
-                UntangleFunctions.assess_geometry_wE(geo_log_out_folder,model_water_swapped_path) 
 
-            water_clashes =  get_water_clashes(model_handle,False) + get_water_clashes(model_water_swapped_handle,True)
+            water_clashes =  get_water_clashes(model_handle,False) 
+            
+            more_water_swaps=False
+            if not debug_skip_wE_calc and more_water_swaps:
+                assert False
+                Swapper.MakeSwapWaterFile(self.model_path,model_water_swapped_path)
+                UntangleFunctions.assess_geometry_wE(model_water_swapped_path,geo_log_out_folder) 
+                water_clashes+= get_water_clashes(model_water_swapped_handle,True)
             
             #nonbond_water_flipped_scores_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{model_water_swapped_handle}_scorednonbond.txt"
-            nonbond_water_flipped_scores_path = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_water_swapped_handle}.geo"
+                nonbond_water_flipped_scores_path = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_water_swapped_handle}.geo"
+                nonbond_scores_files.append(nonbond_water_flipped_scores_path)
 
 
         constraints_file = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}.geo" # NOTE we only read ideal and weights.
         constraints_handler=ConstraintsHandler()
-        constraints_handler.load_all_constraints(constraints_file,nonbond_scores_path,nonbond_water_flipped_scores_path,water_clashes,self.ordered_atom_lookup,water_water_nonbond=water_water_nonbond)
+        constraints_handler.load_all_constraints(constraints_file,nonbond_scores_files,water_clashes,self.ordered_atom_lookup,water_water_nonbond=water_water_nonbond)
+        print("Nonordered constraint properties loaded.")
         #for n,atom in enumerate(self.ordered_atom_lookup.select_atoms_by(names=["CA","C","N"])):
-        for n,atom in enumerate(self.ordered_atom_lookup.select_atoms_by()):
+
+        print("Creating ordered atom chunks")
+        ordered_atoms = self.ordered_atom_lookup.select_atoms_by()
+        for n,atom in enumerate(ordered_atoms):
+            if n%1000==0:
+                print(f"Creating chunk {n} / {len(ordered_atoms)} ")
             if atom.element=="H":
                 continue
             is_water = UntangleFunctions.res_is_water(atom.get_parent())
@@ -702,6 +704,7 @@ class MTSP_Solver:
                                          is_water,
                                          constraints_handler
                                          )
+        del ordered_atoms
         chunk_sets.append(atom_chunks)
         connection_types.append(MTSP_Solver.AtomChunkConnection)
 
@@ -738,8 +741,11 @@ class MTSP_Solver:
         '''
         ###########
 
+        print("Computing connection costs")
         possible_connections:list[MTSP_Solver.AtomChunkConnection]=[]
-        for constraint in constraints_handler.constraints:
+        for c, constraint in enumerate(constraints_handler.constraints):
+            if c%100 == 0: 
+                print(f"Calculating constraint {c} / {len(constraints_handler.constraints)} ")
             assert constraint.kind is not None
             constraints_that_include_H = ["Angle","non"]
             atoms_for_constraint = self.ordered_atom_lookup.select_atoms_by(
@@ -788,7 +794,7 @@ class MTSP_Solver:
                     hydrogens:list[str] = [a.get_name() for a in atoms if a.get_name()[0]=="H"]
                     #atom_chunks_selection:list[AtomChunk]= [atom_chunks[atom_id(a)] for a in atoms]
                     for ach in atom_chunks_selection:
-                        assert constraint in ach.constraints_holder.constraints
+                        assert constraint in ach.constraints_holder.constraints, (constraint.site_tags, ach.get_disordered_tag(), [c.site_tags for c in ach.constraints_holder.constraints])
                     #print([ch.name for ch in atom_chunks_selection])
 
                     if constraint.kind == "Nonbond":

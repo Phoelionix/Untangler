@@ -18,9 +18,10 @@ class Untangler():
     output_dir = f"{working_dir}/output/"
     refine_shell_file=f"Refinement/Refine.sh"
     ####
-    debug_skip_refine = False # Skip refinement stages. Requires files to already have been generated (up to the point you are debugging).
-    debug_skip_initial_refine=True
+    debug_skip_refine = True # Skip refinement stages. Requires files to already have been generated (up to the point you are debugging).
+    debug_skip_initial_refine=False
     debug_skip_unrestrained_refine=False
+    debug_skip_holton_data_generation=True
     num_threads=10
     class Score():
         def __init__(self,combined,wE,R_work,R_free):
@@ -81,7 +82,10 @@ class Untangler():
         self.swapper = Swapper()
 
         initial_model=self.initial_refine(self.current_model,debug_skip=(self.debug_skip_refine or self.debug_skip_initial_refine)) 
-        self.initial_score = Untangler.Score(*assess_geometry_wE(self.output_dir,initial_model))
+        if not self.debug_skip_holton_data_generation:
+            self.initial_score = Untangler.Score(*assess_geometry_wE(initial_model, log_out_folder_path=self.output_dir))
+        else:
+            self.initial_score = Untangler.Score(*get_score(score_file_name(initial_model)))
         self.current_score = self.best_score = Untangler.Score.inf_bad_score()# i.e. force accept first solution
         shutil.copy(initial_model,self.current_model)
         self.loop=0
@@ -114,7 +118,8 @@ class Untangler():
         atoms, connections = Solver.MTSP_Solver(model_to_swap,ignore_waters=allot_protein_independent_of_waters).calculate_paths(
             clash_punish_thing=False,
             nonbonds=True,   # Note this won't look at nonbonds with water if ignore_waters=True. 
-            water_water_nonbond = False  # This is so we don't get a huge number of nearly identical solutions from swapping waters around.
+            water_water_nonbond = False,  # This is so we don't get a huge number of nearly identical solutions from swapping waters around.
+            debug_skip_wE_calc=self.debug_skip_holton_data_generation
         )
         swaps_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
                                         out_handle=self.model_handle,
@@ -263,7 +268,7 @@ class Untangler():
 
     def propose_model(self,working_model):
         
-        new_score = Untangler.Score(*assess_geometry_wE(self.output_dir,working_model))
+        new_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
         #deltaE = new_wE-self.current_score.wE # geometry only
         deltaE = new_score.combined-self.current_score.combined  # include R factor
         max_wE_increase = self.max_wE_frac_increase*self.current_score.wE

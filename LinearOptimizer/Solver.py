@@ -118,7 +118,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     #     return f"atomState_{site}_{from_altloc}.{to_altloc}"
     disordered_atom_sites:list[str] = []
     
-    # Setup whether atoms flipped
+    # Setup atom swap variables
     for i, (atom_id, chunk) in enumerate(chunk_sites.items()):
         site = VariableID.Atom(Chunk)
         disordered_atom_sites.append(site)
@@ -346,12 +346,12 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             if protein_sites and chunk.is_water: # not interested in different solutions for water. 
                 continue # This means water atoms may or may not swap for the single solution where no protein atoms swap.
             site = VariableID.Atom(chunk)
-            for from_altloc in site_var_dict[site]:
-                for to_altloc, var in site_var_dict[site][from_altloc].items():
-                    val = var.varValue
-                    flip_variables.append(var)
-                    if val == 1:
-                        flipped_flip_variables.append(1-var)
+            from_altloc = chunk.get_altloc()
+            for to_altloc, var in site_var_dict[site][from_altloc].items():
+                val = var.varValue
+                flip_variables.append(var)
+                if val == 1:
+                    flipped_flip_variables.append(1-var)
         if len(flipped_flip_variables) == 0:
             # Require one variable to be flipped
             lp_problem += pulp.lpSum(flip_variables) >= 1, f"force_next_best_solution_{l}"

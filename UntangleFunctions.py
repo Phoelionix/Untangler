@@ -86,7 +86,7 @@ def score_file_name(pdb_file_path):
     handle = os.path.basename(pdb_file_path)[:-4]
     return holton_folder_path+f'HoltonOutputs/{handle}_score.txt'
 
-def assess_geometry_wE(log_out_folder_path,pdb_file_path,phenixgeometry_only=False):
+def assess_geometry_wE(pdb_file_path,log_out_folder_path,phenixgeometry_only=False):
     score_file = create_score_file(log_out_folder_path,pdb_file_path,phenixgeometry_only)
     assert score_file == score_file_name(pdb_file_path)
     return get_score(score_file,phenixgeometry_only=phenixgeometry_only)

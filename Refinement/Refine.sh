@@ -28,8 +28,9 @@ refine_no_hold='false'
 no_mlhl=true
 generate_r_free='false'
 turn_off_bulk_solvent='false'
+water_restrain_movement='true'
 
-while getopts ":o:u:c:n:s:d:whpragtz" flag; do
+while getopts ":o:u:c:n:s:d:whpragtzW" flag; do
  case $flag in
     o) out_handle=$OPTARG
        out_handle_override='true'
@@ -61,6 +62,8 @@ while getopts ":o:u:c:n:s:d:whpragtz" flag; do
     t) turn_off_bulk_solvent='true'
     ;;
     z) refine_no_hold='true'
+    ;;
+    W) water_restrain_movement='false' 
     ;;
    \?)
    echo INVALID FLAG
@@ -175,6 +178,12 @@ logs_path="../../../output/refine_logs"
 if [ ! -d $logs_path ]; then
   mkdir $logs_path
 fi
+
+if ! $water_restrain_movement; then 
+    sed 's/reference_coordinate_restraints {\n      enabled = True/reference_coordinate_restraints {\n      enabled = False/g' $paramFile  > tmp.$$ 
+    mv tmp.$$ $paramFile
+fi 
+
 
 # Broad sweep attempt to stop phenix segfaulting when run in parallel
 export OMP_NUM_THREADS=1
