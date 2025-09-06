@@ -88,15 +88,23 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         Nonbond="Nonbond"
         Clash="Clash"
         Angle = "Angle"
+
+    #Disordered variable id
     class VariableID:
         @staticmethod
         def Atom(chunk:AtomChunk):
             return VariableID(chunk.get_disordered_tag(),VariableKind.Atom)
         def __init__(self,name:str,kind:VariableKind):
-            self.name=name
+            self.name=str(name)
             self.kind = kind
         def __repr__(self):
             return self.name
+        def __hash__(self):
+            return hash((self.name, self.kind))
+        def __eq__(self,other):
+            return (self.name,self.kind) == (other.name,other.kind) 
+        def __ne__(self,other):
+            return not(self == other) 
     #bond_choices = {} # Each must sum to 1
     distance_vars = [] 
     # NOTE When assigning LP variable names, the "class" of variable should follow format of variableName_other_stuff   (class of variable is variable_type.split("_")[0]) 
@@ -113,30 +121,30 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     altlocs:list[str]=[]
     for ch in chunk_sites.values():
         if ch.altloc not in altlocs:
-            altlocs.append(altloc)
+            altlocs.append(ch.altloc)
     # def site_variable_name(site: VariableID, from_altloc:str, to_altloc:str):
     #     return f"atomState_{site}_{from_altloc}.{to_altloc}"
     disordered_atom_sites:list[str] = []
     
     # Setup atom swap variables
     for i, (atom_id, chunk) in enumerate(chunk_sites.items()):
-        site = VariableID.Atom(Chunk)
-        disordered_atom_sites.append(site)
-
+        site = VariableID.Atom(chunk)
+        if site not in disordered_atom_sites:
+            disordered_atom_sites.append(site)
 
         from_altloc = get(chunk.unique_id(),"altloc")
         
+        if site not in site_var_dict:
+            site_var_dict[site] = {}
+        if from_altloc not in site_var_dict[site]:
+            site_var_dict[site][from_altloc]={}
+
         # Create variable for each possible swap to other swap
         for to_altloc in altlocs:
             var_atom_assignment =  pl.LpVariable(
                 f"atomState_{site}_{from_altloc}.{to_altloc}",
                 lowBound=0,upBound=1,cat=pl.LpInteger
             )
-            
-            if site not in site_var_dict:
-                site_var_dict[site] = {}
-            if from_altloc not in site_var_dict[site]:
-                site_var_dict[site][from_altloc]={}
             site_var_dict[site][from_altloc][to_altloc]=var_atom_assignment
 
         # Each ordered atom is assigned to one conformer from:to == n:1
@@ -174,23 +182,23 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         nonlocal lp_problem  
 
 
-        if constraint_type == VariableKind.Nonbond:
-            for connection in disordered_connection:
-                connection:MTSP_Solver.AtomChunkNonBondConnection = connection
-                assert connection.altlocs[0]!=connection.altlocs[1], connection.altlocs
-                to_altloc = connection.to_altloc
-                from_altloc = connection.from_altloc
-                site = VariableID(connection.site_name,VariableKind.Atom)
-                var = site_var_dict[site][from_altloc][to_altloc]
-                distance_vars.append(var*connection.ts_distance)
-                #print(var*connection.ts_distance)
-            return
-
-        for ordered_conection_option in disordered_connection:
+        # if constraint_type == VariableKind.Nonbond:
+        #     for connection in disordered_connection:
+        #         connection:MTSP_Solver.AtomChunkNonBondConnection = connection
+        #         assert connection.altlocs[0]!=connection.altlocs[1], connection.altlocs
+        #         to_altloc = connection.to_altloc
+        #         from_altloc = connection.from_altloc
+        #         site = VariableID(connection.site_name,VariableKind.Atom)
+        #         var = site_var_dict[site][from_altloc][to_altloc]
+        #         distance_vars.append(var*connection.ts_distance)
+        #         #print(var*connection.ts_distance)
+        #     return
+        
+        for ordered_connection_option in disordered_connection:
             # Variable
-            tag = "_".join([ch.unique_id() for ch in ordered_conection_option.atom_chunks])
-            if ordered_conection_option.hydrogen_tag!="":
-                tag = ordered_conection_option.hydrogen_tag+"_"+tag
+            tag = "_".join([ch.unique_id() for ch in ordered_connection_option.atom_chunks])
+            if ordered_connection_option.hydrogen_tag!="":
+                tag = "Htag["+ordered_connection_option.hydrogen_tag+"]_"+tag
             var_active = pl.LpVariable(f"{constraint_type}_{tag}",  #TODO cat=pl.LpBinary
                                 lowBound=0,upBound=1,cat=pl.LpInteger)
                 
@@ -199,26 +207,39 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             assignment_options:dict[str,list[LpVariable]]={}
             for to_altloc in altlocs:
                 assignment_options[to_altloc]=[]
-                for ch in ordered_conection_option.atom_chunks:
+                for ch in ordered_connection_option.atom_chunks:
                     from_altloc = ch.get_altloc()
-                    site = VariableID.Atom(chunk)
+                    site = VariableID.Atom(ch)
                     assignment_options[to_altloc].append(site_var_dict[site][from_altloc][to_altloc])
             # if variable is inactive, cannot have all atoms assigned to the same altloc.
             # Note that since every connection option is looped through, this also means 
             # that if variable is active, all atoms will be assigned to the same altloc.
-            for to_altloc, assignment_vars in assignment_options.items():
-                swaps = [f"_{assignment.name}" for assignment in assignment_vars]
-                num_assignments = len(assignment_vars)
-                lp_problem += (
-                   lpSum(assignment_vars) <= num_assignments*var_active,
-                   f"{var_active.name}{swaps}"
-                )
-            distance_vars.append(ordered_conection_option.ts_distance*var_active)
+            try:
+                for to_altloc, assignment_vars in assignment_options.items():
+                    swaps = '|'.join([f"{assignment.name}" for assignment in assignment_vars])
+                    num_assignments = len(assignment_vars)
+                    lp_problem += (
+                    lpSum(assignment_vars) <= num_assignments*var_active,
+                    f"{var_active.name}_{swaps}"
+                    )
+            except:
+                for to_altloc, assignment_vars in assignment_options.items():
+                    print(to_altloc)
+                    print(assignment_vars)
+                    print('|'.join([f"{assignment.name}" for assignment in assignment_vars]))
+                    print()
+                for other in disordered_connection:
+                    if ordered_connection_option == other:
+                        print("!!!!")
+                    if ordered_connection_option.atom_chunks == other.atom_chunks and ordered_connection_option.hydrogen_tag==other.hydrogen_tag:
+                        print("!",ordered_connection_option)
+                raise(Exception(""))
+            distance_vars.append(ordered_connection_option.ts_distance*var_active)
 
             
             
                     
-    for connection_id, ordered_connection_choices in disordered_connections:
+    for connection_id, ordered_connection_choices in disordered_connections.items():
         constraint_type = VariableKind[connection_id.split('_')[0]] 
         add_constraints_from_disordered_connection(constraint_type,ordered_connection_choices)
 

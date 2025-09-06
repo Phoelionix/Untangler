@@ -451,7 +451,7 @@ class ConstraintsHandler:
                             continue
                             
                         
-                        # I mean, they should be bonded. But just in case. 
+                        # Don't put constraint between H and its bonded atom. I mean, it shouldn't be a possible constraint. But just in case. 
                         if resnum1 == resnum2:
                             if name1[0] == "H":
                                 nonH_in_res = ordered_atom_lookup.select_atoms_by(res_nums=[resnum1],exclude_H=True)
@@ -472,6 +472,11 @@ class ConstraintsHandler:
                                 break
                         if broke:
                             continue
+                        
+                        #  Use pdb id string that is blind to altloc. TODO this is silly and confusing.
+                        pdb1 = f"{name1}     ARES     A      {resnum1}"
+                        pdb2 = f"{name2}     ARES     A      {resnum2}"
+
                             #continue
                         ideal = float(ideal)
                         pdb_ids = (pdb1,pdb2)
@@ -518,6 +523,7 @@ class AtomChunk(OrderedResidue):
         self.coord = atom.get_coord()
         super().__init__(altloc,resnum,referenceResidue,[atom],site_num)
         self.generate_bonds(constraints_handler)
+        self.depth_tag="ATOM"
     def generate_bonds(self,constraints_handler:ConstraintsHandler):
         self.constraints_holder:ConstraintsHandler = \
             constraints_handler.get_constraints(self.get_disordered_tag(),no_constraints_ok=self.is_water)
@@ -538,8 +544,10 @@ class DisorderedTag():
         return self._name 
     def __repr__(self):
         return f"{self.resnum()}.{self.atom_name()}"
-    def __format__(self,format_spec):
-        return str(self)
+    # def __format__(self,format_spec):
+    #     return str(self)
+    # def __str__(self):
+    #     return f"{self.resnum()}.{self.atom_name()}"
     
     def __hash__(self):
         return hash((self._resnum, self.atom_name()))
@@ -890,7 +898,7 @@ class MTSP_Solver:
                     hydrogens:list[str] = [a.get_name() for a in atoms if a.get_name()[0]=="H"]
                     #atom_chunks_selection:list[AtomChunk]= [atom_chunks[atom_id(a)] for a in atoms]
                     for ach in atom_chunks_selection:
-                        assert constraint in ach.constraints_holder.constraints, (constraint.site_tags, ach.get_disordered_tag(), [c.site_tags for c in ach.constraints_holder.constraints])
+                        assert constraint in ach.constraints_holder.constraints, (constraint, ach.get_disordered_tag(), [c for c in ach.constraints_holder.constraints])
                     #print([ch.name for ch in atom_chunks_selection])
 
                     connection = self.AtomChunkConnection(atom_chunks_selection,distance,constraint.kind,hydrogens)
@@ -911,6 +919,8 @@ class MTSP_Solver:
             if connection_id not in disordered_connections:
                 disordered_connections[connection_id]=[]
             assert connection not in disordered_connections[connection_id] 
+            for other in disordered_connections[connection_id]:
+                assert (connection.atom_chunks!=other.atom_chunks) or (connection.hydrogen_tag!=other.hydrogen_tag) or (connection.connection_type!=other.connection_type), f"duplicate connections of kind {connection.connection_type}, badness {connection.ts_distance} {other.ts_distance}!"
             disordered_connections[connection_id].append(connection)
 
         #finest_depth_chunks=orderedResidues

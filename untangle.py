@@ -124,7 +124,7 @@ class Untangler():
         swaps_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
                                         out_handle=self.model_handle,
                                         num_solutions=num_solutions,
-                                        force_sulfur_bridge_swap_solutions=True,
+                                        force_sulfur_bridge_swap_solutions=False, #True
                                         protein_sites=True, 
                                         water_sites= not allot_protein_independent_of_waters,
                                         )
