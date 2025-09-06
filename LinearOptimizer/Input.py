@@ -41,7 +41,7 @@ import numpy as np
 import itertools
 
 class OrderedAtomLookup: #TODO pandas?
-    def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False): # TODO type hint for sequence?
+    def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False,altloc_subset_size=None): # TODO type hint for sequence?
         self.disordered_waters=[]
         self.ordered_atoms:list[Atom] = []
         self.serial_num_to_disordered_num_dict={}
@@ -49,6 +49,22 @@ class OrderedAtomLookup: #TODO pandas?
         self.residue_sources=[]
         self.altlocs=[]
         self.res_names:dict[int,str]={}
+        self.better_dict:dict[str,dict[str,dict[str,Atom]]] = {}
+        self.water_residue_nums:list[int]=[]
+
+        self.waters_allowed=waters
+
+        atoms = list(atoms)
+        if altloc_subset_size is not None:
+            altloc_subset= []
+            for disorderedAtom in atoms:
+                for orderedAtom in disorderedAtom:
+                    altloc = orderedAtom.get_altloc()
+                    if altloc not in altloc_subset:
+                        altloc_subset.append(altloc)
+            if altloc_subset_size < len(altloc_subset):
+                altloc_subset = random.sample(altloc_subset, altloc_subset_size)  
+        
         for disorderedAtom in atoms:
             is_water= UntangleFunctions.res_is_water(disorderedAtom.get_parent())
             if is_water:
@@ -59,18 +75,40 @@ class OrderedAtomLookup: #TODO pandas?
                 continue
             
             assert type(disorderedAtom)==DisorderedAtom, type(disorderedAtom)  # Not sure if a single altloc atom will still be stored as a disorderedatom by Bio.PDB
-            for orderedAtom in disorderedAtom:
-                self.ordered_atoms.append(orderedAtom)
-                self.serial_num_to_disordered_num_dict[orderedAtom.get_serial_number()]=disorderedAtom.get_serial_number()
-                altloc = orderedAtom.get_altloc()
-                if altloc not in self.altlocs:
-                    self.altlocs.append(altloc)
             res_num=OrderedAtomLookup.atom_res_seq_num(disorderedAtom)
-            if res_num not in self.residue_nums:
+
+            if res_num not in self.better_dict:
+                self.better_dict[res_num] = {}
                 assert len(self.residue_nums)== 0 or self.residue_nums[-1] == res_num-1
                 self.residue_nums.append(res_num)
                 self.res_names[res_num]=disorderedAtom.get_parent().get_resname()
                 self.residue_sources.append(disorderedAtom.get_parent())
+                if is_water:
+                    self.water_residue_nums.append(res_num)
+            else: 
+                if is_water:
+                    assert res_num in self.water_residue_nums, "Waters cannot reuse residue sequence numbers used in protein"
+
+            for orderedAtom in disorderedAtom:
+                altloc = orderedAtom.get_altloc()
+                if (altloc_subset_size is not None) and (altloc not in altloc_subset):
+                    continue
+                
+                self.ordered_atoms.append(orderedAtom)
+                self.serial_num_to_disordered_num_dict[orderedAtom.get_serial_number()]=disorderedAtom.get_serial_number()
+                
+                if altloc not in self.altlocs:
+                    self.altlocs.append(altloc)
+
+                
+
+                ## BETTER APPROACH                    
+                if disorderedAtom.name not in self.better_dict[res_num]:
+                    self.better_dict[res_num][disorderedAtom.name] = {}
+                #self.better_dict[res_num][disorderedAtom.name].append(orderedAtom)
+                self.better_dict[res_num][disorderedAtom.name][altloc] = orderedAtom
+
+
     @staticmethod
     def atom_res_seq_num(atom:Atom)->int:
         return atom.get_parent().get_id()[1]
@@ -85,11 +123,35 @@ class OrderedAtomLookup: #TODO pandas?
         return self.residue_sources
     def get_altlocs(self)->list[str]:
         return self.altlocs
-    def select_atoms_by(self,res_nums=None,serial_numbers=None,names=None,
+    
+
+    def select_atoms_for_sites(self,sites:list['DisorderedTag'],altlocs=None,**kwargs):
+        atom_semi_selection = []
+        if altlocs is None:
+            for site in sites:
+                atom_semi_selection.extend(self.better_dict[site.resnum()][site.atom_name()].values())
+        else:
+            for altloc in altlocs:
+                for site in sites:
+                    atom_semi_selection.extend(self.better_dict[site.resnum()][site.atom_name()][altloc])
+        return self.select_atoms_from(atom_semi_selection,**kwargs)
+
+    def select_atoms_by(self,**kwargs)->list[Atom]:
+        
+
+        return self.select_atoms_from(self.ordered_atoms, **kwargs)
+
+    def select_atoms_from(self,ordered_atoms:list[Atom], res_nums=None,serial_numbers=None,names=None,
                         disordered_serial_numbers=None,altlocs=None,
                         waters=True, protein=True, exclude_H=False)->list[Atom]:
         atom_selection = []
-        for atom in self.ordered_atoms:
+        
+
+        allowed_values = {} 
+        for key, v in zip(("altloc","num","sn","name","dsn"),(altlocs,res_nums,serial_numbers,names,disordered_serial_numbers)):
+            if v is not None:
+                allowed_values[key] = set(v)
+        for atom in ordered_atoms:
             is_water = UntangleFunctions.res_is_water(atom.get_parent())
             if not waters and is_water:
                 continue
@@ -97,19 +159,22 @@ class OrderedAtomLookup: #TODO pandas?
                 continue
             if exclude_H and atom.element == "H":
                 continue
-            _res_num = OrderedAtomLookup.atom_res_seq_num(atom)
-            _name = atom.get_name()
-            _altloc = atom.get_altloc()
-            _serial_number=atom.get_serial_number()
-            _disordered_serial_number = self.get_disordered_serial_number(atom)
             
-            for allowed_values,atom_param in zip(
-            (altlocs,res_nums,serial_numbers,names,disordered_serial_numbers),
-            (_altloc,_res_num,_serial_number,_name,_disordered_serial_number)):
-                if allowed_values is not None and (atom_param not in allowed_values):
+            for key, v in allowed_values.items():
+                if key == "altloc" and atom.get_altloc() not in v:
+                    break
+                if key == "num" and OrderedAtomLookup.atom_res_seq_num(atom) not in v:
+                    break
+                if key == "sn" and atom.get_serial_number() not in v:
+                    break
+                if key == "name" and atom.get_name() not in v:
+                    break
+                if key == "dsn" and self.get_disordered_serial_number(atom) not in v:
                     break
             else:
+                assert atom.get_altloc() in self.altlocs
                 atom_selection.append(atom)
+        
 
         return atom_selection
 
@@ -188,11 +253,15 @@ class ConstraintsHandler:
             return [site.resnum() for site in self.site_tags]
         def get_distance(self,atoms:list[Atom]):
             raise Exception("abstract method")
+        def __repr__(self):
+            return f"({self.kind} : {self.site_tags})"
+
+        DEBUG=False
         def get_ordered_atoms(self,candidate_atoms:list[Atom])->list[Atom]:
             other_name_and_resnum = [(a.get_name(),OrderedAtomLookup.atom_res_seq_num(a)) for a in candidate_atoms] 
             #print(self.num_atoms(),other_name_and_resnum)
             #print(set(other_name_and_resnum))
-            assert len(other_name_and_resnum)==len(set(other_name_and_resnum))==self.num_atoms()
+
             ordered_atoms = [] # corresponding to order of self.atom_id. Important for e.g. bond angle
             for name_num in zip(self.atom_names(),self.residues()):
                     for i, other_name_num in enumerate(other_name_and_resnum):
@@ -200,7 +269,9 @@ class ConstraintsHandler:
                             ordered_atoms.append(candidate_atoms[i])
             if len(ordered_atoms)!=self.num_atoms():
                 return None
-            assert len(np.unique(ordered_atoms))==self.num_atoms()
+            if self.DEBUG:
+                assert len(other_name_and_resnum)==len(set(other_name_and_resnum))==self.num_atoms()
+                assert len(np.unique(ordered_atoms))==self.num_atoms()
             return ordered_atoms
 
         
@@ -392,9 +463,15 @@ class ConstraintsHandler:
                         ideal = constraint[3].strip().split()[1]
                         if separation > ideal:
                             continue 
-                        altloc = pdb1.strip()[3]
-                        if altloc!="A": 
-                            pass
+                        altloc1 = pdb1.strip()[3]
+                        altloc2 = pdb2.strip()[3]
+                        broke=False
+                        for a,r,n in zip((altloc1,altloc2),(resnum1,resnum2),(name1,name2)):
+                            if n not in ordered_atom_lookup.better_dict[r] or a not in ordered_atom_lookup.better_dict[r][n]:
+                                broke=True
+                                break
+                        if broke:
+                            continue
                             #continue
                         ideal = float(ideal)
                         pdb_ids = (pdb1,pdb2)
@@ -422,9 +499,14 @@ class ConstraintsHandler:
 
         print(f"Nonbonded from geo: {num_nonbonded_from_geo}, extra: {num_nonbonded_extra}")
 
-        for name, res_num, badness, altloc in water_clashes:
-            pdb_ids = [f"{n}     ARES     A      {r}" for (n,r) in zip(name,res_num)]
-            self.constraints.append(ConstraintsHandler.ClashConstraint(pdb_ids,altloc,badness))
+        if ordered_atom_lookup.waters_allowed:
+            for name, res_num, badness, altloc in water_clashes:
+                for n, r, a in zip(name,res_num,altloc):
+                    if n not in ordered_atom_lookup.better_dict[r] or a not in ordered_atom_lookup.better_dict[r][n]: # Need to do this in case doing subset of altlocs
+                        break
+                else:
+                    pdb_ids = [f"{n}     ARES     A      {r}" for (n,r) in zip(name,res_num)]
+                    self.constraints.append(ConstraintsHandler.ClashConstraint(pdb_ids,altloc,badness))
 
 # Ugh, never do inheritance. TODO refactor to composition.
 class AtomChunk(OrderedResidue):
@@ -456,6 +538,8 @@ class DisorderedTag():
         return self._name 
     def __repr__(self):
         return f"{self.resnum()}.{self.atom_name()}"
+    def __format__(self,format_spec):
+        return str(self)
     
     def __hash__(self):
         return hash((self._resnum, self.atom_name()))
@@ -541,16 +625,7 @@ class MTSP_Solver:
                 self.hydrogen_tag = "_"+''.join(hydrogen_names)
             self.hydrogen_name_set = set(hydrogen_names)
         def get_disordered_connection_id(self):
-            return f"{self.connection_type}{self.hydrogen_tag}_{'_'.join([a_chunk.get_disordered_tag() for a_chunk in self.atom_chunks])}"
-    class AtomChunkNonBondConnection(AtomChunkConnection):
-        def __init__(self, atom_chunks:list[AtomChunk],ts_distance,connection_type,hydrogen_names):
-            assert len(atom_chunks) == 2
-            super().__init__(atom_chunks,ts_distance,connection_type,hydrogen_names)
-            self.to_altloc = self.from_altlocs[1]
-            self.from_altlocs = [self.from_altlocs[0]]
-            self.from_altloc = self.from_altlocs[0]
-            self.site_name = atom_chunks[0].get_disordered_tag()
-            assert self.site_name == atom_chunks[1].get_disordered_tag()
+            return f"{self.connection_type}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
 
 
     def __init__(self,pdb_file_path:str, align_uncertainty=False,ignore_waters=False):
@@ -559,7 +634,9 @@ class MTSP_Solver:
         original_structure = PDBParser().get_structure("struct",pdb_file_path)
         if align_uncertainty:
             self.align_uncertainty(original_structure)
-        self.ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),protein=True,waters=not ignore_waters)   
+        self.ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),
+                                                     protein=True,waters=not ignore_waters,
+                                                     altloc_subset_size=6)   
     def align_uncertainty(self,structure:Structure.Structure):
         # in x-ray data and geom.
         # Experimental and doesn't help.
@@ -573,10 +650,15 @@ class MTSP_Solver:
 
 
     def calculate_paths(self,quick_wE=False, dry_run=False,atoms_only=True,
-                        clash_punish_thing=False,nonbonds=True,water_water_nonbond=True,
+                        clash_punish_thing=False,nonbonds=True,water_water_nonbond=None,
                         debug_skip_wE_calc=False,)->tuple[list[Chunk],dict[str,list[AtomChunkConnection]]]: #disorderedResidues:list[Residue]
         print("Calculating geometric costs for all possible connections between chunks of atoms (pairs for bonds, triplets for angles, etc.)")
         
+        if water_water_nonbond is None:
+            water_water_nonbond = self.ordered_atom_lookup.has_water()
+        if not self.ordered_atom_lookup.waters_allowed and (water_water_nonbond):
+            assert False
+
         tmp_out_folder_path=UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"LinearOptimizer/tmp_out/"
         os.makedirs(tmp_out_folder_path,exist_ok=True)
         
@@ -642,11 +724,13 @@ class MTSP_Solver:
                         if not res_name.count("HOH")==1:
                             continue
                         res_num = [int(entry.split()[1]) for entry in line.split("|")[1:]] 
+                        #  NOTE At the moment altlocs will all be the same. But hope to 
+                        # one day read from file that does clashes between all altlocs!!!!
                         altloc = [entry.split()[-2][0] for entry in line.split("|")[1:]] 
                         name = [entry.strip().split()[-1] for entry in line.split("|")[1:]] 
-                        if waters_flipped:
-                            water_idx = res_name.index("HOH")
-                            altloc[water_idx] = {"A":"B","B":"A"}[altloc[water_idx]]
+                        # if waters_flipped:
+                        #     water_idx = res_name.index("HOH") # Because we continue  above if don't have exactly one HOH involved in clash.
+                        #     altloc[water_idx] = {"A":"B","B":"A"}[altloc[water_idx]]
                         badness = float(line.split()[1])
                         #new_line = f"CLASH   {badness} XXXXX XXXXX XXXXX X |  {name[0]}_{res_num[0]} {name[1]}_{res_num[1]}"
                         clashes.append((name, res_num, badness, altloc))
@@ -745,20 +829,35 @@ class MTSP_Solver:
         possible_connections:list[MTSP_Solver.AtomChunkConnection]=[]
         for c, constraint in enumerate(constraints_handler.constraints):
             if c%100 == 0: 
-                print(f"Calculating constraint {c} / {len(constraints_handler.constraints)} ")
+                print(f"Calculating constraint {c} / {len(constraints_handler.constraints)} ({constraint}) ")
             assert constraint.kind is not None
             constraints_that_include_H = ["Angle","non"]
-            atoms_for_constraint = self.ordered_atom_lookup.select_atoms_by(
-                names=constraint.atom_names(),
-                res_nums=constraint.residues(),
+            # atoms_for_constraint = self.ordered_atom_lookup.select_atoms_by(
+            #     names=constraint.atom_names(),
+            #     res_nums=constraint.residues(),
+            #     exclude_H=constraint.kind not in constraints_that_include_H
+            # )
+            atoms_for_constraint = self.ordered_atom_lookup.select_atoms_for_sites(
+                constraint.site_tags,
                 exclude_H=constraint.kind not in constraints_that_include_H
             )
+            res_name_num_dict={}
+            for a in atoms_for_constraint:
+                res_name_num_dict[a] = (a.name,OrderedAtomLookup.atom_res_seq_num(a) ) 
             # Generate each combination of n atoms
-            combinations_iterator:list[list[Atom]] = itertools.combinations(atoms_for_constraint, constraint.num_atoms())
+            combinations_iterator:itertools.combinations[tuple[Atom]] = itertools.combinations(atoms_for_constraint, constraint.num_atoms())
+            
+            debug_print=False
+            if debug_print:
+                combinations_iterator = list(combinations_iterator)
+                print(len(list(combinations_iterator)))
+                old_num_connections=len(list(possible_connections))
+            # print(set([res_name_num_dict[a] for a in atoms]))
+            # print(atoms)
+            # assert False
             for atoms in combinations_iterator:
-                #if constraint.kind!="Nonbond":
                 # Don't have two alt locs of same atom in group
-                if len(set([(a.get_name(),OrderedAtomLookup.atom_res_seq_num(a)) for a in atoms]))!= len(atoms): 
+                if len(set([res_name_num_dict[a] for a in atoms]))!= len(atoms):                     
                     continue
                 distance = constraint.get_distance(atoms)
                 if distance is not None:
@@ -773,8 +872,8 @@ class MTSP_Solver:
                             # Convert restraints on riding hydrogens to restraints on parent atoms
                             assert constraint.kind in constraints_that_include_H, (constraint.kind,[a.get_name() for a in atoms])
                             res_num, altloc = OrderedAtomLookup.atom_res_seq_num(a), a.get_altloc()
-                            possible_parents: list[Atom] = self.ordered_atom_lookup.select_atoms_by(
-                                res_nums=[res_num],
+                            possible_parents: list[Atom] = self.ordered_atom_lookup.select_atoms_from(
+                                self.ordered_atom_lookup.better_dict[res_num].values(),
                                 altlocs=[altloc],
                                 exclude_H=True,
                             )
@@ -782,11 +881,8 @@ class MTSP_Solver:
                                 a.get_name(),
                                 [p.get_fullname() for p in possible_parents]
                             ).strip()
-                            parent_atom = self.ordered_atom_lookup.select_atoms_by(
-                                res_nums=[res_num],
-                                altlocs=[altloc],
-                                names=[parent_name],
-                            )
+                            parent_atom = self.ordered_atom_lookup.better_dict[res_num][parent_name][altloc]
+
                             assert len(parent_atom) == 1, (parent_atom,parent_name,res_num,altloc)
                             parent_atom = parent_atom[0]
                             atom_chunks_selection.append(atom_chunks[atom_id(parent_atom)])
@@ -797,12 +893,11 @@ class MTSP_Solver:
                         assert constraint in ach.constraints_holder.constraints, (constraint.site_tags, ach.get_disordered_tag(), [c.site_tags for c in ach.constraints_holder.constraints])
                     #print([ch.name for ch in atom_chunks_selection])
 
-                    if constraint.kind == "Nonbond":
-                        connection = self.AtomChunkNonBondConnection(atom_chunks_selection,distance,constraint.kind,hydrogens)
-                    else:
-                        connection = self.AtomChunkConnection(atom_chunks_selection,distance,constraint.kind,hydrogens)
+                    connection = self.AtomChunkConnection(atom_chunks_selection,distance,constraint.kind,hydrogens)
                     possible_connections.append(connection)
-
+            if debug_print:
+                print("added:",len(list(possible_connections))-old_num_connections)
+                print("total:",len(list(possible_connections)))
                         #print([(ch.name,ch.resnum,distance) for ch in connection.atom_chunks])
         # for connection in possible_connections:
         #     print(connection.ts_distance)

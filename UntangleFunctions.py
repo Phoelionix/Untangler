@@ -12,7 +12,7 @@ matplotlib.use('AGG')
 
 
 
-UNTANGLER_WORKING_DIRECTORY= os.path.abspath(os.getcwd()) + "/"
+UNTANGLER_WORKING_DIRECTORY= os.path.join(os.path.abspath(os.getcwd()),"")
 
 def pdb_data_dir():
     return UNTANGLER_WORKING_DIRECTORY+"data/"

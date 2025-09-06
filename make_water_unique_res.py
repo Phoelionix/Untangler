@@ -2,6 +2,9 @@
 import os.path as path
 import UntangleFunctions
 
+
+# TODO need to group nearby ordered waters into same residue (i.e. make them the same disordered atom site!!).
+
 pdb_file="refmacout_minRfree_current.pdb"
 data_dir= UntangleFunctions.pdb_data_dir()
 
