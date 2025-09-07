@@ -41,7 +41,9 @@ import numpy as np
 import itertools
 
 class OrderedAtomLookup: #TODO pandas?
-    def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False,altloc_subset_size=None): # TODO type hint for sequence?
+    def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False,altloc_subset_size=None,allowed_resnums=None): # TODO type hint for sequence?
+        assert allowed_resnums is None, "Not working"
+        
         self.disordered_waters=[]
         self.ordered_atoms:list[Atom] = []
         self.serial_num_to_disordered_num_dict={}
@@ -58,6 +60,8 @@ class OrderedAtomLookup: #TODO pandas?
         if altloc_subset_size is not None:
             altloc_subset= []
             for disorderedAtom in atoms:
+                if UntangleFunctions.res_is_water(disorderedAtom.get_parent()):  # TODO XXX This will exclude some waters if there are more water altlocs than protein altlocs. But solver is designed assuming that the waters all correspond to a conformer model. 
+                    continue
                 for orderedAtom in disorderedAtom:
                     altloc = orderedAtom.get_altloc()
                     if altloc not in altloc_subset:
@@ -76,10 +80,11 @@ class OrderedAtomLookup: #TODO pandas?
             
             assert type(disorderedAtom)==DisorderedAtom, type(disorderedAtom)  # Not sure if a single altloc atom will still be stored as a disorderedatom by Bio.PDB
             res_num=OrderedAtomLookup.atom_res_seq_num(disorderedAtom)
-
+            if allowed_resnums is not None and res_num not in allowed_resnums:
+                continue
             if res_num not in self.better_dict:
                 self.better_dict[res_num] = {}
-                assert len(self.residue_nums)== 0 or self.residue_nums[-1] == res_num-1
+                assert len(self.residue_nums)== 0 or self.residue_nums[-1] == res_num-1, (res_num,self.residue_nums)
                 self.residue_nums.append(res_num)
                 self.res_names[res_num]=disorderedAtom.get_parent().get_resname()
                 self.residue_sources.append(disorderedAtom.get_parent())
@@ -129,6 +134,9 @@ class OrderedAtomLookup: #TODO pandas?
         atom_semi_selection = []
         if altlocs is None:
             for site in sites:
+                if site.resnum() not in self.better_dict:
+                    print(f"Warning: res num {site.resnum()} skipped")
+                    continue
                 atom_semi_selection.extend(self.better_dict[site.resnum()][site.atom_name()].values())
         else:
             for altloc in altlocs:
@@ -484,22 +492,23 @@ class ConstraintsHandler:
                         if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
                             self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal))
                             NB_pdb_ids_added.append(pdb_ids)          
-
+        
         num_nonbonded_from_geo = len(NB_pdb_ids_added)
-        waters = ordered_atom_lookup.select_atoms_by(protein=False)
-        ideal_water_separation=2.200
-        for atom in waters:
-            for other_atom in waters:
-                if other_atom == atom:
-                    continue
-                if ConstraintsHandler.BondConstraint.separation(atom,other_atom) < 8:
-                    pdb1 = f"{atom.name}     ARES     A      {OrderedAtomLookup.atom_res_seq_num(atom)}"
-                    pdb2 = f"{other_atom.name}     ARES     A      {OrderedAtomLookup.atom_res_seq_num(other_atom)}"
-                    pdb_ids = (pdb1,pdb2)
-                    pdb_ids_flipped = (pdb2,pdb1)
-                    if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
-                        self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal_water_separation))
-                        NB_pdb_ids_added.append(pdb_ids)     
+        if water_water_nonbond:
+            waters = ordered_atom_lookup.select_atoms_by(protein=False)
+            ideal_water_separation=2.200
+            for atom in waters:
+                for other_atom in waters:
+                    if other_atom == atom:
+                        continue
+                    if ConstraintsHandler.BondConstraint.separation(atom,other_atom) < 8:
+                        pdb1 = f"{atom.name}     ARES     A      {OrderedAtomLookup.atom_res_seq_num(atom)}"
+                        pdb2 = f"{other_atom.name}     ARES     A      {OrderedAtomLookup.atom_res_seq_num(other_atom)}"
+                        pdb_ids = (pdb1,pdb2)
+                        pdb_ids_flipped = (pdb2,pdb1)
+                        if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
+                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal_water_separation))
+                            NB_pdb_ids_added.append(pdb_ids)     
         num_nonbonded_extra = len(NB_pdb_ids_added)-num_nonbonded_from_geo
 
         print(f"Nonbonded from geo: {num_nonbonded_from_geo}, extra: {num_nonbonded_extra}")
@@ -636,15 +645,23 @@ class MTSP_Solver:
             return f"{self.connection_type}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
 
 
-    def __init__(self,pdb_file_path:str, align_uncertainty=False,ignore_waters=False,altloc_subset_size=3):
+    def __init__(self,pdb_file_path:str, align_uncertainty=False,ignore_waters=False,altloc_subset_size=2): 
+        # TODO when subset size > 2, employ fragmentation/partitioning.
+         
         # Note if we ignore waters then we aren't considering nonbond clashes between macromolecule and water.
         self.model_path = pdb_file_path
         original_structure = PDBParser().get_structure("struct",pdb_file_path)
         if align_uncertainty:
             self.align_uncertainty(original_structure)
+        
+        resnums = None
+        # debug_quick=False
+        # if debug_quick:
+        #     resnums = range(64)
         self.ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),
                                                      protein=True,waters=not ignore_waters,
-                                                     altloc_subset_size=altloc_subset_size)   
+                                                     altloc_subset_size=altloc_subset_size,
+                                                     allowed_resnums=resnums)   
     def align_uncertainty(self,structure:Structure.Structure):
         # in x-ray data and geom.
         # Experimental and doesn't help.
@@ -716,10 +733,15 @@ class MTSP_Solver:
         assert self.model_path[-4:]==".pdb"
         model_handle = os.path.basename(self.model_path)[:-4]
 
-        nonbonds = False ###################### XXX TEMPORARY !!!!!!!!!!!!!!!!!!!!!!!!!
-        print("WARNING: nonbonds force disabled for debugging")
+        nonbonds = False; water_water_nonbond=False ###################### XXX TEMPORARY !!!!!!!!!!!!!!!!!!!!!!!!!
+        print("WARNING: nonbonds force-disabled for debugging")
         water_clashes=[]
         nonbond_scores_files = []
+
+        # Generate geo file
+        geo_log_out_folder = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/HoltonOutputs/"
+        if not debug_skip_wE_calc:
+            UntangleFunctions.assess_geometry_wE(self.model_path,geo_log_out_folder) 
         if nonbonds:
 
 
@@ -749,10 +771,6 @@ class MTSP_Solver:
                 return clashes
 
             
-            # generate nonbond files
-            geo_log_out_folder = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/HoltonOutputs/"
-            if not debug_skip_wE_calc:
-                UntangleFunctions.assess_geometry_wE(self.model_path,geo_log_out_folder) 
 
             nonbond_scores_path = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}.geo"
 
@@ -785,14 +803,20 @@ class MTSP_Solver:
 
         print("Creating ordered atom chunks")
         ordered_atoms = self.ordered_atom_lookup.select_atoms_by()
+        altloc_counts={}
+        last_site=None
         for n,atom in enumerate(ordered_atoms):
+            if atom.get_altloc() not in altloc_counts:
+                altloc_counts[atom.get_altloc()]=0
+            altloc_counts[atom.get_altloc()]+=1
+            
             if n%1000==0:
                 print(f"Creating chunk {n} / {len(ordered_atoms)} ")
             if atom.element=="H":
                 continue
             is_water = UntangleFunctions.res_is_water(atom.get_parent())
             atom_chunks[atom_id(atom)]=AtomChunk(
-                                         int((n+2)/2),
+                                         altloc_counts[atom.get_altloc()]+1,
                                          atom.get_altloc(),
                                          OrderedAtomLookup.atom_res_seq_num(atom),
                                          atom.get_parent(),
@@ -884,8 +908,12 @@ class MTSP_Solver:
                             # Convert restraints on riding hydrogens to restraints on parent atoms
                             assert constraint.kind in constraints_that_include_H, (constraint.kind,[a.get_name() for a in atoms])
                             res_num, altloc = OrderedAtomLookup.atom_res_seq_num(a), a.get_altloc()
+                            
+                            res_atoms = []
+                            for name in self.ordered_atom_lookup.better_dict[res_num]:
+                                res_atoms.extend(self.ordered_atom_lookup.better_dict[res_num][name].values())
                             possible_parents: list[Atom] = self.ordered_atom_lookup.select_atoms_from(
-                                self.ordered_atom_lookup.better_dict[res_num].values(),
+                                res_atoms,
                                 altlocs=[altloc],
                                 exclude_H=True,
                             )
@@ -895,8 +923,8 @@ class MTSP_Solver:
                             ).strip()
                             parent_atom = self.ordered_atom_lookup.better_dict[res_num][parent_name][altloc]
 
-                            assert len(parent_atom) == 1, (parent_atom,parent_name,res_num,altloc)
-                            parent_atom = parent_atom[0]
+                            #assert len(parent_atom) == 1, (parent_atom,parent_name,res_num,altloc)
+                            #parent_atom = parent_atom[0]
                             atom_chunks_selection.append(atom_chunks[atom_id(parent_atom)])
 
                     hydrogens:list[str] = [a.get_name() for a in atoms if a.get_name()[0]=="H"]

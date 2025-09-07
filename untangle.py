@@ -18,10 +18,11 @@ class Untangler():
     output_dir = f"{working_dir}/output/"
     refine_shell_file=f"Refinement/Refine.sh"
     ####
-    debug_skip_refine = True # Skip refinement stages. Requires files to already have been generated (up to the point you are debugging).
-    debug_skip_initial_refine=False
+    debug_skip_refine = False # Skip refinement stages. Requires files to already have been generated (up to the point you are debugging).
+    debug_skip_initial_refine=True
+    debug_skip_first_unrestrained_refine=True
     debug_skip_unrestrained_refine=False
-    debug_skip_holton_data_generation=True
+    debug_skip_holton_data_generation=False
     num_threads=10
     class Score():
         def __init__(self,combined,wE,R_work,R_free):
@@ -67,6 +68,72 @@ class Untangler():
         self.wc_anneal_start = wc_anneal_start
         self.wc_anneal_loops=wc_anneal_loops
 
+    def prepare_pdb(self,pdb_path,out_path):
+        # Gets into format we expect. !!!!!!Assumes single chain!!!!!
+        with open(pdb_path) as I, open(out_path,'w') as O:
+            mid_lines = []
+            end_lines = []
+            atom_dict:dict[str,dict[str,dict[str,str]]] = {}  
+            last_chain=None
+            solvent_res_names=["HOH"]
+            protein_chain_id = "A"
+            solvent_chain_id = "S"
+            warned_collapse=False
+            def replace_chain(line,chain_id):
+                chain_id = str(chain_id)
+                assert len(chain_id)==1
+                return line[:21]+chain_id+line[22:]
+            def replace_serial_num(line,serial_num):
+                serial_num = str(serial_num)
+                serial_num = ' '*(5-len(serial_num))+serial_num
+                return line[:6]+serial_num+line[11:]
+
+            for line in I:
+                if line.startswith("TER  "):
+                    continue
+                start_strs_considered = ["ATOM","HETATM"]
+                for s in start_strs_considered:
+                    if line.startswith(s):
+                        break
+                else: # Not modifying
+                    if len(atom_dict)==0:
+                        O.write(line)
+                    else:
+                        end_lines += line
+                    continue
+
+                # Modifying
+                name = line[12:16]
+                altloc = line[16]
+                resname = line[17:20]
+                space = line[20]
+                chain = line[21]
+                resnum = line[22:26]
+                if resname in solvent_res_names:
+                    end_lines+=replace_chain(line,solvent_chain_id)
+                    continue
+                assert len(end_lines)==0
+                    
+                if not warned_collapse and chain != last_chain and last_chain is not None:
+                    print("Warning: Multiple chains detected. Collapsing chains into single chain")
+                    warned_collapse=True
+                if resnum not in atom_dict:
+                    atom_dict[resnum] = {}
+                if altloc not in atom_dict[resnum]:
+                    atom_dict[resnum][altloc] = {}
+                atom_dict[resnum][altloc][name]=line  
+                last_chain = chain
+                continue
+                    
+            n=0
+            for res_atom_dict in atom_dict.values():
+                for altloc_atom_dict in res_atom_dict.values():
+                    for line in altloc_atom_dict.values():
+                        n+=1
+                        modified_line = replace_chain(line,protein_chain_id)
+                        modified_line = replace_serial_num(modified_line,n)
+                        mid_lines.append(modified_line)
+            O.writelines(mid_lines+end_lines)
     def run(self,pdb_file_path,hkl_file_path,desired_score=18.6,max_num_runs=100):
         # pdb_file_path: path to starting model
         # hkl_file_path: path to reflection data.
@@ -78,7 +145,8 @@ class Untangler():
         self.model_handle = os.path.basename(pdb_file_path)[:-4]
         self.current_model= Untangler.output_dir+f"{self.model_handle}_current.pdb"
         os.makedirs(Untangler.output_dir,exist_ok=True)
-        shutil.copy(pdb_file_path,self.current_model)
+        #shutil.copy(pdb_file_path,self.current_model)
+        self.prepare_pdb(pdb_file_path,self.current_model)
         self.swapper = Swapper()
 
         initial_model=self.initial_refine(self.current_model,debug_skip=(self.debug_skip_refine or self.debug_skip_initial_refine)) 
@@ -228,7 +296,7 @@ class Untangler():
     def refinement_loop(self,two_swaps=False,allot_protein_independent_of_waters=False): 
         # working_model stores the path of the current model. It changes value during the loop.
         # TODO if stuck (tried all candidate swap sets for the loop), do random flips or engage Metr.Hastings or track all the new model scores and choose the best.
-        working_model = self.refine_for_positions(self.current_model,debug_skip=self.debug_skip_refine or self.debug_skip_unrestrained_refine) 
+        working_model = self.refine_for_positions(self.current_model,debug_skip=self.debug_skip_refine or self.debug_skip_unrestrained_refine or (self.loop==0 and self.debug_skip_first_unrestrained_refine)) 
         
             
         num_best_solutions=min(self.loop+self.n_best_swap_start,self.n_best_swap_max) # increase num solutions we search over time...
@@ -558,7 +626,10 @@ def main():
 
     starting_model = sys.argv[1]
     xray_data = sys.argv[2]
-    Untangler().run(
+    Untangler(
+        # max_num_best_swaps_considered=5,
+        starting_num_best_swaps_considered=5,
+        ).run(
         starting_model,
         xray_data,
         desired_score=18.41,

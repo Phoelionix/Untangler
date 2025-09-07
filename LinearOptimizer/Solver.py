@@ -41,19 +41,15 @@ import json
 
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[MTSP_Solver.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True,
-          protein_sites:bool=True,water_sites:bool=True): # 
+          protein_sites:bool=True,water_sites:bool=True,max_mins_start=60,mins_extra_per_loop=0): # 
     # protein_sites, water_sites: Whether these can be swapped.
 
-    """
-    # This sucks but is fixed in more_than_two branch. HOW
     #first_atom_id = "1.N"
-    first_atom_id = None
     lowest_site_num = np.inf
     for chunk_site in chunk_sites.values():
         if chunk_site.get_site_num() < lowest_site_num:
             lowest_site_num = chunk_site.get_site_num()
-            first_atom_id = chunk_site.get_disordered_tag()
-    """
+
 
     nodes = [chunk.unique_id() for chunk in chunk_sites.values()]
 
@@ -93,10 +89,11 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     class VariableID:
         @staticmethod
         def Atom(chunk:AtomChunk):
-            return VariableID(chunk.get_disordered_tag(),VariableKind.Atom)
-        def __init__(self,name:str,kind:VariableKind):
+            return VariableID(chunk.get_disordered_tag(),VariableKind.Atom,chunk.get_site_num())
+        def __init__(self,name:str,kind:VariableKind,site_num=None):
             self.name=str(name)
             self.kind = kind
+            self.site_num=site_num
         def __repr__(self):
             return self.name
         def __hash__(self):
@@ -118,15 +115,16 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     # Setup where atoms are assigned.
     # Track which are which based on original altloc.
 
-    altlocs:list[str]=[]
+    all_altlocs:list[str]=[]
     for ch in chunk_sites.values():
-        if ch.altloc not in altlocs:
-            altlocs.append(ch.altloc)
+        if ch.altloc not in all_altlocs:
+            all_altlocs.append(ch.altloc)
     # def site_variable_name(site: VariableID, from_altloc:str, to_altloc:str):
     #     return f"atomState_{site}_{from_altloc}.{to_altloc}"
-    disordered_atom_sites:list[str] = []
+    disordered_atom_sites:list[VariableID] = []
     
     # Setup atom swap variables
+    #Crucial TODO: Too many swap variables. E.g. with two altlocs we will have four variables per atom site when we only need one.
     for i, (atom_id, chunk) in enumerate(chunk_sites.items()):
         site = VariableID.Atom(chunk)
         if site not in disordered_atom_sites:
@@ -139,33 +137,45 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         if from_altloc not in site_var_dict[site]:
             site_var_dict[site][from_altloc]={}
 
-        # Create variable for each possible swap to other swap
-        for to_altloc in altlocs:
-            var_atom_assignment =  pl.LpVariable(
-                f"atomState_{site}_{from_altloc}.{to_altloc}",
-                lowBound=0,upBound=1,cat=pl.LpInteger
-            )
-            site_var_dict[site][from_altloc][to_altloc]=var_atom_assignment
-
-        # Each ordered atom is assigned to one conformer from:to == n:1
-        lp_problem += (  
-            lpSum(site_var_dict[site][from_altloc])==1,
-            f"fromAltLoc_{site}_{from_altloc}"
-        )
 
     for site in disordered_atom_sites:
+        site_altlocs = []
+        for possible_altloc in site_var_dict[site]:
+            site_altlocs.append(possible_altloc)
+
+        for from_altloc in site_altlocs:
+            # Create variable for each possible swap to other swap
+            for to_altloc in site_altlocs:
+                var_atom_assignment =  pl.LpVariable(
+                    f"atomState_{site}_{from_altloc}.{to_altloc}",
+                    lowBound=0,upBound=1,cat=pl.LpBinary #TODO pl.LpBinary
+                )
+                # For warm start.
+                var_atom_assignment.setInitialValue(0)
+                if to_altloc == from_altloc: 
+                    var_atom_assignment.setInitialValue(1)
+                site_var_dict[site][from_altloc][to_altloc]=var_atom_assignment
+
+            # Each ordered atom is assigned to one conformer from:to == n:1
+            lp_problem += (  
+                #lpSum(site_var_dict[site][from_altloc])==1,
+                lpSum(site_var_dict[site][from_altloc].values())==1,
+                f"fromAltLoc_{site}_{from_altloc}"
+            )
+
         # Each conformer is assigned one ordered atom. from:to == 1:n
-        for to_altloc in altlocs:
+        for to_altloc in  site_altlocs:
             to_altloc_vars:list[LpVariable] = []
             for from_alt_loc_dict in site_var_dict[site].values():
                 to_altloc_vars.append(from_alt_loc_dict[to_altloc])
-        lp_problem += (  
-            lpSum(to_altloc_vars)==1,
-            f"toAltLoc_{site}"
-        )
+            lp_problem += (  
+                lpSum(to_altloc_vars)==1,
+                f"toAltLoc_{site}.{to_altloc}"
+            )
 
-        if force_no_flips:
-            for altloc in altlocs:
+        if (site.site_num == lowest_site_num # Anchor solution to one where first disordered atom is unchanged.  
+        or force_no_flips) :
+            for altloc in site_altlocs:
                 lp_problem += (
                     site_var_dict[site][altloc][altloc]==1,
                     f"forceNoFlips_{site}_{altloc}"
@@ -193,14 +203,28 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         #         distance_vars.append(var*connection.ts_distance)
         #         #print(var*connection.ts_distance)
         #     return
-        
+        altlocs = None
+        for ch in disordered_connection[0].atom_chunks:
+            site = VariableID.Atom(chunk)
+            if altlocs is None:
+                altlocs = site_var_dict[site].keys()
+            else:
+                if set(altlocs) != set(site_var_dict[site].keys()):
+                    assert False
+                    #print(f"Warning: altlocs don't match, skipping {disordered_connection[0].get_disordered_connection_id()}")
+                    #return
+        altlocs = set(altlocs)
         for ordered_connection_option in disordered_connection:
+            #continue
             # Variable
             tag = "_".join([ch.unique_id() for ch in ordered_connection_option.atom_chunks])
             if ordered_connection_option.hydrogen_tag!="":
                 tag = "Htag["+ordered_connection_option.hydrogen_tag+"]_"+tag
             var_active = pl.LpVariable(f"{constraint_type}_{tag}",  #TODO cat=pl.LpBinary
-                                lowBound=0,upBound=1,cat=pl.LpInteger)
+                                lowBound=0,upBound=1,cat=pl.LpBinary)
+            var_active.setInitialValue(0)
+            if len(set([ch.get_altloc() for ch in ordered_connection_option.atom_chunks])) == 1:
+                var_active.setInitialValue(1)
                 
             # Connections contains ordered atoms from any and likely multiplke altlocs that 
             # *are to be assigned to the same altlocs*
@@ -210,6 +234,11 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                 for ch in ordered_connection_option.atom_chunks:
                     from_altloc = ch.get_altloc()
                     site = VariableID.Atom(ch)
+
+                    if to_altloc not in site_var_dict[site][from_altloc]:
+                        print(f"Warning: to_altloc {to_altloc} not found in {site_var_dict[site][from_altloc]}, skipping {disordered_connection[0].get_disordered_connection_id()}")
+                        return
+
                     assignment_options[to_altloc].append(site_var_dict[site][from_altloc][to_altloc])
             # if variable is inactive, cannot have all atoms assigned to the same altloc.
             # Note that since every connection option is looped through, this also means 
@@ -268,7 +297,32 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
     
     ######################
-    
+    swaps_file =  f"{out_dir}/LO-toFlip_{out_handle}.json"
+    def update_swaps_file(distances, site_assignment_arrays):
+    # Create json file that lists all the site *changes* that are required to meet the solution. 
+        out_dict = {"target": out_handle,"solutions":{}}
+        verbose=False
+        for i, (distance, atom_assignments) in enumerate(zip(distances,site_assignment_arrays)):
+            solution_dict = {"badness": distance}
+            print(solution_dict)
+            out_dict["solutions"][f"solution {i+1}"] = solution_dict
+            moves:dict[str,dict[str]] = {}
+            solution_dict["moves"]=moves
+            for site in atom_assignments:
+                site_key = f"site {site}"
+                for from_altloc,to_altloc in atom_assignments[site].items():
+                    if from_altloc == to_altloc:
+                        # No change needed
+                        continue
+                    if verbose:
+                        # TODO Flag only when swaps have **changed**, as did in 2 altloc version.
+                        print(f"Flagging assignment of {site} {from_altloc} to {to_altloc}")
+                    if site_key not in moves:
+                        moves[site_key] = {}
+                    moves[site_key][from_altloc] = to_altloc
+        with open(swaps_file,'w') as f: 
+            json.dump(out_dict,f,indent=4)
+
 
     assert num_solutions >= len(forced_swap_solutions) 
 
@@ -296,10 +350,53 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
         lp_problem.writeLP(f"{out_dir}/TSP_{out_handle}.lp")
 
-        NTHREADS=16
-        solver = PULP_CBC_CMD(threads=NTHREADS)
-        lp_problem.solve(solver=solver)
-        #lp_problem.solve()
+
+        class Solver(Enum):
+            COIN="COIN",
+            CPLX_PY="CPLX_PY",
+            CPLX_CMD="CPLX_CMD"
+
+        extra_time_per_loop=60*mins_extra_per_loop
+        timeLimitStart=60*max_mins_start
+        timeLimit=timeLimitStart+l*extra_time_per_loop
+        threads=26
+        logPath=out_dir+out_handle+"-LP.log"
+        pulp_solver = Solver.CPLX_PY
+        warmStart=True
+        
+
+
+        solver_class=PULP_CBC_CMD
+        solver_options=[]
+        if pulp_solver == Solver.COIN: 
+            solver_class = PULP_CBC_CMD
+        elif pulp_solver == Solver.CPLX_CMD:   # cant get working
+            assert False
+            pulp_solver = CPLEX_CMD
+        # CPLEX parameters: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.6.0/ilog.odms.cplex.help/CPLEX/GettingStarted/topics/tutorials/InteractiveOptimizer/settingParams.html
+        # CPLEX status: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.10.0/ilog.odms.cplex.help/refcallablelibrary/macros/Solution_status_codes.html
+            solver_options.append("set parallel -1")
+            #path='~/ibm/ILOG/CPLEX_STUDIO2211/cplex'
+        elif pulp_solver == Solver.CPLX_PY:
+            solver_class = CPLEX_PY
+        else:
+            raise Exception("not implemented")
+        #solver = solver_class(timeLimit=timeLimit,threads=threads,logPath=logPath,warmStart=warmStart,path=path)
+        solver = solver_class(timeLimit=timeLimit,threads=threads,warmStart=warmStart,logPath=logPath)
+        lp_problem.solve(solver)
+        print(solver)
+        # if pulp_solver == Solver.COIN:
+        #     # solver = PULP_CBC_CMD(threads=NTHREADS)
+        #     # lp_problem.solve(solver=solver)
+        #     maxNodes=None
+        #     #pulpTestAll()
+        #     #asdds
+        #     solver = PULP_CBC_CMD(logPath=,threads=threads,timeLimit=timeLimit,maxNodes=maxNodes)
+        # elif pulp_solver == Solver.COIN:
+        #     solver = CPLEX_PY(timeLimit=timeLimit,threads=threads)
+        # lp_problem.solve(solver)
+
+
 
         def get_status(verbose=False):
             print("Status:", LpStatus[lp_problem.status])
@@ -314,6 +411,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             print("Total distance = ", value(lp_problem.objective))
             #plt.scatter()
         get_status(verbose=False)
+
 
         # dry = None
         # for val in connections.values():
@@ -355,14 +453,15 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         # print("KEYS")
         # for key in nonzero_variables:
         #     print(key)
+        distances.append(value(lp_problem.objective))
         
-            
+        update_swaps_file(distances,site_assignment_arrays)
+      
        
         solution = [var.value() for var in lp_problem.variables()] 
         lp_variables = lp_problem.variables()
         lp_problem += pulp.lpSum(solution[i]*lp_variables[i] for i in range(len(solution))) <= len(solution)-1
 
-        distances.append(value(lp_problem.objective))
 
         flipped_flip_variables = []
         flip_variables=[]
@@ -385,29 +484,6 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
         ##################
 
-    # Create json file that lists all the site *changes* that are required to meet the solution. 
-    out_dict = {"target": out_handle,"solutions":{}}
-    verbose=True
-    for i, (distance, atom_assignments) in enumerate(zip(distances,site_assignment_arrays)):
-        solution_dict = {"badness": distance}
-        out_dict["solutions"][f"solution {i+1}"] = solution_dict
-        moves:dict[str,dict[str]] = {}
-        solution_dict["moves"]=moves
-        for site in atom_assignments:
-            site_key = f"site {site}"
-            for from_altloc,to_altloc in atom_assignments[site].items():
-                if from_altloc == to_altloc:
-                    # No change needed
-                    continue
-                if verbose:
-                    print(f"Flagging assignment of {site} {from_altloc} to {to_altloc}")
-                if site_key not in moves:
-                    moves[site_key] = {}
-                moves[site_key][from_altloc] = to_altloc
-    
-    swaps_file =  f"{out_dir}/LO-toFlip_{out_handle}.json"
-    with open(swaps_file,'w') as f: 
-        json.dump(out_dict,swaps_file,indent=4)
     
     return swaps_file
 

@@ -52,7 +52,7 @@ class Swapper():
             for swap in self.swaps:
                 if swap.matches_id(res_num,atom_name,from_altloc):
                     return swap.to_altloc
-            return swap.from_altloc # No swap!
+            return from_altloc # No swap!
         def __repr__(self):
             return str(self.swaps)  
         
@@ -73,7 +73,10 @@ class Swapper():
 
         # Prioritise exploring big changes that don't score much worse
         #TODO Single or odd number of swaps should be flagged as interesting
-        interesting_swaps = [s for s in swap_group.swaps if s[1][0] not in ["O","H"]]
+
+        # TODO Reimplement
+        ''' 
+        interesting_swaps = [s for s in swap_group.swaps if s.atom_name() not in ["O","H"]]
         num_separated_swaps = 0
         last_swap_start_res_num=-1
         for swap in interesting_swaps:
@@ -94,6 +97,8 @@ class Swapper():
         if string_of_swaps  in self.num_times_swapped:           
             priority-=15*pct*self.num_times_swapped[string_of_swaps]
             #priority-=5*pct*self.num_times_swapped[swap]
+        '''
+        
 
         return priority
     
@@ -129,18 +134,18 @@ class Swapper():
     def add_candidates(self,swaps_file_path):
         self.sol_idx=None # XXX
         swap_group_candidates :list[Swapper.SwapGroup] = []
+        assert swaps_file_path[-5:]==".json"
         with open(swaps_file_path,'r') as f:
-            assert swaps_file_path[:-5]==".json"
-            solutions =  json.load(swaps_file_path)["solutions"]
+            solutions =  json.load(f)["solutions"]
             for solution_name, solution_dict in solutions.items():
                 badness:float = solution_dict["badness"]
                 moves: dict[str,dict[str]] = solution_dict["moves"]
                 swap_group = Swapper.SwapGroup(badness)
                 # LinearOptimizer.Solver: solution_dict[site_key][from_altloc] = to_altloc
+                swap_group_candidates.append(swap_group)
                 for site_key in moves:
-                    res_num, atom_name = site_key.split('.')
+                    res_num, atom_name = site_key.split()[-1].split('.')
                     #_atom_name = _atom_name.strip("\n") 
-                    swap_group_candidates.append(swap_group)
                     for from_altloc, to_altloc in moves[site_key].items():
                         swap_group.add(res_num, atom_name,from_altloc,to_altloc)
                         
@@ -185,9 +190,12 @@ class Swapper():
                 
         try:
             sorted_groups = sorted(swap_group_candidates,key=self.get_priority,reverse=True)
-            print("Swap group | priority")
+
+            #TODO reimplement
+            '''print("Swap group | priority")
             for sg, priority in zip(sorted_groups,[self.get_priority(sg) for sg in sorted_groups]):
                 print(f"{sg} | {priority}")
+            '''
             self.swap_groups_sorted.extend(sorted_groups)
         except:
             print(swap_group_candidates)
@@ -205,7 +213,10 @@ class Swapper():
 
         swap_group: Swapper.SwapGroup = self.swap_groups_sorted[self.sol_idx]
         assert isinstance(swap_group,Swapper.SwapGroup)
+         #TODO Do not delete, plan to reimplement 
+        '''
         self.flag_swapping(swap_group)
+        '''
         self.sol_idx+=1 
 
         with open(model_path,'r') as f:
@@ -219,31 +230,32 @@ class Swapper():
                     new_lines+=line
                     continue
                 if P.res_name == "HOH":
-                    if (P.res_num,P.atom_name) in swap_group.swaps:
-                        new_lines += P.new_altloc()
-                    else:
-                        new_lines += line 
+                    to_altloc = swap_group.get_to_altloc(P.res_num,P.atom_name, P.altloc)
+                    new_lines += P.new_altloc(to_altloc)
                     continue
                 if P.res_num!=last_resnum:
                     H_assignment_dict=dict()
                     last_resnum=P.res_num
 
                 # Swap according to swaps list
+                anchored_atom_name = P.atom_name 
                 if P.atom_name[0]=="H":
-                    to_altloc = H_assignment_dict[H_get_parent_fullname(P.atom_name_unstripped,H_assignment_dict.keys())]
-                else:
-                    assert P.res_num.isnumeric()
-                    to_altloc = swap_group.get_to_altloc(P.res_num,P.atom_name, P.altloc)
+                    anchored_atom_name = H_get_parent_fullname(P.atom_name_unstripped,H_assignment_dict.keys()).strip()
+                assert P.res_num.isnumeric()
+                to_altloc = swap_group.get_to_altloc(P.res_num,anchored_atom_name, P.altloc)
+
+
+                
 
                 # Alter line if polarity is negative 1
                 new_line = line
                 new_line = P.new_altloc(to_altloc)
                 new_lines+=new_line
 
-                if P.atom_name[0]!="H":
-                    if P.atom_name_unstripped not in H_assignment_dict: # Sorry for this
-                        H_assignment_dict[P.atom_name_unstripped] = {}
-                    H_assignment_dict[P.atom_name_unstripped][P.altloc] =to_altloc
+                # if P.atom_name[0]!="H":
+                #     if P.atom_name_unstripped not in H_assignment_dict: # Sorry for this
+                #         H_assignment_dict[P.atom_name_unstripped] = {}
+                #     H_assignment_dict[P.atom_name_unstripped][P.altloc] =to_altloc
             
             
 
