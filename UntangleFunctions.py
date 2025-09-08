@@ -48,13 +48,14 @@ def save_structure(structure:Structure,header_reference_file_path,out_path,comme
 def get_score(score_file,phenixgeometry_only=False):
     with open(score_file,'r') as f:
         for line in f: 
-            if line.strip() != "":
-                print(line)
+            if line.strip().strip('\n') != "":
+                print(line.strip('\n'))
                 combined_score,wE_score,Rwork, Rfree = [float(v) for v in line.split()[:4]]
                 if phenixgeometry_only:
                     print(f"Python read wE (quick): {wE_score}")
                 else:
                     print(f"Python read wE: {wE_score}")
+                print()
                 return combined_score,wE_score,Rwork, Rfree
 
 

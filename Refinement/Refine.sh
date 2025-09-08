@@ -114,6 +114,8 @@ if $refine_no_hold; then
   paramFileTemplate=refine_no_hold_template.eff
 fi
 
+echo  $paramFileTemplate
+
 #paramFileTemplate=refine_water_bond_length_hold_template.eff
 #paramFileTemplate=refine_water_hold_template_free_necessary_waters.eff
 

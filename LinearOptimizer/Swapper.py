@@ -234,13 +234,13 @@ class Swapper():
                     new_lines += P.new_altloc(to_altloc)
                     continue
                 if P.res_num!=last_resnum:
-                    H_assignment_dict=dict()
+                    nonHatom_full_names=[]
                     last_resnum=P.res_num
 
                 # Swap according to swaps list
                 anchored_atom_name = P.atom_name 
                 if P.atom_name[0]=="H":
-                    anchored_atom_name = H_get_parent_fullname(P.atom_name_unstripped,H_assignment_dict.keys()).strip()
+                    anchored_atom_name = H_get_parent_fullname(P.atom_name_unstripped,nonHatom_full_names).strip()
                 assert P.res_num.isnumeric()
                 to_altloc = swap_group.get_to_altloc(P.res_num,anchored_atom_name, P.altloc)
 
@@ -252,10 +252,9 @@ class Swapper():
                 new_line = P.new_altloc(to_altloc)
                 new_lines+=new_line
 
-                # if P.atom_name[0]!="H":
-                #     if P.atom_name_unstripped not in H_assignment_dict: # Sorry for this
-                #         H_assignment_dict[P.atom_name_unstripped] = {}
-                #     H_assignment_dict[P.atom_name_unstripped][P.altloc] =to_altloc
+                # Sorry for this
+                if P.atom_name[0]!="H" and P.atom_name_unstripped not in nonHatom_full_names:
+                    nonHatom_full_names.append(P.atom_name_unstripped)
             
             
 

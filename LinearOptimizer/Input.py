@@ -632,20 +632,22 @@ class MTSP_Solver:
 
     class AtomChunkConnection():
         def __init__(self, atom_chunks:list[AtomChunk],ts_distance,connection_type,hydrogen_names):
+            assert hydrogen_names==None or len(hydrogen_names)==len(atom_chunks)
             self.atom_chunks = atom_chunks
             self.from_altlocs=[a.get_altloc() for a in atom_chunks]
             self.res_nums=[a.get_resnum() for a in atom_chunks]
             self.connection_type=connection_type
             self.ts_distance=ts_distance  # NOTE As in the travelling salesman problem sense
             self.hydrogen_tag=""
-            if len(hydrogen_names)>0:
+            self.hydrogen_name_set=set([])
+            if hydrogen_names is not None:
                 self.hydrogen_tag = "_"+''.join(hydrogen_names)
-            self.hydrogen_name_set = set(hydrogen_names)
+                self.hydrogen_name_set = set(hydrogen_names)
         def get_disordered_connection_id(self):
             return f"{self.connection_type}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
 
 
-    def __init__(self,pdb_file_path:str, align_uncertainty=False,ignore_waters=False,altloc_subset_size=2): 
+    def __init__(self,pdb_file_path:str, align_uncertainty=False,ignore_waters=False,altloc_subset_size=3): 
         # TODO when subset size > 2, employ fragmentation/partitioning.
          
         # Note if we ignore waters then we aren't considering nonbond clashes between macromolecule and water.
@@ -733,12 +735,14 @@ class MTSP_Solver:
         assert self.model_path[-4:]==".pdb"
         model_handle = os.path.basename(self.model_path)[:-4]
 
-        nonbonds = False; water_water_nonbond=False ###################### XXX TEMPORARY !!!!!!!!!!!!!!!!!!!!!!!!!
-        print("WARNING: nonbonds force-disabled for debugging")
-        water_clashes=[]
-        nonbond_scores_files = []
+        needToFixWaterAltlocsDebugging=False
+        if needToFixWaterAltlocsDebugging:
+            nonbonds = False; water_water_nonbond=False ###################### XXX TEMPORARY !!!!!!!!!!!!!!!!!!!!!!!!!
+            print("WARNING: nonbonds force-disabled for debugging")
 
         # Generate geo file
+        nonbond_scores_files = []
+        water_clashes=[]
         geo_log_out_folder = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/HoltonOutputs/"
         if not debug_skip_wE_calc:
             UntangleFunctions.assess_geometry_wE(self.model_path,geo_log_out_folder) 
@@ -873,6 +877,13 @@ class MTSP_Solver:
             #     res_nums=constraint.residues(),
             #     exclude_H=constraint.kind not in constraints_that_include_H
             # )
+            
+            # contains_H = False
+            # for site_tag in constraint.site_tags:
+            #     if site_tag.atom_name()[0]=="H":
+            #         contains_H=True
+            # if contains_H:
+            #     continue
             atoms_for_constraint = self.ordered_atom_lookup.select_atoms_for_sites(
                 constraint.site_tags,
                 exclude_H=constraint.kind not in constraints_that_include_H
@@ -927,7 +938,11 @@ class MTSP_Solver:
                             #parent_atom = parent_atom[0]
                             atom_chunks_selection.append(atom_chunks[atom_id(parent_atom)])
 
-                    hydrogens:list[str] = [a.get_name() for a in atoms if a.get_name()[0]=="H"]
+                    num_hydrogens = len([a.get_name() for a in atoms if a.element=="H"])
+                    hydrogens=None
+                    if num_hydrogens > 0:
+                        hydrogens:list[str] = [a.get_name() if a.element=="H" else "x" for a in atoms]
+                    
                     #atom_chunks_selection:list[AtomChunk]= [atom_chunks[atom_id(a)] for a in atoms]
                     for ach in atom_chunks_selection:
                         assert constraint in ach.constraints_holder.constraints, (constraint, ach.get_disordered_tag(), [c for c in ach.constraints_holder.constraints])

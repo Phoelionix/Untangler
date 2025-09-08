@@ -18,11 +18,13 @@ class Untangler():
     output_dir = f"{working_dir}/output/"
     refine_shell_file=f"Refinement/Refine.sh"
     ####
-    debug_skip_refine = False # Skip refinement stages. Requires files to already have been generated (up to the point you are debugging).
+    # Skip stages. Requires files to already have been generated (up to the point you are debugging).
+    debug_skip_refine = False
     debug_skip_initial_refine=True
     debug_skip_first_unrestrained_refine=True
     debug_skip_unrestrained_refine=False
     debug_skip_holton_data_generation=False
+    ####
     num_threads=10
     class Score():
         def __init__(self,combined,wE,R_work,R_free):
@@ -181,7 +183,7 @@ class Untangler():
 
 
     def candidate_models_from_swapper(self,swapper:Swapper,num_solutions,model_to_swap:str,allot_protein_independent_of_waters:bool)->list[str]: #TODO refactor as method of Swapper class
-        
+        # TODO should be running solver for altloc set partitioned into subsets, not a single subset. 
         swapper.clear_candidates()
         atoms, connections = Solver.MTSP_Solver(model_to_swap,ignore_waters=allot_protein_independent_of_waters).calculate_paths(
             clash_punish_thing=False,
@@ -195,6 +197,7 @@ class Untangler():
                                         force_sulfur_bridge_swap_solutions=False, #True
                                         protein_sites=True, 
                                         water_sites= not allot_protein_independent_of_waters,
+                                        #water_sites=False,
                                         )
         
         # Translate candidate solutions from LinearOptimizer into swaps lists
@@ -362,7 +365,8 @@ class Untangler():
 
     def initial_refine(self,model_path,**kwargs)->str:
         # Try to get atoms as close to their true positions as possible
-        for wc, wu, n_cycles in zip([1,0.5,0.2,0.1],[1,0,0,0],[2,4,5,5]):
+        #for wc, wu, n_cycles in zip([1,0.5,0.2,0.1],[1,0,0,0],[2,4,5,5]):
+        for wc, wu, n_cycles in zip([1],[1],[4]):
 
             refine_params = self.get_refine_params(
                 "initial",
@@ -628,7 +632,8 @@ def main():
     xray_data = sys.argv[2]
     Untangler(
         # max_num_best_swaps_considered=5,
-        starting_num_best_swaps_considered=5,
+        starting_num_best_swaps_considered=10,
+        num_unrestrained_macro_cycles=3
         ).run(
         starting_model,
         xray_data,
