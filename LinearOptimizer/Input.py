@@ -520,7 +520,7 @@ class ConstraintsHandler:
                         break
                 else:
                     pdb_ids = [f"{n}     ARES     A      {r}" for (n,r) in zip(name,res_num)]
-                    self.constraints.append(ConstraintsHandler.ClashConstraint(pdb_ids,altloc,badness))
+                    self.add(ConstraintsHandler.ClashConstraint(pdb_ids,altloc,badness))
 
 # Ugh, never do inheritance. TODO refactor to composition.
 class AtomChunk(OrderedResidue):
