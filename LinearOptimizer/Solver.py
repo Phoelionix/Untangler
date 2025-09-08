@@ -237,25 +237,26 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                     #print(f"Warning: altlocs don't match, skipping {disordered_connection[0].get_disordered_connection_id()}")
                     #return
         altlocs = set(altlocs)
-        nonHVars = []
+        disordered_connection_vars = []
+        #TODO CRITICAL Variables for when hydrogen is involved can be simplified, especially for angles involving hydrogen.
         for ordered_connection_option in disordered_connection:
-            contains_hydrogen = False
             #continue
             # Variable
             #tag = "_".join([ch.unique_id() for ch in ordered_connection_option.atom_chunks])
             #tag = "|".join([ch.unique_id() for ch in ordered_connection_option.atom_chunks])
-            from_ordered_atoms = "|".join([f"{ch.resnum}.{ch.name}.{ch.altloc}" for ch in ordered_connection_option.atom_chunks])
+            from_ordered_atoms = "|".join([f"{ch.resnum}.{ch.name}_{ch.altloc}" for ch in ordered_connection_option.atom_chunks])
             tag=from_ordered_atoms
             extra_tag=""
             if ordered_connection_option.hydrogen_tag!="":
                 extra_tag = "Htag["+ordered_connection_option.hydrogen_tag+"]_"
-                contains_hydrogen=True
             tag+=extra_tag
             var_active = pl.LpVariable(f"{constraint_type.value}_{tag}",  #TODO cat=pl.LpBinary
                                 lowBound=0,upBound=1,cat=pl.LpBinary)
             var_active.setInitialValue(0)
             if len(set([ch.get_altloc() for ch in ordered_connection_option.atom_chunks])) == 1:
                 var_active.setInitialValue(1)
+
+            constraint_var_dict[VariableID(from_ordered_atoms+extra_tag,constraint_type.value)]=var_active
                 
             # Connections contains ordered atoms from any and likely multiplke altlocs that 
             # *are to be assigned to the same altlocs*
@@ -277,17 +278,21 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             distance_vars.append(ordered_connection_option.ts_distance*var_active)
             
             # Constraint will be handled by parent atom of hydrogen
-            if contains_hydrogen:
-                continue
 
-            nonHVars.append(var_active)
+            disordered_connection_vars.append(var_active)
+
             try:
                 for to_altloc, assignment_vars in assignment_options.items():
                     #swaps = '|'.join([f"{''.join(assignment.name.split('_')[1:])}" for assignment in assignment_vars])
-                    num_assignments = len(assignment_vars)
+                    num_assignments = len(ordered_connection_option.atom_chunks)
+                    assert len(assignment_vars) == num_assignments
+                    # lp_problem += (
+                    #     lpSum(assignment_vars) <=  num_assignments*var_active,   
+                    #     f"1{constraint_type.value}_{from_ordered_atoms}>>{to_altloc}"
+                    # )
                     lp_problem += (
-                        lpSum(assignment_vars) <= num_assignments - var_active,   
-                        f"{constraint_type.value}_{from_ordered_atoms}>>{to_altloc}"
+                        lpSum(assignment_vars) <=  num_assignments-1+var_active,   # only active if and only if all assignment vars active.
+                        f"{constraint_type.value}_{tag}>>{to_altloc}"
                     )
             except:
                 for to_altloc, assignment_vars in assignment_options.items():
@@ -303,15 +308,14 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                 raise(Exception(""))
 
         # Above not sufficient constraint?
-        sites = '|'.join([VariableID.Atom(ch).name for ch in disordered_connection[0].atom_chunks])
             
-        if len(nonHVars)>0:
-            lp_problem += (
-                lpSum(nonHVars) == len(altlocs),
-                f"{constraint_type.value}_{sites}"
-
-            )
-            
+        # if len(disordered_connection_vars)>0:
+        #     sites = '|'.join([VariableID.Atom(ch).name for ch in disordered_connection[0].atom_chunks])
+        #     lp_problem += (
+        #         lpSum(disordered_connection_vars) == len(altlocs),
+        #         f"{constraint_type.value}_{sites}{extra_tag}"
+        #     )
+                
                     
     for connection_id, ordered_connection_choices in disordered_connections.items():
         constraint_type = VariableKind[connection_id.split('_')[0]] 
@@ -513,6 +517,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
         flipped_flip_variables = []
         flip_variables=[]
+        #TODO Critical - for some reason the 'next-best' solutions can be better. Maybe the gap tolerance is not 0?
         for chunk in chunk_sites.values():
             site = VariableID.Atom(chunk)
             if not site_being_considered(site):
@@ -527,7 +532,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                     flipped_flip_variables.append(1-var)
         if len(flipped_flip_variables) == 0:
             # Require one variable to be flipped
-            lp_problem += pulp.lpSum(flip_variables) >= 1, f"force_next_best_solution_{l}"
+            lp_problem += pulp.lpSum(flip_variables) >= 1, f"force_swaps_loop_{l}"
         else:
             # require at least one flip to be different
             lp_problem += pulp.lpSum(flipped_flip_variables) >= 1, f"force_next_best_solution_{l}"

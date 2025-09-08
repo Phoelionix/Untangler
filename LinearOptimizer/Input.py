@@ -868,7 +868,7 @@ class MTSP_Solver:
         print("Computing connection costs")
         possible_connections:list[MTSP_Solver.AtomChunkConnection]=[]
         for c, constraint in enumerate(constraints_handler.constraints):
-            if c%100 == 0: 
+            if c%1000 == 0: 
                 print(f"Calculating constraint {c} / {len(constraints_handler.constraints)} ({constraint}) ")
             assert constraint.kind is not None
             constraints_that_include_H = ["Angle","non"]

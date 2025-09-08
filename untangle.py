@@ -242,7 +242,7 @@ class Untangler():
                 swap_sequence.append(waterSwapGroup)
             
                 
-            moved_path =  f"{candidate_model_dir }{i}.pdb"
+            moved_path =  f"{candidate_model_dir }{i+1}.pdb"
             candidate_models.append(moved_path)
             candidate_swaps.append(swap_sequence)
             shutil.move(working_model,moved_path) 
@@ -501,7 +501,7 @@ class Untangler():
                 out_path = self.refine(refine_arg_sets[i])
                 out_directory = f"{self.output_dir}/{self.model_handle}_{batch_tag}/"
                 if os.path.exists(out_path):
-                    shutil.move(out_path,f"{out_directory}{batch_tag}_{i}.pdb") 
+                    shutil.move(out_path,f"{out_directory}{batch_tag}_{i+1}.pdb") 
                     break
                 elif attempt < max_attempts:
                     attempt+=1
