@@ -11,6 +11,8 @@ import random
 from types import SimpleNamespace 
 from multiprocessing import Pool
 from time import sleep
+from enum import Enum
+import itertools
 
 
 class Untangler():
@@ -22,8 +24,10 @@ class Untangler():
     debug_skip_refine = False
     debug_skip_initial_refine=True
     debug_skip_first_unrestrained_refine=True
+    debug_skip_first_swaps=False
     debug_skip_unrestrained_refine=False
     debug_skip_holton_data_generation=False
+    debug_skip_initial_holton_data_generation=debug_skip_initial_refine
     ####
     num_threads=10
     class Score():
@@ -54,6 +58,8 @@ class Untangler():
         self.best_score=self.current_score
         self.swapper:Swapper=None
         self.swaps_history:list[Swapper.SwapGroup] = [] 
+        self.model_protein_altlocs=None
+        self.model_solvent_altlocs=None
     def set_hyper_params(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=2,  # 8,
                  wc_anneal_start=0.6,wc_anneal_loops=2, starting_num_best_swaps_considered=5, # 20,
                  max_num_best_swaps_considered=100,num_unrestrained_macro_cycles=3,
@@ -70,16 +76,17 @@ class Untangler():
         self.wc_anneal_start = wc_anneal_start
         self.wc_anneal_loops=wc_anneal_loops
 
-    def prepare_pdb(self,pdb_path,out_path):
+    def prepare_pdb_and_read_altlocs(self,pdb_path,out_path,refine_format=False):
         # Gets into format we expect. !!!!!!Assumes single chain!!!!!
-        with open(pdb_path) as I, open(out_path,'w') as O:
-            mid_lines = []
+        protein_altlocs = []
+        solvent_altlocs = []
+        with open(pdb_path) as I:
+            start_lines = []
             end_lines = []
             atom_dict:dict[str,dict[str,dict[str,str]]] = {}  
             last_chain=None
             solvent_res_names=["HOH"]
-            protein_chain_id = "A"
-            solvent_chain_id = "S"
+            solvent_chain_id = "z"
             warned_collapse=False
             def replace_chain(line,chain_id):
                 chain_id = str(chain_id)
@@ -91,7 +98,7 @@ class Untangler():
                 return line[:6]+serial_num+line[11:]
 
             for line in I:
-                if line.startswith("TER  "):
+                if line.startswith("TER  ") or line == "TER\n":
                     continue
                 start_strs_considered = ["ATOM","HETATM"]
                 for s in start_strs_considered:
@@ -99,13 +106,13 @@ class Untangler():
                         break
                 else: # Not modifying
                     if len(atom_dict)==0:
-                        O.write(line)
+                        start_lines+=line
                     else:
                         end_lines += line
                     continue
 
                 # Modifying
-                name = line[12:16]
+                name = line[12:16].strip()
                 altloc = line[16]
                 resname = line[17:20]
                 space = line[20]
@@ -113,6 +120,8 @@ class Untangler():
                 resnum = line[22:26]
                 if resname in solvent_res_names:
                     end_lines+=replace_chain(line,solvent_chain_id)
+                    if altloc not in solvent_altlocs:
+                        solvent_altlocs.append(altloc) 
                     continue
                 assert len(end_lines)==0
                     
@@ -123,19 +132,38 @@ class Untangler():
                     atom_dict[resnum] = {}
                 if altloc not in atom_dict[resnum]:
                     atom_dict[resnum][altloc] = {}
+                    
+                    if altloc not in protein_altlocs:
+                        protein_altlocs.append(altloc) 
+                         
                 atom_dict[resnum][altloc][name]=line  
                 last_chain = chain
                 continue
                     
             n=0
-            for res_atom_dict in atom_dict.values():
-                for altloc_atom_dict in res_atom_dict.values():
-                    for line in altloc_atom_dict.values():
-                        n+=1
-                        modified_line = replace_chain(line,protein_chain_id)
-                        modified_line = replace_serial_num(modified_line,n)
-                        mid_lines.append(modified_line)
-            O.writelines(mid_lines+end_lines)
+            if not refine_format: # format for untangler stuff
+                protein_chain_id = "A"
+                for res_atom_dict in atom_dict.values():
+                    for altloc_atom_dict in res_atom_dict.values():
+                        for line in altloc_atom_dict.values():
+                            n+=1
+                            modified_line = replace_chain(line,protein_chain_id)
+                            modified_line = replace_serial_num(modified_line,n)
+                            start_lines.append(modified_line)
+            else: # format for pdb refinement
+                for res_atom_dict in atom_dict.values():
+                    for altloc, altloc_atom_dict in res_atom_dict.items():
+                        protein_chain_id = altloc
+                        for line in altloc_atom_dict.values():
+                            n+=1
+                            modified_line = replace_chain(line,protein_chain_id)
+                            modified_line = replace_serial_num(modified_line,n)
+                            start_lines.append(modified_line)
+        with open(out_path,'w') as O:
+            O.writelines(start_lines+end_lines)
+        self.model_protein_altlocs=protein_altlocs
+        self.model_solvent_altlocs=solvent_altlocs
+
     def run(self,pdb_file_path,hkl_file_path,desired_score=18.6,max_num_runs=100):
         # pdb_file_path: path to starting model
         # hkl_file_path: path to reflection data.
@@ -148,11 +176,11 @@ class Untangler():
         self.current_model= Untangler.output_dir+f"{self.model_handle}_current.pdb"
         os.makedirs(Untangler.output_dir,exist_ok=True)
         #shutil.copy(pdb_file_path,self.current_model)
-        self.prepare_pdb(pdb_file_path,self.current_model)
+        self.prepare_pdb_and_read_altlocs(pdb_file_path,self.current_model)
         self.swapper = Swapper()
 
         initial_model=self.initial_refine(self.current_model,debug_skip=(self.debug_skip_refine or self.debug_skip_initial_refine)) 
-        if not self.debug_skip_holton_data_generation:
+        if not self.debug_skip_holton_data_generation and not self.debug_skip_initial_holton_data_generation:
             self.initial_score = Untangler.Score(*assess_geometry_wE(initial_model, log_out_folder_path=self.output_dir))
         else:
             self.initial_score = Untangler.Score(*get_score(score_file_name(initial_model)))
@@ -182,14 +210,40 @@ class Untangler():
         self.refinement_loop()
 
 
-    def candidate_models_from_swapper(self,swapper:Swapper,num_solutions,model_to_swap:str,allot_protein_independent_of_waters:bool)->list[str]: #TODO refactor as method of Swapper class
+    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=20,repeats=0):
+        working_model = f"{self.output_dir}/{self.model_handle}_manySwaps.pdb"
+        shutil.copy(model_to_swap,working_model)
+
+        all_swaps=[]
+        if self.debug_skip_first_swaps and self.loop == 0:
+            return working_model, ["Unknown"]
+        
+        for r in range(repeats+1):
+
+            altloc_subset_combinations:itertools.combinations[tuple[str]] = list(itertools.combinations(self.model_protein_altlocs, altloc_subset_size))
+            print("num possible combinations:",len(altloc_subset_combinations))
+            if len(altloc_subset_combinations) > num_combinations:
+                altloc_subset_combinations = random.sample(altloc_subset_combinations,num_combinations)
+            for n, altloc_subset in enumerate(altloc_subset_combinations): 
+                header=f"=========Altloc Allotment {n+1}/{len(altloc_subset_combinations)}, Cycle {r+1}/{repeats+1}=========="
+                print(f"\n{header}\n{'-'*len(header)}")
+                print(f"Optimizing connections across altlocs {', '.join(altloc_subset)}")
+                cand_models, cand_swaps = self.candidate_models_from_swapper(swapper,1,working_model,allot_protein_independent_of_waters,
+                                                                   altloc_subset=altloc_subset)
+                assert len(cand_models)==len(cand_swaps)==1
+                shutil.move(cand_models[0],working_model)
+                all_swaps.extend(cand_swaps[0])
+        print("=======End Altloc Allotment=============\n")
+        assess_geometry_wE(working_model,self.output_dir)
+        return working_model, all_swaps
+    def candidate_models_from_swapper(self,swapper:Swapper,num_solutions,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset=None,skip_geom_file_generation=False): #TODO refactor as method of Swapper class
         # TODO should be running solver for altloc set partitioned into subsets, not a single subset. 
         swapper.clear_candidates()
-        atoms, connections = Solver.MTSP_Solver(model_to_swap,ignore_waters=allot_protein_independent_of_waters).calculate_paths(
+        atoms, connections = Solver.MTSP_Solver(model_to_swap,ignore_waters=allot_protein_independent_of_waters,altloc_subset=altloc_subset).calculate_paths(
             clash_punish_thing=False,
             nonbonds=True,   # Note this won't look at nonbonds with water if ignore_waters=True. 
             water_water_nonbond = False,  # This is so we don't get a huge number of nearly identical solutions from swapping waters around.
-            debug_skip_wE_calc=self.debug_skip_holton_data_generation
+            skip_geom_file_generation=self.debug_skip_holton_data_generation or skip_geom_file_generation,
         )
         swaps_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
                                         out_handle=self.model_handle,
@@ -204,13 +258,15 @@ class Untangler():
         # Try proposing each solution until one is accepted or we run out.
         swapper.add_candidates(swaps_file_path) #
     
-        candidate_models=[]
-        candidate_swaps=[]
+        candidate_models:list[str]=[]
+        candidate_swaps:list[Swapper.SwapGroup]=[]
         candidate_model_dir = f"{self.output_dir}/{self.model_handle}_swapOptions_{self.loop}/"
         os.makedirs(candidate_model_dir,exist_ok=True)
         # Remove files from any previous call
         for file in os.listdir(candidate_model_dir):
-            os.remove(candidate_model_dir + file) 
+            path = candidate_model_dir+file
+            assert  os.path.abspath(path) != os.path.abspath(model_to_swap)
+            os.remove(path) 
 
         i = 0
         while self.swapper.solutions_remaining()>0: 
@@ -229,8 +285,10 @@ class Untangler():
                                                         out_handle=self.model_handle,
                                                         num_solutions=1,
                                                         force_sulfur_bridge_swap_solutions=False,
-                                                        protein_sites=False,
-                                                        water_sites=True)
+                                                        protein_sites=True,
+                                                        water_sites=True,
+                                                        inert_protein_sites=True, # NOTE
+                                                        )
                 water_swapper = Swapper()
                 water_swapper.add_candidates(waters_swapped_path)
                 waterSwapGroup = []
@@ -294,27 +352,51 @@ class Untangler():
 
 
 
+    class Strategy(Enum):
+        Batch=0
+        SwapManyPairs=1
+        
 
 
-    def refinement_loop(self,two_swaps=False,allot_protein_independent_of_waters=False): 
+
+    def refinement_loop(self,two_swaps=False,allot_protein_independent_of_waters=False,strategy=None): 
         # working_model stores the path of the current model. It changes value during the loop.
         # TODO if stuck (tried all candidate swap sets for the loop), do random flips or engage Metr.Hastings or track all the new model scores and choose the best.
+        
+        if strategy is None:
+            if self.model_protein_altlocs == 2:
+                strategy=Untangler.Strategy.Batch
+            else:
+                strategy=Untangler.Strategy.SwapManyPairs
+                
         working_model = self.refine_for_positions(self.current_model,debug_skip=self.debug_skip_refine or self.debug_skip_unrestrained_refine or (self.loop==0 and self.debug_skip_first_unrestrained_refine)) 
         
             
         num_best_solutions=min(self.loop+self.n_best_swap_start,self.n_best_swap_max) # increase num solutions we search over time...
-        cand_models,cand_swaps = self.candidate_models_from_swapper(self.swapper,num_best_solutions,working_model,allot_protein_independent_of_waters)
-        refined_model_dir = self.regular_batch_refine(cand_models,debug_skip=self.debug_skip_refine)
-        working_model = self.determine_best_model(refined_model_dir)
-        #### TODO Sucks make better ####
-        best_model_that_was_refined = os.path.basename(working_model).split("_")[-1]
-        candidate_model_dir = f"{self.output_dir}/{self.model_handle}_swapOptions_{self.loop}/"
-        best_model_that_was_refined = candidate_model_dir+best_model_that_was_refined
-        ################################
-        swaps = cand_swaps[cand_models.index(best_model_that_was_refined)]
+        
+        self.prepare_pdb_and_read_altlocs(working_model,working_model)
+        if strategy == Untangler.Strategy.Batch:
+            if self.debug_skip_first_swaps:
+                assert False, "Unimplemented"
+            cand_models,cand_swaps = self.candidate_models_from_swapper(self.swapper,num_best_solutions,working_model,allot_protein_independent_of_waters)
+            refined_model_dir = self.regular_batch_refine(cand_models,debug_skip=self.debug_skip_refine)
+            working_model = self.determine_best_model(refined_model_dir)
+            #### TODO Sucks make better ####
+            best_model_that_was_refined = os.path.basename(working_model).split("_")[-1]
+            candidate_model_dir = f"{self.output_dir}/{self.model_handle}_swapOptions_{self.loop}/"
+            best_model_that_was_refined = candidate_model_dir+best_model_that_was_refined
+            ################################
+            swaps = cand_swaps[cand_models.index(best_model_that_was_refined)]
+        elif strategy == Untangler.Strategy.SwapManyPairs:
+            working_model,swaps = self.many_swapped(self.swapper,working_model,allot_protein_independent_of_waters)
+            working_model=self.regular_refine(working_model,debug_skip=self.debug_skip_refine)
+        else:
+            raise Exception(f"Invalid strategy {strategy}")
+
         
         new_model_was_accepted = self.propose_model(working_model)
         
+        '''
         if not new_model_was_accepted and two_swaps:
             #### Swap again on restrained model. Take Best solution only.  ###
             unswapper=Swapper()
@@ -328,6 +410,7 @@ class Untangler():
 
             else:
                 print("Continuing, no unswaps found")
+        '''
 
         if new_model_was_accepted:
             self.swaps_history.append(swaps)
@@ -366,9 +449,9 @@ class Untangler():
     def initial_refine(self,model_path,**kwargs)->str:
         # Try to get atoms as close to their true positions as possible
         #for wc, wu, n_cycles in zip([1,0.5,0.2,0.1],[1,0,0,0],[2,4,5,5]):
-        for wc, wu, n_cycles in zip([1],[1],[4]):
+        for wc, wu, n_cycles in zip([1],[1],[2]):
 
-            refine_params = self.get_refine_params(
+            refine_params = self.get_refine_params_and_prep_file(
                 "initial",
                 model_path=model_path,
                 num_macro_cycles=n_cycles,
@@ -384,11 +467,10 @@ class Untangler():
 
     def refine_for_positions(self,model_path,**kwargs)->str:
         # No idea why need to do this. But otherwise it jumps at 1_xyzrec
-        next_model = model_path
         for n in range(self.num_unrestrained_macro_cycles):
-            refine_params = self.get_refine_params(
+            refine_params = self.get_refine_params_and_prep_file(
                 f"unrestrained-mc{n}",
-                model_path=next_model,
+                model_path=model_path,
                 num_macro_cycles=1,
                 wc=0,
                 hold_water_positions=True,
@@ -400,10 +482,11 @@ class Untangler():
         return next_model
     
         
+    #TODO regular_batch_refine and regular_refine should get refine params from same source 
     def regular_batch_refine(self,model_paths,**kwargs):
         param_set = []
         for i, model in enumerate(model_paths):
-            param_set.append(self.get_refine_params(
+            param_set.append(self.get_refine_params_and_prep_file(
                 f"loopEnd{self.loop}-{i+1}",
                 model_path=model,
                 num_macro_cycles=self.num_end_loop_refine_cycles,
@@ -415,7 +498,7 @@ class Untangler():
 
     def regular_refine(self,model_path,**kwargs)->str:
 
-        refine_params = self.get_refine_params(
+        refine_params = self.get_refine_params_and_prep_file(
             f"loopEnd{self.loop}",
             model_path=model_path,
             num_macro_cycles=self.num_end_loop_refine_cycles,
@@ -438,23 +521,37 @@ class Untangler():
 
     def holding_water(self)->bool:
         return self.loop<self.num_loops_water_held
-    def refine(self,refine_params:(tuple[SimpleNamespace,list[str]]),debug_skip=False)->str:
+    def refine(self,refine_params:(tuple[SimpleNamespace,list[str]]),debug_skip=False,show_python_params=False)->str:
         # assert model_path[-4:]==".pdb", model_path
         P, args = refine_params
-        if not debug_skip:
-            print (f"Running {P}")
-            subprocess.run(args)#,stdout=log)
         out_path = f"{self.output_dir}/{self.model_handle}_{P.out_tag}.pdb"
+        if not debug_skip:
+            if os.path.exists(out_path):
+                shutil.move(out_path,out_path+'#')
+            if show_python_params:
+                print (f"Params: {P}")
+            print (f"Running {P}")
+            
+            subprocess.run(args)#,stdout=log)
 
         return out_path
     
-    #def get_refine_params(self,param_dict: SimpleNamespace | dict[str,Any]):
-    def get_refine_params(self, out_tag=None, model_path=None,num_macro_cycles=None, # mandatory
+    #def get_refine_params_and_prep_file(self,param_dict: SimpleNamespace | dict[str,Any]):
+    def get_refine_params_and_prep_file(self, out_tag=None, model_path=None,num_macro_cycles=None, # mandatory
                           wc=1,wu=1, shake=0, optimize_R=False,
                           hold_water_positions=False,hold_protein_positions=False):
+        ### Override next_model with formatted one.
+        next_model = model_path[:-4]+"_fmtd.pdb"
+        self.prepare_pdb_and_read_altlocs(model_path,next_model,refine_format=True)
+        model_path = next_model 
+        ###
+
         assert (not hold_water_positions) or (not hold_protein_positions) 
         param_dict = locals()
         del param_dict["self"]
+        del param_dict["next_model"]
+        #####################
+
 
         P_defaults = dict(out_tag=None,model_path=None,num_macro_cycles=None, # mandatory
                           wc=1,wu=1, shake=0, optimize_R=False,
@@ -632,8 +729,9 @@ def main():
     xray_data = sys.argv[2]
     Untangler(
         # max_num_best_swaps_considered=5,
-        starting_num_best_swaps_considered=10,
-        num_unrestrained_macro_cycles=3
+        max_num_best_swaps_considered=1,
+        starting_num_best_swaps_considered=1,
+        num_unrestrained_macro_cycles=1
         ).run(
         starting_model,
         xray_data,

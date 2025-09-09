@@ -41,7 +41,7 @@ import numpy as np
 import itertools
 
 class OrderedAtomLookup: #TODO pandas?
-    def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False,altloc_subset_size=None,allowed_resnums=None): # TODO type hint for sequence?
+    def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False,altloc_subset=None,allowed_resnums=None): # TODO type hint for sequence?
         assert allowed_resnums is None, "Not working"
         
         self.disordered_waters=[]
@@ -57,17 +57,8 @@ class OrderedAtomLookup: #TODO pandas?
         self.waters_allowed=waters
 
         atoms = list(atoms)
-        if altloc_subset_size is not None:
-            altloc_subset= []
-            for disorderedAtom in atoms:
-                if UntangleFunctions.res_is_water(disorderedAtom.get_parent()):  # TODO XXX This will exclude some waters if there are more water altlocs than protein altlocs. But solver is designed assuming that the waters all correspond to a conformer model. 
-                    continue
-                for orderedAtom in disorderedAtom:
-                    altloc = orderedAtom.get_altloc()
-                    if altloc not in altloc_subset:
-                        altloc_subset.append(altloc)
-            if altloc_subset_size < len(altloc_subset):
-                altloc_subset = random.sample(altloc_subset, altloc_subset_size)  
+
+
         
         for disorderedAtom in atoms:
             is_water= UntangleFunctions.res_is_water(disorderedAtom.get_parent())
@@ -96,7 +87,7 @@ class OrderedAtomLookup: #TODO pandas?
 
             for orderedAtom in disorderedAtom:
                 altloc = orderedAtom.get_altloc()
-                if (altloc_subset_size is not None) and (altloc not in altloc_subset):
+                if (altloc_subset is not None) and (altloc not in altloc_subset):
                     continue
                 
                 self.ordered_atoms.append(orderedAtom)
@@ -112,6 +103,27 @@ class OrderedAtomLookup: #TODO pandas?
                     self.better_dict[res_num][disorderedAtom.name] = {}
                 #self.better_dict[res_num][disorderedAtom.name].append(orderedAtom)
                 self.better_dict[res_num][disorderedAtom.name][altloc] = orderedAtom
+
+    def output_as_pdb_file(self, reference_pdb_file,out_path):
+        # Only outputs based on self.better_dict at present!!
+        with open(reference_pdb_file) as R, open(out_path,'w') as O:
+            start_strs_considered = ["ATOM","HETATM"]
+            for line in R:
+                if line == "TER\n":
+                    continue
+                for s in start_strs_considered:
+                    if line.startswith(s):
+                        break
+                else: # Not an atom entry
+                    O.write(line)
+                    continue
+                name = line[12:16].strip()
+                altloc = line[16]
+                resnum = int(line[22:26])
+                if resnum in self.better_dict and name in self.better_dict[resnum] and altloc in self.better_dict[resnum][name]:
+                    O.write(line)
+            
+            
 
 
     @staticmethod
@@ -416,7 +428,7 @@ class ConstraintsHandler:
                     pdb2=constraint[1].strip().split("\"")[1]
                     ideal,  _,  _, _,  weight, _ = constraint[3].strip().split()
                     altloc = pdb1.strip()[3]
-                    if altloc!="A": # just look at A altloc to get constraint. TODO check constraint isn't in self.constraints instead.
+                    if altloc!=ordered_atom_lookup.altlocs[0]: # just look at one altloc to get constraint. TODO check constraint isn't in self.constraints instead.
                         continue
                     ideal,weight = float(ideal), float(weight)
                     #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
@@ -428,7 +440,7 @@ class ConstraintsHandler:
                     pdb3=constraint[2].strip().split("\"")[1]
                     ideal,  _,  _, _,  weight, _ = constraint[4].strip().split()
                     altloc = pdb1.strip()[3]
-                    if altloc!="A":
+                    if altloc!=ordered_atom_lookup.altlocs[0]:
                         continue
                     ideal,weight = float(ideal), float(weight)
                     #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
@@ -647,14 +659,13 @@ class MTSP_Solver:
             return f"{self.connection_type}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
 
 
-    def __init__(self,pdb_file_path:str, align_uncertainty=False,ignore_waters=False,altloc_subset_size=3): 
+    def __init__(self,pdb_file_path:str, align_uncertainty=False,ignore_waters=False,altloc_subset=None): 
         # TODO when subset size > 2, employ fragmentation/partitioning.
          
         # Note if we ignore waters then we aren't considering nonbond clashes between macromolecule and water.
-        self.model_path = pdb_file_path
         original_structure = PDBParser().get_structure("struct",pdb_file_path)
-        if align_uncertainty:
-            self.align_uncertainty(original_structure)
+        # if align_uncertainty:
+        #     self.align_uncertainty(original_structure)
         
         resnums = None
         # debug_quick=False
@@ -662,8 +673,11 @@ class MTSP_Solver:
         #     resnums = range(64)
         self.ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),
                                                      protein=True,waters=not ignore_waters,
-                                                     altloc_subset_size=altloc_subset_size,
+                                                     altloc_subset=altloc_subset,
                                                      allowed_resnums=resnums)   
+        self.model_path=pdb_file_path[:-4]+"_subset.pdb"
+        self.ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=pdb_file_path,out_path=self.model_path)
+        
     def align_uncertainty(self,structure:Structure.Structure):
         # in x-ray data and geom.
         # Experimental and doesn't help.
@@ -678,7 +692,7 @@ class MTSP_Solver:
 
     def calculate_paths(self,quick_wE=False, dry_run=False,atoms_only=True,
                         clash_punish_thing=False,nonbonds=True,water_water_nonbond=None,
-                        debug_skip_wE_calc=False,)->tuple[list[Chunk],dict[str,list[AtomChunkConnection]]]: #disorderedResidues:list[Residue]
+                        skip_geom_file_generation=False,)->tuple[list[Chunk],dict[str,list[AtomChunkConnection]]]: #disorderedResidues:list[Residue]
         print("Calculating geometric costs for all possible connections between chunks of atoms (pairs for bonds, triplets for angles, etc.)")
         
         if water_water_nonbond is None:
@@ -735,7 +749,7 @@ class MTSP_Solver:
         assert self.model_path[-4:]==".pdb"
         model_handle = os.path.basename(self.model_path)[:-4]
 
-        needToFixWaterAltlocsDebugging=False
+        needToFixWaterAltlocsDebugging=True 
         if needToFixWaterAltlocsDebugging:
             nonbonds = False; water_water_nonbond=False ###################### XXX TEMPORARY !!!!!!!!!!!!!!!!!!!!!!!!!
             print("WARNING: nonbonds force-disabled for debugging")
@@ -744,7 +758,7 @@ class MTSP_Solver:
         nonbond_scores_files = []
         water_clashes=[]
         geo_log_out_folder = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/HoltonOutputs/"
-        if not debug_skip_wE_calc:
+        if not skip_geom_file_generation:
             UntangleFunctions.assess_geometry_wE(self.model_path,geo_log_out_folder) 
         if nonbonds:
 
@@ -788,7 +802,7 @@ class MTSP_Solver:
             water_clashes =  get_water_clashes(model_handle,False) 
             
             more_water_swaps=False
-            if not debug_skip_wE_calc and more_water_swaps:
+            if not skip_geom_file_generation and more_water_swaps:
                 assert False
                 Swapper.MakeSwapWaterFile(self.model_path,model_water_swapped_path)
                 UntangleFunctions.assess_geometry_wE(model_water_swapped_path,geo_log_out_folder) 

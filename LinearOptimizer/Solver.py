@@ -22,9 +22,11 @@
 
 # TODO 
 # We will quickly reach an intractable number of variables as we consider more conformations.
-# (for each angle, there will be 3^n connections.)
+# (for each angle, there will be n^3 connections.)
 # So it will be important to break down the problem in some way. Possibly a stochastic way.
 # Also need to look at exploring different branches of solutions in an intelligent way, and with parallel processing.  
+
+DEBUG_FIRST_100_SITES=False
 
 
 import pulp as pl
@@ -38,12 +40,13 @@ import json
 # just for residues for now
 
 
-
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[MTSP_Solver.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True,
-          protein_sites:bool=True,water_sites:bool=True,max_mins_start=5,mins_extra_per_loop=0): # 
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=10,mins_extra_per_loop=0): # 
     # protein_sites, water_sites: Whether these can be swapped.
 
+    if inert_protein_sites:
+        assert protein_sites
     #first_atom_id = "1.N"
     lowest_site_num = np.inf
     for chunk_site in chunk_sites.values():
@@ -64,6 +67,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         return get_variables(unique_id)[key]
 
     def site_being_considered(site:'VariableID'):
+       if DEBUG_FIRST_100_SITES and site.site_num>100:
+           return False
        return (((protein_sites and not site.is_water)
              or (water_sites and site.is_water ))
              )
@@ -193,7 +198,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             )
 
         if (force_no_flips
-            or site.site_num == lowest_site_num # Anchor solution to one where first disordered atom is unchanged.  
+            or (site.site_num == lowest_site_num) # Anchor solution to one where first disordered atom is unchanged.  
+            or (not site.is_water and inert_protein_sites)
         ) :
             
             for altloc in site_altlocs:
@@ -213,17 +219,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         nonlocal lp_problem  
 
 
-        # if constraint_type == VariableKind.Nonbond:
-        #     for connection in disordered_connection:
-        #         connection:MTSP_Solver.AtomChunkNonBondConnection = connection
-        #         assert connection.altlocs[0]!=connection.altlocs[1], connection.altlocs
-        #         to_altloc = connection.to_altloc
-        #         from_altloc = connection.from_altloc
-        #         site = VariableID(connection.site_name,VariableKind.Atom)
-        #         var = site_var_dict[site][from_altloc][to_altloc]
-        #         distance_vars.append(var*connection.ts_distance)
-        #         #print(var*connection.ts_distance)
-        #     return
+
         altlocs = None
         for ch in disordered_connection[0].atom_chunks:
             site = VariableID.Atom(ch)
@@ -237,9 +233,87 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                     #print(f"Warning: altlocs don't match, skipping {disordered_connection[0].get_disordered_connection_id()}")
                     #return
         altlocs = set(altlocs)
-        disordered_connection_vars = []
-        #TODO CRITICAL Variables for when hydrogen is involved can be simplified, especially for angles involving hydrogen.
-        for ordered_connection_option in disordered_connection:
+        #disordered_connection_vars = []
+
+
+        allowed_connections=disordered_connection
+        #if disordered_connection[0].connection_type==VariableKind.Bond.value and len(altlocs)==2:
+        permutations = None
+        #if len(altlocs)==2:
+
+        #TODO test with more than 2 altlocs!
+        permutations:MTSP_Solver.AtomChunkConnection = []
+        # Get pairs corresponding to swap vs not swap.
+        num_sites = len(disordered_connection[0].atom_chunks)
+        for combo in itertools.combinations(disordered_connection,len(altlocs)):
+            for from_altlocs_per_site in zip(*[c.from_altlocs for c in combo]):
+                if len(set(from_altlocs_per_site)) != len(altlocs):
+                    break
+            else:
+                permutations.append(combo)
+
+        assert len(permutations)==len(altlocs)**(num_sites-1), (disordered_connection[0].connection_type, len(permutations))
+
+        best_score = np.inf
+        perm_scores=[]
+        for perm in permutations:
+            score = sum(p.ts_distance for p in perm )
+            perm_scores.append(score)
+            best_score = min(best_score,score)
+
+        # Cut out obviously terrible options
+        
+        # TODO deal with case where makes infeasible
+        # Could track which sites have been constrained in this manner and skip when they have.
+
+        assert best_score>=0
+        
+        #tolerable_score=np.inf
+        #tolerable_score=best_score+1000 .
+        tolerable_score=(best_score*10+100)*len(altlocs) # TODO deal with case where makes infeasible.
+        
+        allowed_connections = []
+        for p, (perm, score) in enumerate(zip(permutations,perm_scores)):
+            allowed = score <= tolerable_score
+            permutation_vars = []
+            for ordered_connection_option in perm:
+                from_ordered_atoms = "|".join([f"{ch.resnum}.{ch.name}_{ch.altloc}" for ch in ordered_connection_option.atom_chunks])
+                tag=from_ordered_atoms
+                extra_tag=""
+                if ordered_connection_option.hydrogen_tag!="":
+                    extra_tag = "Htag["+ordered_connection_option.hydrogen_tag+"]_"
+                tag+=extra_tag
+                ########
+
+                if not allowed: 
+                    for to_altloc in altlocs:
+                        assignment_vars = [site_var_dict[VariableID.Atom(ch)][ch.get_altloc()][to_altloc] for ch in ordered_connection_option.atom_chunks]
+                        lp_problem += (
+                            lpSum(assignment_vars) <=  len(assignment_vars)-1,   # only active if and only if all assignment vars active.
+                            f"FORBID{constraint_type.value}_{tag}>>{to_altloc}"
+                            )
+                else:
+                    var_active = pl.LpVariable(f"{constraint_type.value}_{tag}",  #TODO cat=pl.LpBinary
+                                        lowBound=0,upBound=1,cat=pl.LpBinary)
+                    var_active.setInitialValue(0)
+                    if len(set([ch.get_altloc() for ch in ordered_connection_option.atom_chunks])) == 1:
+                        var_active.setInitialValue(1)
+                    constraint_var_dict[VariableID(from_ordered_atoms+extra_tag,constraint_type.value)]=var_active
+                    allowed_connections.append((ordered_connection_option,var_active))
+                    permutation_vars.append(var_active)
+
+            # This makes things slower...
+            '''
+            if allowed:
+                assert len(permutation_vars)==len(altlocs)
+                lp_problem += (
+                    lpSum(permutation_vars) <= len(permutation_vars)*permutation_vars[0],   # all or none are active.
+                    f"Permutation{constraint_type.value}{p}_{tag}"
+                    )
+            '''
+                    
+            #TODO CRITICAL Variables for when hydrogen is involved can be simplified, especially for angles involving hydrogen.
+        for ordered_connection_option,var_active in allowed_connections:
             #continue
             # Variable
             #tag = "_".join([ch.unique_id() for ch in ordered_connection_option.atom_chunks])
@@ -250,13 +324,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             if ordered_connection_option.hydrogen_tag!="":
                 extra_tag = "Htag["+ordered_connection_option.hydrogen_tag+"]_"
             tag+=extra_tag
-            var_active = pl.LpVariable(f"{constraint_type.value}_{tag}",  #TODO cat=pl.LpBinary
-                                lowBound=0,upBound=1,cat=pl.LpBinary)
-            var_active.setInitialValue(0)
-            if len(set([ch.get_altloc() for ch in ordered_connection_option.atom_chunks])) == 1:
-                var_active.setInitialValue(1)
 
-            constraint_var_dict[VariableID(from_ordered_atoms+extra_tag,constraint_type.value)]=var_active
                 
             # Connections contains ordered atoms from any and likely multiplke altlocs that 
             # *are to be assigned to the same altlocs*
@@ -279,8 +347,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             
             # Constraint will be handled by parent atom of hydrogen
 
-            disordered_connection_vars.append(var_active)
-
+            #disordered_connection_vars.append(var_active)
             try:
                 for to_altloc, assignment_vars in assignment_options.items():
                     #swaps = '|'.join([f"{''.join(assignment.name.split('_')[1:])}" for assignment in assignment_vars])
@@ -401,8 +468,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
 
         class Solver(Enum):
-            COIN="COIN",
-            CPLX_PY="CPLX_PY",
+            COIN="COIN"
+            CPLX_PY="CPLX_PY"
             CPLX_CMD="CPLX_CMD"
 
         extra_time_per_loop=60*mins_extra_per_loop
@@ -412,6 +479,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         logPath=out_dir+"xLO-Log"+out_handle+".log"
         pulp_solver = Solver.CPLX_PY
         warmStart=True
+        gapRel=0.002
+        
         
 
 
@@ -431,7 +500,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         else:
             raise Exception("not implemented")
         #solver = solver_class(timeLimit=timeLimit,threads=threads,logPath=logPath,warmStart=warmStart,path=path)
-        solver = solver_class(timeLimit=timeLimit,threads=threads,warmStart=warmStart,logPath=logPath)
+        solver = solver_class(timeLimit=timeLimit,threads=threads,warmStart=warmStart,logPath=logPath,gapRel=gapRel)
         lp_problem.solve(solver)
         print(solver)
         # if pulp_solver == Solver.COIN:
