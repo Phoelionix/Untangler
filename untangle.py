@@ -1,6 +1,7 @@
 #%%
 from typing import Any
 from LinearOptimizer import Solver
+from LinearOptimizer.Input import OrderedAtomLookup
 from LinearOptimizer.Swapper import Swapper
 from UntangleFunctions import assess_geometry_wE, get_R,pdb_data_dir,create_score_file,get_score,score_file_name
 import subprocess
@@ -13,6 +14,7 @@ from multiprocessing import Pool
 from time import sleep
 from enum import Enum
 import itertools
+from Bio.PDB import PDBParser,Structure
 
 
 class Untangler():
@@ -98,7 +100,7 @@ class Untangler():
                 return line[:6]+serial_num+line[11:]
 
             for line in I:
-                if line.startswith("TER  ") or line == "TER\n":
+                if line.startswith("TER"):
                     continue
                 start_strs_considered = ["ATOM","HETATM"]
                 for s in start_strs_considered:
@@ -125,7 +127,7 @@ class Untangler():
                     continue
                 assert len(end_lines)==0
                     
-                if not warned_collapse and chain != last_chain and last_chain is not None:
+                if not refine_format and not warned_collapse and chain != last_chain and last_chain is not None:
                     print("Warning: Multiple chains detected. Collapsing chains into single chain")
                     warned_collapse=True
                 if resnum not in atom_dict:
@@ -150,7 +152,8 @@ class Untangler():
                             modified_line = replace_chain(line,protein_chain_id)
                             modified_line = replace_serial_num(modified_line,n)
                             start_lines.append(modified_line)
-            else: # format for pdb refinement
+            else: # format for pdb refinement. Note that chains need to be contiguous in the file
+                chain_dict={}
                 for res_atom_dict in atom_dict.values():
                     for altloc, altloc_atom_dict in res_atom_dict.items():
                         protein_chain_id = altloc
@@ -158,7 +161,13 @@ class Untangler():
                             n+=1
                             modified_line = replace_chain(line,protein_chain_id)
                             modified_line = replace_serial_num(modified_line,n)
-                            start_lines.append(modified_line)
+                            if altloc not in chain_dict:
+                                chain_dict[altloc]=[]
+                            chain_dict[altloc].append(modified_line)
+                for _, lines in chain_dict.items():
+                    for modified_line in lines:
+                        start_lines.append(modified_line)
+
         with open(out_path,'w') as O:
             O.writelines(start_lines+end_lines)
         self.model_protein_altlocs=protein_altlocs
@@ -207,7 +216,7 @@ class Untangler():
 
 
     def step(self):
-        self.refinement_loop()
+        self.refinement_loop(Untangler.Strategy.SwapManyPairs)
 
 
     def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=20,repeats=0):
@@ -233,6 +242,17 @@ class Untangler():
                 assert len(cand_models)==len(cand_swaps)==1
                 shutil.move(cand_models[0],working_model)
                 all_swaps.extend(cand_swaps[0])
+
+                measure_wE_after=True
+                if measure_wE_after:
+                    struct=PDBParser().get_structure("struct",working_model)
+                    ordered_atom_lookup = OrderedAtomLookup(struct.get_atoms(),
+                                                                protein=True,waters=not allot_protein_independent_of_waters,
+                                                                altloc_subset=altloc_subset)   
+                    temp_path=working_model[:-4]+"_subsetOut.pdb"
+                    ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=working_model,out_path=temp_path)
+                    assess_geometry_wE(temp_path,self.output_dir)
+
         print("=======End Altloc Allotment=============\n")
         assess_geometry_wE(working_model,self.output_dir)
         return working_model, all_swaps
@@ -467,10 +487,11 @@ class Untangler():
 
     def refine_for_positions(self,model_path,**kwargs)->str:
         # No idea why need to do this. But otherwise it jumps at 1_xyzrec
+        next_model=model_path
         for n in range(self.num_unrestrained_macro_cycles):
             refine_params = self.get_refine_params_and_prep_file(
                 f"unrestrained-mc{n}",
-                model_path=model_path,
+                model_path=next_model,
                 num_macro_cycles=1,
                 wc=0,
                 hold_water_positions=True,

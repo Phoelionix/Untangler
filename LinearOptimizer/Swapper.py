@@ -266,25 +266,35 @@ class Swapper():
 
         return out_path,swap_group
                     
-    # @staticmethod
-    # def MakeSwapWaterFileByLines(lines,out_path):
-    #     # swap waters
-    #     water_swapped_lines = ""
-    #     for line in lines:
-    #         P = Swapper.PDB_Params(line)
-    #         if (not P.valid) or (not P.res_name=="HOH"):
-    #             water_swapped_lines+=line+"\n"
-    #         else:
-    #             water_swapped_lines+=P.swap_altloc()+"\n"
-    #     #print(water_swapped_lines)
-    #     with open(out_path,'w') as f:
-    #         f.writelines(water_swapped_lines)
+    @staticmethod
+    def MakeSwapWaterFileByLines(lines,out_path):
+        # swap waters
+        water_swapped_lines = ""
+        altlocs = []
+        for line in lines:
+            P = Swapper.PDB_Params(line)
+            if (not P.valid) or (not P.res_name=="HOH"):
+                continue
+            else:
+                if P.altloc not in altlocs:
+                    altlocs.append(P.altloc)
+        assert len(altlocs)==2
+        for line in lines:
+            P = Swapper.PDB_Params(line)
+            if (not P.valid) or (not P.res_name=="HOH"):
+                water_swapped_lines+=line+"\n"
+            else:
+                altloc_idx = altlocs.index(P.altloc)
+                water_swapped_lines+=P.new_altloc(altlocs[(altloc_idx+1)%2])+"\n"
+        #print(water_swapped_lines)
+        with open(out_path,'w') as f:
+            f.writelines(water_swapped_lines)
 
-    # @staticmethod
-    # def MakeSwapWaterFile(in_pdb_file, out_path):
-    #     # swap waters
-    #     lines = []
-    #     with open(in_pdb_file) as f:
-    #         for line in f.readlines():
-    #             lines.append(line)
-    #     Swapper.MakeSwapWaterFileByLines(lines,out_path)
+    @staticmethod
+    def MakeSwapWaterFile(in_pdb_file, out_path):
+        # swap waters
+        lines = []
+        with open(in_pdb_file) as f:
+            for line in f.readlines():
+                lines.append(line)
+        Swapper.MakeSwapWaterFileByLines(lines,out_path)

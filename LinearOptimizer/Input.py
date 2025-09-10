@@ -749,7 +749,7 @@ class MTSP_Solver:
         assert self.model_path[-4:]==".pdb"
         model_handle = os.path.basename(self.model_path)[:-4]
 
-        needToFixWaterAltlocsDebugging=True 
+        needToFixWaterAltlocsDebugging=False
         if needToFixWaterAltlocsDebugging:
             nonbonds = False; water_water_nonbond=False ###################### XXX TEMPORARY !!!!!!!!!!!!!!!!!!!!!!!!!
             print("WARNING: nonbonds force-disabled for debugging")
@@ -765,7 +765,7 @@ class MTSP_Solver:
 
             # CLASH 26.6682 0.79 | A  62 AARG  HD2| S 128 AHOH  O 
             # Terrible code. XXX
-            def get_water_clashes(handle,waters_flipped:bool)->list:
+            def get_water_clashes(handle,from_altloc_dict:bool)->list: # from_altloc_dict, with keys being the to_altlocs.
                 clashes = []
                 nonbond_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_scorednonbond.txt"
                 clashes_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_clashes.txt"
@@ -778,14 +778,14 @@ class MTSP_Solver:
                         res_num = [int(entry.split()[1]) for entry in line.split("|")[1:]] 
                         #  NOTE At the moment altlocs will all be the same. But hope to 
                         # one day read from file that does clashes between all altlocs!!!!
-                        altloc = [entry.split()[-2][0] for entry in line.split("|")[1:]] 
+                        to_altloc = [entry.split()[-2][0] for entry in line.split("|")[1:]] 
                         name = [entry.strip().split()[-1] for entry in line.split("|")[1:]] 
-                        # if waters_flipped:
-                        #     water_idx = res_name.index("HOH") # Because we continue  above if don't have exactly one HOH involved in clash.
-                        #     altloc[water_idx] = {"A":"B","B":"A"}[altloc[water_idx]]
+                        from_altloc = [a for a in to_altloc]
+                        water_idx = res_name.index("HOH") # Because we continue above if don't have exactly one HOH involved in clash.
+                        from_altloc[water_idx] = from_altloc_dict[to_altloc[water_idx]]
                         badness = float(line.split()[1])
                         #new_line = f"CLASH   {badness} XXXXX XXXXX XXXXX X |  {name[0]}_{res_num[0]} {name[1]}_{res_num[1]}"
-                        clashes.append((name, res_num, badness, altloc))
+                        clashes.append((name, res_num, badness, from_altloc))
                 return clashes
 
             
@@ -799,19 +799,26 @@ class MTSP_Solver:
             model_water_swapped_handle=model_handle+"WS"
             model_water_swapped_path=UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{model_water_swapped_handle}.pdb"
 
-            water_clashes =  get_water_clashes(model_handle,False) 
+            unflipped_water_dict = {}
+            for altloc in self.ordered_atom_lookup.get_altlocs():
+                unflipped_water_dict[altloc]=altloc
+            water_clashes =  get_water_clashes(model_handle,unflipped_water_dict) 
             
-            more_water_swaps=False
-            if not skip_geom_file_generation and more_water_swaps:
-                assert False
+            more_water_swaps=True
+            if not skip_geom_file_generation and more_water_swaps and len(self.ordered_atom_lookup.get_altlocs())==2:
+                flipped_water_dict = {}
+                altlocs = self.ordered_atom_lookup.get_altlocs()
+                for i in range(2):
+                    flipped_water_dict[altlocs[i]]=altlocs[-i-1]
+
                 Swapper.MakeSwapWaterFile(self.model_path,model_water_swapped_path)
                 UntangleFunctions.assess_geometry_wE(model_water_swapped_path,geo_log_out_folder) 
-                water_clashes+= get_water_clashes(model_water_swapped_handle,True)
+                water_clashes+= get_water_clashes(model_water_swapped_handle,flipped_water_dict)
+
             
-            #nonbond_water_flipped_scores_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{model_water_swapped_handle}_scorednonbond.txt"
+                #nonbond_water_flipped_scores_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{model_water_swapped_handle}_scorednonbond.txt"
                 nonbond_water_flipped_scores_path = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_water_swapped_handle}.geo"
                 nonbond_scores_files.append(nonbond_water_flipped_scores_path)
-
 
         constraints_file = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}.geo" # NOTE we only read ideal and weights.
         constraints_handler=ConstraintsHandler()
