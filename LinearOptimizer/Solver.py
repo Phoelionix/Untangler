@@ -46,6 +46,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
           inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=2,mins_extra_per_loop=0): # 
     # protein_sites, water_sites: Whether these can be swapped.
     
+    print("Initialising solver")
+
     num_forbidden_connections=0
     num_allowed_connections=0
 
@@ -270,7 +272,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         allowed_connections = []
         permutations = None
         tolerable_score=np.inf
-        debugging_more_than_2=False
+        debugging_more_than_2=True
         all_allowed=False
         #if (len(altlocs)==2 or debugging_more_than_2) and (disordered_connection[0].connection_type in [VariableKind.Bond.value,VariableKind.Angle.value]):
         if not all_allowed and (len(altlocs)==2 or debugging_more_than_2) and (disordered_connection[0].connection_type!=VariableKind.Clash.value):
@@ -316,7 +318,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             assert best_score>=0
             
 
-            tolerable_score=(best_score*5+50)*len(altlocs) # TODO deal with case where makes infeasible.
+            tolerable_score=(best_score*5+50)*len(altlocs) 
             #tolerable_score = 2*(best_score*5+50)*len(altlocs)
             #tolerable_score = np.inf
 
@@ -442,8 +444,10 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         #         f"{constraint_type.value}_{sites}{extra_tag}"
         #     )
                 
-                    
-    for connection_id, ordered_connection_choices in disordered_connections.items():
+    
+    for i, (connection_id, ordered_connection_choices) in enumerate(disordered_connections.items()):
+        if i % 250 == 0:
+            print(f"Adding constraints {i}/{len(disordered_connections)}")
         constraint_type = VariableKind[connection_id.split('_')[0]] 
         add_constraints_from_disordered_connection(constraint_type,ordered_connection_choices)
     print(f"Num allowed connections: {num_allowed_connections} | num forbidden connections: {num_forbidden_connections}")
@@ -653,14 +657,14 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                         site_assignments[site][from_altloc]=to_altloc
                 assert to_altloc_found, (site, from_altloc)
 
-            if site.name==str(DisorderedTag(10,"CA")) or site.name==str(DisorderedTag(2,"CA")) :
-                for from_altloc in site_var_dict[site]:
-                    for to_altloc in site_var_dict[site][from_altloc]:
+            # if site.name==str(DisorderedTag(10,"CA")) or site.name==str(DisorderedTag(2,"CA")) :
+            #     for from_altloc in site_var_dict[site]:
+            #         for to_altloc in site_var_dict[site][from_altloc]:
 
-                        print(from_altloc,to_altloc)
-                        print(round(site_var_dict[site][from_altloc][to_altloc].value()))
-                        print(site_var_dict[site][from_altloc][to_altloc].value())
-                        print(site_var_dict[site][from_altloc][to_altloc])
+            #             print(from_altloc,to_altloc)
+            #             print(round(site_var_dict[site][from_altloc][to_altloc].value()))
+            #             print(site_var_dict[site][from_altloc][to_altloc].value())
+            #             print(site_var_dict[site][from_altloc][to_altloc])
 
 
         # print("KEYS")

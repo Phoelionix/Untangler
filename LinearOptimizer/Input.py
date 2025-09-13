@@ -59,8 +59,13 @@ class OrderedAtomLookup: #TODO pandas?
         atoms = list(atoms)
 
 
-        
+        num_zero_occ=0
+        last_skipped_res_num=None
         for disorderedAtom in atoms:
+            if disorderedAtom.get_occupancy()==0:
+                num_zero_occ+=1
+                last_skipped_res_num=OrderedAtomLookup.atom_res_seq_num(disorderedAtom)
+                continue
             is_water= UntangleFunctions.res_is_water(disorderedAtom.get_parent())
             if is_water:
                 self.disordered_waters.append(disorderedAtom)
@@ -75,7 +80,7 @@ class OrderedAtomLookup: #TODO pandas?
                 continue
             if res_num not in self.better_dict:
                 self.better_dict[res_num] = {}
-                assert len(self.residue_nums)== 0 or self.residue_nums[-1] == res_num-1, (res_num,self.residue_nums)
+                assert len(self.residue_nums)== 0 or res_num-1 in [self.residue_nums[-1],last_skipped_res_num], (res_num,self.residue_nums)
                 self.residue_nums.append(res_num)
                 self.res_names[res_num]=disorderedAtom.get_parent().get_resname()
                 self.residue_sources.append(disorderedAtom.get_parent())
@@ -103,7 +108,8 @@ class OrderedAtomLookup: #TODO pandas?
                     self.better_dict[res_num][disorderedAtom.name] = {}
                 #self.better_dict[res_num][disorderedAtom.name].append(orderedAtom)
                 self.better_dict[res_num][disorderedAtom.name][altloc] = orderedAtom
-
+        if num_zero_occ>0:
+            print(f"Skipped {num_zero_occ} zero occupancy ordered atoms")
     def output_as_pdb_file(self, reference_pdb_file,out_path):
         # Only outputs based on self.better_dict at present!!
         with open(reference_pdb_file) as R, open(out_path,'w') as O:

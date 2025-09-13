@@ -17,6 +17,7 @@ import itertools
 from Bio.PDB import PDBParser,Structure,PDBIO
 from Bio.PDB.Atom import Atom,DisorderedAtom
 from sklearn.neighbors import NearestNeighbors
+from sklearn.neighbors import KNeighborsClassifier
 
 
 class Untangler():
@@ -30,7 +31,7 @@ class Untangler():
     debug_skip_first_unrestrained_refine=True
     debug_skip_first_swaps=False
     debug_skip_unrestrained_refine=False
-    debug_skip_holton_data_generation=True
+    debug_skip_holton_data_generation=False
     debug_skip_initial_holton_data_generation=debug_skip_initial_refine
     ####
     num_threads=10
@@ -243,14 +244,18 @@ class Untangler():
         self.refinement_loop()
 
 
-    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=20,repeats=0):
+    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=15,repeats=2):
+        #TODO try strategy of making one altloc as good as possible, while other can be terrible.
+        
         working_model = f"{self.output_dir}/{self.model_handle}_manySwaps.pdb"
-
+        
         all_swaps=[]
         if self.debug_skip_first_swaps and self.loop == 0:
             return working_model, ["Unknown"]
         
         shutil.copy(model_to_swap,working_model)
+        if len(self.model_protein_altlocs)<=altloc_subset_size:
+            repeats = 1 # No point repeating if considering all at once.
         for r in range(repeats+1):
 
             altloc_subset_combinations:itertools.combinations[tuple[str]] = list(itertools.combinations(self.model_protein_altlocs, altloc_subset_size))
@@ -434,15 +439,18 @@ class Untangler():
             candidate_model_dir = f"{self.output_dir}/{self.model_handle}_swapOptions_{self.loop}/"
             best_model_that_was_refined = candidate_model_dir+best_model_that_was_refined
             ################################
+            postswap_score = Untangler.Score(*assess_geometry_wE(best_model_that_was_refined,self.output_dir))
+            print("Score preswap:",preswap_score) 
+            print("Score postswap:",postswap_score) 
             swaps = cand_swaps[cand_models.index(best_model_that_was_refined)]
         elif strategy == Untangler.Strategy.SwapManyPairs:
             working_model,swaps = self.many_swapped(self.swapper,working_model,allot_protein_independent_of_waters)
+            postswap_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
+            print("Score preswap:",preswap_score) 
+            print("Score postswap:",postswap_score) 
             working_model=self.regular_refine(working_model,debug_skip=self.debug_skip_refine)
         else:
             raise Exception(f"Invalid strategy {strategy}")
-        postswap_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
-        print("Score preswap:",preswap_score) 
-        print("Score postswap:",postswap_score) 
         
         new_model_was_accepted = self.propose_model(working_model)
         
@@ -614,7 +622,7 @@ class Untangler():
         structure:Structure = PDBParser(model_path).get_structure("struct",model_path)
         ordered_ordered_waters:list[Atom]=[]
         water_coords=[]
-        water_residues=[]
+        water_residues={}
         starting_resnum=np.inf
         for atom in structure.get_atoms():
             if res_is_water(atom.get_parent()):
@@ -626,11 +634,11 @@ class Untangler():
                     ordered_ordered_waters.append(atom)
                     water_coords.append(ordered_atom.get_coord())
 
-        # nearest neighbours
         
         neighbours = NearestNeighbors(n_neighbors=k).fit(np.array(water_coords))
         distances, indices = neighbours.kneighbors(water_coords)
         indices:list[list[int]] = indices.tolist()
+        print("Warning: water altloc grouping code is not implemented correctly")
         for g, group in enumerate(indices):
             assert len(group)==len(self.model_protein_altlocs)
             for i, altloc in enumerate(self.model_protein_altlocs):
