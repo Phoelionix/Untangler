@@ -2,6 +2,8 @@
 
 # TODO folder with file containing commands used, shell file, and .eff file. 
 
+set -u
+
 xyz_path=$1; 
 out_tag=$2; shift 2 # redundant?
 
@@ -23,14 +25,14 @@ hold_water='false'
 hold_protein='false'
 optimize_R='false'
 shake=0
-refine_alt_locs='false'
 refine_no_hold='false'
 no_mlhl=true
 generate_r_free='false'
 turn_off_bulk_solvent='false'
 water_restrain_movement='true'
+refine_occupancies='false'
 
-while getopts ":o:u:c:n:s:d:whpragtzW" flag; do
+while getopts ":o:u:c:n:s:d:whpragtzWO" flag; do
  case $flag in
     o) out_handle=$OPTARG
        out_handle_override='true'
@@ -55,8 +57,6 @@ while getopts ":o:u:c:n:s:d:whpragtzW" flag; do
     ;;
     r) optimize_R='true'
     ;;
-    a) refine_alt_locs='true'
-    ;;
     g) generate_r_free='true'
     ;;
     t) turn_off_bulk_solvent='true'
@@ -64,6 +64,8 @@ while getopts ":o:u:c:n:s:d:whpragtzW" flag; do
     z) refine_no_hold='true'
     ;;
     W) water_restrain_movement='false' 
+    ;;
+    O) refine_occupancies='true'
     ;;
    \?)
    echo INVALID FLAG
@@ -77,7 +79,7 @@ if ! $out_handle_override; then
 
 fi 
 
-echo $xyz_path $hkl_name $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R $refine_alt_locs $generate_r_free $refine_no_hold $turn_off_bulk_solvent
+echo $xyz_path $hkl_name $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R $generate_r_free $refine_no_hold $turn_off_bulk_solvent $refine_occupancies
 
 
 expected_path=$xyz_path
@@ -134,7 +136,6 @@ cp $xyz_path tmp_refinement/$out_handle/${xyz_handle}.pdb
 
 cd tmp_refinement/$out_handle
 
-
 sed "s/XYZ_TEMPLATE/${xyz_handle}/g" $paramFile > tmp.$$
 mv tmp.$$ $paramFile
 sed  "s/HKL_TEMPLATE/${hkl_name}/g" $paramFile  > tmp.$$
@@ -161,9 +162,11 @@ if $no_mlhl; then
   mv tmp.$$ $paramFile
 fi
 
-if $refine_alt_locs; then 
-  echo "Refining altlocs option not implemented (but easy to implement...)"
-  exit
+if $refine_occupancies; then 
+  sed  "s/tls occupancies/tls *occupancies/g" $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
+  sed  "s/remove_selection = All/remove_selection = None/g" $paramFile  > tmp.$$
+  mv tmp.$$ $paramFile
 fi
 
 if $generate_r_free; then
@@ -194,9 +197,11 @@ export MKL_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 
-export TMPDIR=$PWD/tmp
+export TMPDIR=$PWD/tmp_${out_handle}
 mkdir -p $TMPDIR
 
+# env -i PATH=/usr/local/phenix-2/build/bin:/usr/bin:/bin \
+#   PHENIX=/usr/local/phenix-2 \
 phenix.refine $paramFile > $logs_path/${out_handle}.log
 unset TMPDIR
 
