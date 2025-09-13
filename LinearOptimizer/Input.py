@@ -351,7 +351,7 @@ class ConstraintsHandler:
             a,b = ordered_atoms
             if a.get_altloc() == self.altlocs[0] and b.get_altloc() == self.altlocs[1]:
                 return self.badness
-            return 0 
+            return None 
 
 
     class NonbondConstraint(Constraint):
@@ -659,7 +659,7 @@ class MTSP_Solver:
             return f"{self.connection_type}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
 
 
-    def __init__(self,pdb_file_path:str, align_uncertainty=False,ignore_waters=False,altloc_subset=None): 
+    def __init__(self,pdb_file_path:str, align_uncertainty=False,ignore_waters=False,altloc_subset=None,skip_subset_file_generation=False): 
         # TODO when subset size > 2, employ fragmentation/partitioning.
          
         # Note if we ignore waters then we aren't considering nonbond clashes between macromolecule and water.
@@ -676,7 +676,8 @@ class MTSP_Solver:
                                                      altloc_subset=altloc_subset,
                                                      allowed_resnums=resnums)   
         self.model_path=pdb_file_path[:-4]+"_subset.pdb"
-        self.ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=pdb_file_path,out_path=self.model_path)
+        if not skip_subset_file_generation:
+            self.ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=pdb_file_path,out_path=self.model_path)
         
     def align_uncertainty(self,structure:Structure.Structure):
         # in x-ray data and geom.
@@ -988,7 +989,7 @@ class MTSP_Solver:
                 disordered_connections[connection_id]=[]
             assert connection not in disordered_connections[connection_id] 
             for other in disordered_connections[connection_id]:
-                assert (connection.atom_chunks!=other.atom_chunks) or (connection.hydrogen_tag!=other.hydrogen_tag) or (connection.connection_type!=other.connection_type), f"duplicate connections of kind {connection.connection_type}, badness {connection.ts_distance} {other.ts_distance}!"
+                assert (connection.atom_chunks!=other.atom_chunks) or (connection.hydrogen_tag!=other.hydrogen_tag) or (connection.connection_type!=other.connection_type), f"duplicate connections of kind {connection.connection_type}, involving ordered atoms {[ch.unique_id() for ch in connection.atom_chunks]}, with badness {connection.ts_distance} and {other.ts_distance}!"
             disordered_connections[connection_id].append(connection)
 
         #finest_depth_chunks=orderedResidues
