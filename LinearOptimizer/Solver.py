@@ -175,13 +175,11 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         for possible_altloc in site_var_dict[site]:
             site_altlocs.append(possible_altloc)
 
-        if len(site_altlocs)==1:
-            site_var_dict[site][site_altlocs[0]][site_altlocs[0]]=dummy_one
-            continue
-        if len(site_altlocs)>2: #TODO optimize
+
+        if len(all_altlocs)>2: #TODO optimize
             for from_altloc in site_altlocs:
-                # Create variable for each possible swap to other swap
-                for to_altloc in site_altlocs:
+                # Create variable for each possible swap to other altloc
+                for to_altloc in all_altlocs:
                     var_atom_assignment =  pl.LpVariable(
                         f"{site}_{from_altloc}.{to_altloc}",
                         lowBound=0,upBound=1,cat=pl.LpBinary #TODO pl.LpBinary
@@ -200,7 +198,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                 )
 
             # Each conformer is assigned one ordered atom. from:to == 1:n
-            for to_altloc in  site_altlocs:
+            for to_altloc in all_altlocs:
                 to_altloc_vars:list[LpVariable] = []
                 for from_alt_loc_dict in site_var_dict[site].values():
                     to_altloc_vars.append(from_alt_loc_dict[to_altloc])
@@ -215,10 +213,17 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             )
             var_flipped.setInitialValue(0)
             var_not_flipped = 1-var_flipped 
-            site_var_dict[site][site_altlocs[0]][site_altlocs[0]] = var_not_flipped
-            site_var_dict[site][site_altlocs[0]][site_altlocs[1]] = var_flipped
-            site_var_dict[site][site_altlocs[1]][site_altlocs[0]] = var_flipped
-            site_var_dict[site][site_altlocs[1]][site_altlocs[1]] = var_not_flipped
+
+            if len(site_altlocs)==1:  
+                site_var_dict[site][site_altlocs[0]][site_altlocs[0]] = var_not_flipped
+                other_altlocs = [a for a in all_altlocs if a != site_altlocs[0]]
+                assert len(other_altlocs)==1
+                site_var_dict[site][site_altlocs[0]][other_altlocs[0]] = var_flipped
+            else:
+                site_var_dict[site][site_altlocs[0]][site_altlocs[0]] = var_not_flipped
+                site_var_dict[site][site_altlocs[0]][site_altlocs[1]] = var_flipped
+                site_var_dict[site][site_altlocs[1]][site_altlocs[0]] = var_flipped
+                site_var_dict[site][site_altlocs[1]][site_altlocs[1]] = var_not_flipped
             # lp_problem += (  
             #     #lpSum(site_var_dict[site][from_altloc])==1,
             #     var_flipped+var_not_flipped==1,
@@ -248,6 +253,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
 
         altlocs = None
+        all_perms=True
         for ch in disordered_connection[0].atom_chunks:
             site = VariableID.Atom(ch)
             if not site_being_considered(site):
@@ -256,9 +262,10 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                 altlocs = site_var_dict[site].keys()
             else:
                 if set(altlocs) != set(site_var_dict[site].keys()):
-                    #assert False
-                    print(f"Warning: altlocs don't match, skipping {disordered_connection[0].get_disordered_connection_id()}")
-                    return
+                    all_perms=False
+                    #assert False, "Missing altloc option for site"
+                    #print(f"Warning: altlocs don't match, skipping {disordered_connection[0].get_disordered_connection_id()}")
+                    #return
         altlocs = set(altlocs)
         #disordered_connection_vars = []
 
@@ -275,7 +282,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         debugging_more_than_2=True
         all_allowed=False
         #if (len(altlocs)==2 or debugging_more_than_2) and (disordered_connection[0].connection_type in [VariableKind.Bond.value,VariableKind.Angle.value]):
-        if not all_allowed and (len(altlocs)==2 or debugging_more_than_2) and (disordered_connection[0].connection_type!=VariableKind.Clash.value):
+        #if not all_allowed and (len(altlocs)==2 or debugging_more_than_2) and (disordered_connection[0].connection_type!=VariableKind.Clash.value):
+        if not all_allowed and (len(altlocs)==2 or debugging_more_than_2) and all_perms:
             # Skip clashes since may not exist for all possible permutations.
 
             #TODO test with more than 2 altlocs!
@@ -346,7 +354,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                 ########
 
                 if not allowed: 
-                    for to_altloc in altlocs:
+                    for to_altloc in all_altlocs:
                         assignment_vars = [site_var_dict[VariableID.Atom(ch)][ch.get_altloc()][to_altloc] for ch in ordered_connection_option.atom_chunks]
                         lp_problem += (
                             lpSum(assignment_vars) <=  len(assignment_vars)-1,   
@@ -390,15 +398,16 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             # Connections contains ordered atoms from any and likely multiplke altlocs that 
             # *are to be assigned to the same altlocs*
             assignment_options:dict[str,list[LpVariable]]={}
-            for to_altloc in altlocs:
+            for to_altloc in all_altlocs:
                 assignment_options[to_altloc]=[]
                 for ch in ordered_connection_option.atom_chunks:
                     from_altloc = ch.get_altloc()
                     site = VariableID.Atom(ch)
 
                     if to_altloc not in site_var_dict[site][from_altloc]:
-                        print(f"Warning: to_altloc {to_altloc} not found in {site_var_dict[site][from_altloc]}, skipping {disordered_connection[0].get_disordered_connection_id()}")
-                        return
+                        pass
+                        #  print(f"Warning: to_altloc {to_altloc} not found in {site_var_dict[site][from_altloc]}, skipping {disordered_connection[0].get_disordered_connection_id()}")
+                        # return
 
                     assignment_options[to_altloc].append(site_var_dict[site][from_altloc][to_altloc])
             # if variable is inactive, cannot have all atoms assigned to the same altloc.

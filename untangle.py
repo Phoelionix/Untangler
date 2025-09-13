@@ -244,7 +244,7 @@ class Untangler():
         self.refinement_loop()
 
 
-    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=15,repeats=2):
+    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=12,repeats=1):
         #TODO try strategy of making one altloc as good as possible, while other can be terrible.
         
         working_model = f"{self.output_dir}/{self.model_handle}_manySwaps.pdb"
@@ -294,7 +294,7 @@ class Untangler():
         atoms, connections = Solver.MTSP_Solver(model_to_swap,ignore_waters=allot_protein_independent_of_waters,altloc_subset=altloc_subset,skip_subset_file_generation=skip_geom_file_generation).calculate_paths(
             clash_punish_thing=False,
             nonbonds=True,   # Note this won't look at nonbonds with water if ignore_waters=True. 
-            water_water_nonbond = False,  # This is so we don't get a huge number of nearly identical solutions from swapping waters around.
+            water_water_nonbond = True, 
             skip_geom_file_generation=skip_geom_file_generation,
         )
         swaps_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
@@ -427,7 +427,9 @@ class Untangler():
         num_best_solutions=min(self.loop+self.n_best_swap_start,self.n_best_swap_max) # increase num solutions we search over time...
         
         self.prepare_pdb_and_read_altlocs(working_model,working_model)
-        preswap_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
+        measure_preswap_postswap = False
+        if measure_preswap_postswap:
+            preswap_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
         if strategy == Untangler.Strategy.Batch:
             if self.debug_skip_first_swaps:
                 assert False, "Unimplemented"
@@ -439,15 +441,17 @@ class Untangler():
             candidate_model_dir = f"{self.output_dir}/{self.model_handle}_swapOptions_{self.loop}/"
             best_model_that_was_refined = candidate_model_dir+best_model_that_was_refined
             ################################
-            postswap_score = Untangler.Score(*assess_geometry_wE(best_model_that_was_refined,self.output_dir))
-            print("Score preswap:",preswap_score) 
-            print("Score postswap:",postswap_score) 
+            if measure_preswap_postswap:
+                postswap_score = Untangler.Score(*assess_geometry_wE(best_model_that_was_refined,self.output_dir))
+                print("Score preswap:",preswap_score) 
+                print("Score postswap:",postswap_score) 
             swaps = cand_swaps[cand_models.index(best_model_that_was_refined)]
         elif strategy == Untangler.Strategy.SwapManyPairs:
             working_model,swaps = self.many_swapped(self.swapper,working_model,allot_protein_independent_of_waters)
-            postswap_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
-            print("Score preswap:",preswap_score) 
-            print("Score postswap:",postswap_score) 
+            if measure_preswap_postswap:
+                postswap_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
+                print("Score preswap:",preswap_score) 
+                print("Score postswap:",postswap_score) 
             working_model=self.regular_refine(working_model,debug_skip=self.debug_skip_refine)
         else:
             raise Exception(f"Invalid strategy {strategy}")

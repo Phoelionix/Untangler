@@ -59,13 +59,16 @@ class OrderedAtomLookup: #TODO pandas?
         atoms = list(atoms)
 
 
-        num_zero_occ=0
+        #TODO check whether zero occ affects wE/geom stuff. If not can skip zero occ safely. Otherwise need to deal with it.
+        num_zero_occ_skip=0
         last_skipped_res_num=None
+        skip_zero_occ = False
         for disorderedAtom in atoms:
             if disorderedAtom.get_occupancy()==0:
-                num_zero_occ+=1
-                last_skipped_res_num=OrderedAtomLookup.atom_res_seq_num(disorderedAtom)
-                continue
+                if skip_zero_occ:
+                    num_zero_occ_skip+=1
+                    last_skipped_res_num=OrderedAtomLookup.atom_res_seq_num(disorderedAtom)
+                    continue
             is_water= UntangleFunctions.res_is_water(disorderedAtom.get_parent())
             if is_water:
                 self.disordered_waters.append(disorderedAtom)
@@ -108,8 +111,8 @@ class OrderedAtomLookup: #TODO pandas?
                     self.better_dict[res_num][disorderedAtom.name] = {}
                 #self.better_dict[res_num][disorderedAtom.name].append(orderedAtom)
                 self.better_dict[res_num][disorderedAtom.name][altloc] = orderedAtom
-        if num_zero_occ>0:
-            print(f"Skipped {num_zero_occ} zero occupancy ordered atoms")
+        if num_zero_occ_skip>0:
+            print(f"Skipped {num_zero_occ_skip} zero occupancy ordered atoms")
     def output_as_pdb_file(self, reference_pdb_file,out_path):
         # Only outputs based on self.better_dict at present!!
         with open(reference_pdb_file) as R, open(out_path,'w') as O:
@@ -512,7 +515,7 @@ class ConstraintsHandler:
                             NB_pdb_ids_added.append(pdb_ids)          
         
         num_nonbonded_from_geo = len(NB_pdb_ids_added)
-        if water_water_nonbond:
+        if water_water_nonbond:  # TODO Symmetry clashes
             waters = ordered_atom_lookup.select_atoms_by(protein=False)
             ideal_water_separation=2.200
             for atom in waters:
@@ -856,6 +859,8 @@ class MTSP_Solver:
                                          is_water,
                                          constraints_handler
                                          )
+            
+            
         del ordered_atoms
         chunk_sets.append(atom_chunks)
         connection_types.append(MTSP_Solver.AtomChunkConnection)
