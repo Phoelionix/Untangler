@@ -45,6 +45,9 @@ import gc;
 def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[MTSP_Solver.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True,
           inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=2,mins_extra_per_loop=0): # 
     # protein_sites, water_sites: Whether these can be swapped.
+    
+    num_forbidden_connections=0
+    num_allowed_connections=0
 
     if inert_protein_sites:
         assert protein_sites
@@ -219,7 +222,6 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             #     var_flipped+var_not_flipped==1,
             #     f"fromAltLoc_{site}_{from_altloc}"
             # )
-
         if (force_no_flips
             or (site.site_num == lowest_site_num) # Anchor solution to one where first disordered atom is unchanged.  
             or (not site.is_water and inert_protein_sites)
@@ -269,7 +271,11 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         permutations = None
         tolerable_score=np.inf
         debugging_more_than_2=False
-        if len(altlocs)==2 or debugging_more_than_2:
+        all_allowed=False
+        #if (len(altlocs)==2 or debugging_more_than_2) and (disordered_connection[0].connection_type in [VariableKind.Bond.value,VariableKind.Angle.value]):
+        if not all_allowed and (len(altlocs)==2 or debugging_more_than_2) and (disordered_connection[0].connection_type!=VariableKind.Clash.value):
+            # Skip clashes since may not exist for all possible permutations.
+
             #TODO test with more than 2 altlocs!
             permutations:List[List[MTSP_Solver.AtomChunkConnection]] = []
             connections_assigned_to_permut=[]
@@ -292,7 +298,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                     connections_assigned_to_permut+=combo
                     permutations.append(combo)
 
-            # probably only true for two altlocs
+                # probably only true for two altlocs
             assert len(permutations)==len(altlocs)**(num_sites-1), (disordered_connection[0].connection_type, len(permutations), '\n'.join([str([c.from_altlocs for c in p]) for p in permutations]))
 
             best_score = np.inf
@@ -310,8 +316,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             assert best_score>=0
             
 
-            #tolerable_score=(best_score*5+50)*len(altlocs) # TODO deal with case where makes infeasible.
-            tolerable_score = 2*(best_score*5+50)*len(altlocs)
+            tolerable_score=(best_score*5+50)*len(altlocs) # TODO deal with case where makes infeasible.
+            #tolerable_score = 2*(best_score*5+50)*len(altlocs)
             #tolerable_score = np.inf
 
             allowed_connections = []
@@ -319,10 +325,15 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             permutations = [disordered_connection]
             perm_scores = [0]
 
+        nonlocal num_allowed_connections
+        nonlocal num_forbidden_connections
         for p, (perm, score) in enumerate(zip(permutations,perm_scores)):
             is_no_swap_perm = len(set([ch.altloc for ch in perm[0].atom_chunks]))==1
             allowed = (score <= tolerable_score) or  is_no_swap_perm
             permutation_vars = []
+
+            num_allowed_connections+=allowed 
+            num_forbidden_connections+= not allowed
             for ordered_connection_option in perm:
                 from_ordered_atoms = "|".join([f"{ch.resnum}.{ch.name}_{ch.altloc}" for ch in ordered_connection_option.atom_chunks])
                 tag=from_ordered_atoms
@@ -336,7 +347,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                     for to_altloc in altlocs:
                         assignment_vars = [site_var_dict[VariableID.Atom(ch)][ch.get_altloc()][to_altloc] for ch in ordered_connection_option.atom_chunks]
                         lp_problem += (
-                            lpSum(assignment_vars) <=  len(assignment_vars)-1,   # only active if and only if all assignment vars active.
+                            lpSum(assignment_vars) <=  len(assignment_vars)-1,   
                             f"FORBID{constraint_type.value}_{tag}>>{to_altloc}"
                             )
                 else:
@@ -406,7 +417,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                     #     f"1{constraint_type.value}_{from_ordered_atoms}>>{to_altloc}"
                     # )
                     lp_problem += (
-                        lpSum(assignment_vars) <=  num_assignments-1+var_active,   # only active if and only if all assignment vars active.
+                        lpSum(assignment_vars) <=  num_assignments-1+var_active,   # Active if all assignment vars active.
                         f"{constraint_type.value}_{tag}>>{to_altloc}"
                     )
             except:
@@ -435,6 +446,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     for connection_id, ordered_connection_choices in disordered_connections.items():
         constraint_type = VariableKind[connection_id.split('_')[0]] 
         add_constraints_from_disordered_connection(constraint_type,ordered_connection_choices)
+    print(f"Num allowed connections: {num_allowed_connections} | num forbidden connections: {num_forbidden_connections}")
 
     # if  force_sulfur_bridge_swap_solutions \
     #     and [ch.element for ch in connection.atom_chunks]==["S","S"]:
@@ -451,10 +463,12 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
 
 
-
+    badness = lpSum([dist for dist in distance_vars])
     lp_problem += (
-    lpSum([dist for dist in distance_vars]),
+    badness,
     "badness",)
+
+    print(f"Initial badness: {badness.value()}")
         
     
     # TODO: Suspect we want the two badness to be close to equal. Because if they aren't similar badness, we wouldn't expec to see both?
@@ -539,8 +553,16 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         gapRel=0.0003
         #gapRel=None
 
-        
-        
+        with open(f"{out_dir}/xLO-Initial{out_handle}.txt",'w') as f:
+            f.write(f"Status: {LpStatus[lp_problem.status]}\n")
+
+            for v in lp_problem.variables():
+                try:
+                    if v.value() > 0:
+                        f.write(f"{v.name} = {v.value()}\n")
+                except:
+                    raise Exception(v,v.value())
+            f.write(f"Total distance = {value(lp_problem.objective)}")
 
 
         solver_class=PULP_CBC_CMD
@@ -615,11 +637,12 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
         # Determine which atom has been assigned where.
         if lp_problem.sol_status==LpStatusInfeasible:
+            assert False, "Solution was infeasible!"
             print("Solution was infeasible! Skipping")
         for site in site_var_dict:
             site_assignments[site]={}
             for from_altloc in site_var_dict[site]:
-                if lp_problem.sol_status!=LpStatusOptimal:
+                if lp_problem.sol_status==LpStatusInfeasible:
                     site_assignments[site][from_altloc]=from_altloc 
                     break 
                 to_altloc_found = False
@@ -629,6 +652,15 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                         to_altloc_found=True
                         site_assignments[site][from_altloc]=to_altloc
                 assert to_altloc_found, (site, from_altloc)
+
+            if site.name==str(DisorderedTag(10,"CA")) or site.name==str(DisorderedTag(2,"CA")) :
+                for from_altloc in site_var_dict[site]:
+                    for to_altloc in site_var_dict[site][from_altloc]:
+
+                        print(from_altloc,to_altloc)
+                        print(round(site_var_dict[site][from_altloc][to_altloc].value()))
+                        print(site_var_dict[site][from_altloc][to_altloc].value())
+                        print(site_var_dict[site][from_altloc][to_altloc])
 
 
         # print("KEYS")

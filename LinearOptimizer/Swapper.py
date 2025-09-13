@@ -50,6 +50,9 @@ class Swapper():
             return [swap.atom_id() for swap in self.swaps]
         def get_to_altloc(self,res_num,atom_name:str,from_altloc:str):
             for swap in self.swaps:
+                if type(swap)!=Swapper.Swap:
+                    print("WARNING, UNEXPECTED BUG!!!",swap)
+                    return from_altloc 
                 if swap.matches_id(res_num,atom_name,from_altloc):
                     return swap.to_altloc
             return from_altloc # No swap!
@@ -282,10 +285,10 @@ class Swapper():
         for line in lines:
             P = Swapper.PDB_Params(line)
             if (not P.valid) or (not P.res_name=="HOH"):
-                water_swapped_lines+=line+"\n"
+                water_swapped_lines+=line
             else:
                 altloc_idx = altlocs.index(P.altloc)
-                water_swapped_lines+=P.new_altloc(altlocs[(altloc_idx+1)%2])+"\n"
+                water_swapped_lines+=P.new_altloc(altlocs[(altloc_idx+1)%2])
         #print(water_swapped_lines)
         with open(out_path,'w') as f:
             f.writelines(water_swapped_lines)

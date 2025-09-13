@@ -31,8 +31,9 @@ generate_r_free='false'
 turn_off_bulk_solvent='false'
 water_restrain_movement='true'
 refine_occupancies='false'
+ordered_solvent='false'
 
-while getopts ":o:u:c:n:s:d:whpragtzWO" flag; do
+while getopts ":o:u:c:n:s:d:whpragtzWOS" flag; do
  case $flag in
     o) out_handle=$OPTARG
        out_handle_override='true'
@@ -66,6 +67,8 @@ while getopts ":o:u:c:n:s:d:whpragtzWO" flag; do
     W) water_restrain_movement='false' 
     ;;
     O) refine_occupancies='true'
+    ;;
+    S) ordered_solvent='true'
     ;;
    \?)
    echo INVALID FLAG
@@ -176,6 +179,11 @@ fi
 
 if $turn_off_bulk_solvent; then 
   sed "s/bulk_solvent_and_scale = True/bulk_solvent_and_scale = False/g" $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
+fi
+
+if $ordered_solvent; then 
+  sed "s/ordered_solvent = False/ordered_solvent = True/g" $paramFile  > tmp.$$ 
   mv tmp.$$ $paramFile
 fi
 

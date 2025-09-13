@@ -3,7 +3,7 @@ from typing import Any
 from LinearOptimizer import Solver
 from LinearOptimizer.Input import OrderedAtomLookup
 from LinearOptimizer.Swapper import Swapper
-from UntangleFunctions import assess_geometry_wE, get_R,pdb_data_dir,create_score_file,get_score,score_file_name
+from UntangleFunctions import assess_geometry_wE, get_R,pdb_data_dir,create_score_file,get_score,score_file_name,res_is_water
 import subprocess
 import os, sys
 import numpy as np
@@ -14,7 +14,9 @@ from multiprocessing import Pool
 from time import sleep
 from enum import Enum
 import itertools
-from Bio.PDB import PDBParser,Structure
+from Bio.PDB import PDBParser,Structure,PDBIO
+from Bio.PDB.Atom import Atom,DisorderedAtom
+from sklearn.neighbors import NearestNeighbors
 
 
 class Untangler():
@@ -28,7 +30,7 @@ class Untangler():
     debug_skip_first_unrestrained_refine=True
     debug_skip_first_swaps=False
     debug_skip_unrestrained_refine=False
-    debug_skip_holton_data_generation=False
+    debug_skip_holton_data_generation=True
     debug_skip_initial_holton_data_generation=debug_skip_initial_refine
     ####
     num_threads=10
@@ -46,7 +48,7 @@ class Untangler():
 
     # TODO keep refining while Rfree decreasing.
     def __init__(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=8,  #8,
-                 wc_anneal_start=0.6,wc_anneal_loops=2, starting_num_best_swaps_considered=20, # 20,
+                 wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=20, # 20,
                  max_num_best_swaps_considered=100,num_unrestrained_macro_cycles=3,
                  num_loops_water_held=0):
         self.set_hyper_params(acceptance_temperature,max_wE_frac_increase,num_end_loop_refine_cycles,
@@ -63,7 +65,7 @@ class Untangler():
         self.model_protein_altlocs=None
         self.model_solvent_altlocs=None
     def set_hyper_params(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=2,  # 8,
-                 wc_anneal_start=0.6,wc_anneal_loops=2, starting_num_best_swaps_considered=5, # 20,
+                 wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=5, # 20,
                  max_num_best_swaps_considered=100,num_unrestrained_macro_cycles=3,
                  num_loops_water_held=0):
         # NOTE Currently max wE increase is percentage based, 
@@ -78,7 +80,7 @@ class Untangler():
         self.wc_anneal_start = wc_anneal_start
         self.wc_anneal_loops=wc_anneal_loops
 
-    def prepare_pdb_and_read_altlocs(self,pdb_path,out_path,refine_format=False):
+    def prepare_pdb_and_read_altlocs(self,pdb_path,out_path,sep_chain_format=False):
         # Gets into format we expect. !!!!!!Assumes single chain!!!!!
         protein_altlocs = []
         solvent_altlocs = []
@@ -127,7 +129,7 @@ class Untangler():
                     continue
                 assert len(end_lines)==0
                     
-                if not refine_format and not warned_collapse and chain != last_chain and last_chain is not None:
+                if not sep_chain_format and not warned_collapse and chain != last_chain and last_chain is not None:
                     print("Warning: Multiple chains detected. Collapsing chains into single chain")
                     warned_collapse=True
                 if resnum not in atom_dict:
@@ -143,7 +145,7 @@ class Untangler():
                 continue
                     
             n=0
-            if not refine_format: # format for untangler stuff
+            if not sep_chain_format: # format for untangler stuff
                 protein_chain_id = "A"
                 for res_atom_dict in atom_dict.values():
                     for altloc_atom_dict in res_atom_dict.values():
@@ -152,7 +154,7 @@ class Untangler():
                             modified_line = replace_chain(line,protein_chain_id)
                             modified_line = replace_serial_num(modified_line,n)
                             start_lines.append(modified_line)
-            else: # format for pdb refinement. Note that chains need to be contiguous in the file
+            else: # Note that lines for each chain need to be contiguous in the file
                 chain_dict={}
                 for res_atom_dict in atom_dict.values():
                     for altloc, altloc_atom_dict in res_atom_dict.items():
@@ -184,10 +186,33 @@ class Untangler():
         self.model_handle = os.path.basename(pdb_file_path)[:-4]
         self.current_model= Untangler.output_dir+f"{self.model_handle}_current.pdb"
         os.makedirs(Untangler.output_dir,exist_ok=True)
+        output_archive = Untangler.output_dir+".archive/"
+        os.makedirs(output_archive,exist_ok=True)
+
+        move_all_to_archive=False
+        for p in os.listdir(Untangler.output_dir):
+            fixed_folders=["refine_logs"]  # TODO put optimizer logs xLO in here
+            fp = Untangler.output_dir+p
+            if os.path.abspath(fp) != os.path.abspath(output_archive):
+                if p in fixed_folders:
+                    for sub_p in os.listdir(fp):
+                        sub_file_path=os.path.join(fp,sub_p)
+                        assert os.path.isfile(sub_file_path)  # Okay to turn this off, just at the moment don't expect fixed folders (refine_logs) to have subfolders.
+                        os.makedirs(os.path.join(output_archive,p,""),exist_ok=True)
+                        shutil.move(sub_file_path,os.path.join(output_archive,p,sub_p))
+                else:    
+                    if move_all_to_archive:
+                        shutil.move(fp,output_archive+p)
+
         #shutil.copy(pdb_file_path,self.current_model)
         self.prepare_pdb_and_read_altlocs(pdb_file_path,self.current_model)
+        if self.model_solvent_altlocs != self.model_protein_altlocs:
+            self.group_waters_to_altlocs(self.current_model,self.current_model)
+            assert self.model_solvent_altlocs==self.model_protein_altlocs
         self.swapper = Swapper()
 
+
+        self.loop=0
         initial_model=self.initial_refine(self.current_model,debug_skip=(self.debug_skip_refine or self.debug_skip_initial_refine)) 
         if not self.debug_skip_holton_data_generation and not self.debug_skip_initial_holton_data_generation:
             self.initial_score = Untangler.Score(*assess_geometry_wE(initial_model, log_out_folder_path=self.output_dir))
@@ -195,7 +220,6 @@ class Untangler():
             self.initial_score = Untangler.Score(*get_score(score_file_name(initial_model)))
         self.current_score = self.best_score = Untangler.Score.inf_bad_score()# i.e. force accept first solution
         shutil.copy(initial_model,self.current_model)
-        self.loop=0
         
         while (self.current_score.combined > desired_score and self.loop < max_num_runs): 
             print(f"Initial score: {self.initial_score}")
@@ -216,17 +240,17 @@ class Untangler():
 
 
     def step(self):
-        self.refinement_loop(Untangler.Strategy.SwapManyPairs)
+        self.refinement_loop()
 
 
     def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=20,repeats=0):
         working_model = f"{self.output_dir}/{self.model_handle}_manySwaps.pdb"
-        shutil.copy(model_to_swap,working_model)
 
         all_swaps=[]
         if self.debug_skip_first_swaps and self.loop == 0:
             return working_model, ["Unknown"]
         
+        shutil.copy(model_to_swap,working_model)
         for r in range(repeats+1):
 
             altloc_subset_combinations:itertools.combinations[tuple[str]] = list(itertools.combinations(self.model_protein_altlocs, altloc_subset_size))
@@ -243,7 +267,7 @@ class Untangler():
                 shutil.move(cand_models[0],working_model)
                 all_swaps.extend(cand_swaps[0])
 
-                measure_wE_after=True
+                measure_wE_after=False
                 if measure_wE_after:
                     struct=PDBParser().get_structure("struct",working_model)
                     ordered_atom_lookup = OrderedAtomLookup(struct.get_atoms(),
@@ -254,16 +278,19 @@ class Untangler():
                     assess_geometry_wE(temp_path,self.output_dir)
 
         print("=======End Altloc Allotment=============\n")
-        assess_geometry_wE(working_model,self.output_dir)
         return working_model, all_swaps
     def candidate_models_from_swapper(self,swapper:Swapper,num_solutions,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset=None,skip_geom_file_generation=False): #TODO refactor as method of Swapper class
         # TODO should be running solver for altloc set partitioned into subsets, not a single subset. 
+        
+        if self.debug_skip_holton_data_generation:
+            #Override
+            skip_geom_file_generation=True
         swapper.clear_candidates()
-        atoms, connections = Solver.MTSP_Solver(model_to_swap,ignore_waters=allot_protein_independent_of_waters,altloc_subset=altloc_subset).calculate_paths(
+        atoms, connections = Solver.MTSP_Solver(model_to_swap,ignore_waters=allot_protein_independent_of_waters,altloc_subset=altloc_subset,skip_subset_file_generation=skip_geom_file_generation).calculate_paths(
             clash_punish_thing=False,
             nonbonds=True,   # Note this won't look at nonbonds with water if ignore_waters=True. 
             water_water_nonbond = False,  # This is so we don't get a huge number of nearly identical solutions from swapping waters around.
-            skip_geom_file_generation=self.debug_skip_holton_data_generation or skip_geom_file_generation,
+            skip_geom_file_generation=skip_geom_file_generation,
         )
         swaps_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
                                         out_handle=self.model_handle,
@@ -289,7 +316,7 @@ class Untangler():
             os.remove(path) 
 
         i = 0
-        while self.swapper.solutions_remaining()>0: 
+        while swapper.solutions_remaining()>0: 
             ### Swap on unrestrained model ###
             working_model, swapGroup = swapper.run(model_to_swap)
             
@@ -384,7 +411,7 @@ class Untangler():
         # TODO if stuck (tried all candidate swap sets for the loop), do random flips or engage Metr.Hastings or track all the new model scores and choose the best.
         
         if strategy is None:
-            if self.model_protein_altlocs == 2:
+            if len(self.model_protein_altlocs) == 2:
                 strategy=Untangler.Strategy.Batch
             else:
                 strategy=Untangler.Strategy.SwapManyPairs
@@ -395,6 +422,7 @@ class Untangler():
         num_best_solutions=min(self.loop+self.n_best_swap_start,self.n_best_swap_max) # increase num solutions we search over time...
         
         self.prepare_pdb_and_read_altlocs(working_model,working_model)
+        preswap_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
         if strategy == Untangler.Strategy.Batch:
             if self.debug_skip_first_swaps:
                 assert False, "Unimplemented"
@@ -412,7 +440,9 @@ class Untangler():
             working_model=self.regular_refine(working_model,debug_skip=self.debug_skip_refine)
         else:
             raise Exception(f"Invalid strategy {strategy}")
-
+        postswap_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
+        print("Score preswap:",preswap_score) 
+        print("Score postswap:",postswap_score) 
         
         new_model_was_accepted = self.propose_model(working_model)
         
@@ -458,6 +488,7 @@ class Untangler():
             shutil.copy(working_model,self.current_model)
             self.current_score = new_score
             if self.best_score.combined > self.current_score.combined:
+                print(f"previous_best: {self.best_score}")
                 self.best_score = self.current_score
             outcome,set_new_model="oOo Accepted oOo",True
         print(f"{outcome} proposed model change with score of {new_score} (P_accept: {p_accept:.2f}) ")
@@ -469,15 +500,16 @@ class Untangler():
     def initial_refine(self,model_path,**kwargs)->str:
         # Try to get atoms as close to their true positions as possible
         #for wc, wu, n_cycles in zip([1,0.5,0.2,0.1],[1,0,0,0],[2,4,5,5]):
-        for wc, wu, n_cycles in zip([1],[1],[2]):
-
-            refine_params = self.get_refine_params_and_prep_file(
+        #for wc, wu, n_cycles in zip([1,0.5],[1,0],[8,4]):
+        for wc, wu, n_cycles in zip([1],[1],[self.num_end_loop_refine_cycles]):
+            refine_params = self.get_refine_params(
                 "initial",
                 model_path=model_path,
                 num_macro_cycles=n_cycles,
                 wc=wc,
                 wu=wu,
-                hold_water_positions=True,
+                hold_water_positions=self.holding_water(),
+                #ordered_solvent=True
             )
             model_path = self.refine(
                 refine_params,
@@ -489,7 +521,7 @@ class Untangler():
         # No idea why need to do this. But otherwise it jumps at 1_xyzrec
         next_model=model_path
         for n in range(self.num_unrestrained_macro_cycles):
-            refine_params = self.get_refine_params_and_prep_file(
+            refine_params = self.get_refine_params(
                 f"unrestrained-mc{n}",
                 model_path=next_model,
                 num_macro_cycles=1,
@@ -507,24 +539,28 @@ class Untangler():
     def regular_batch_refine(self,model_paths,**kwargs):
         param_set = []
         for i, model in enumerate(model_paths):
-            param_set.append(self.get_refine_params_and_prep_file(
+            param_set.append(self.get_refine_params(
                 f"loopEnd{self.loop}-{i+1}",
                 model_path=model,
                 num_macro_cycles=self.num_end_loop_refine_cycles,
-                wc=min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
+                wc=self.wc_anneal_start if self.wc_anneal_loops==0 else min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
                 hold_water_positions=self.holding_water(),
+                #ordered_solvent=True,
+                #refine_occupancies=False
                 ))
         return self.batch_refine(f"loopEnd{self.loop}",param_set,**kwargs)
 
 
     def regular_refine(self,model_path,**kwargs)->str:
 
-        refine_params = self.get_refine_params_and_prep_file(
+        refine_params = self.get_refine_params(
             f"loopEnd{self.loop}",
             model_path=model_path,
             num_macro_cycles=self.num_end_loop_refine_cycles,
-            wc=min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
+            wc= self.wc_anneal_start if self.wc_anneal_loops==0 else min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
             hold_water_positions=self.holding_water(),
+            #ordered_solvent=True,
+            #refine_occupancies=False
         )
         return self.refine(
             refine_params,
@@ -546,38 +582,93 @@ class Untangler():
         # assert model_path[-4:]==".pdb", model_path
         P, args = refine_params
         out_path = f"{self.output_dir}/{self.model_handle}_{P.out_tag}.pdb"
+        assert os.path.exists(refine_params[0].model_path)
         if not debug_skip:
-            if os.path.exists(out_path):
-                shutil.move(out_path,out_path+'#')
-            if show_python_params:
-                print (f"Params: {P}")
-            print (f"Running {P}")
-            
-            subprocess.run(args)#,stdout=log)
+            max_attempts=3
+            attempt=0
+            backup_path = out_path+'#'
+            if os.path.abspath(refine_params[0].model_path)!=os.path.abspath(out_path): # So as not to disrupt multiple refines using same file output name
+                if os.path.exists(out_path):
+                    shutil.move(out_path,backup_path)
+            while True:
+                if show_python_params:
+                    print (f"Params: {P}")
+                print (f"Running: {' '.join(args)}")
+                subprocess.run(args)#,stdout=log)
+
+                if os.path.exists(out_path): #TODO replace with direct way to check for success
+                    break
+                elif attempt < max_attempts:
+                    attempt+=1
+                    print(f"Warning: refinement failed for unknown reason! Retrying...")
+                else:
+                    raise Exception(f"refinement failed {max_attempts} times!")
+                
 
         return out_path
     
-    #def get_refine_params_and_prep_file(self,param_dict: SimpleNamespace | dict[str,Any]):
-    def get_refine_params_and_prep_file(self, out_tag=None, model_path=None,num_macro_cycles=None, # mandatory
+    def group_waters_to_altlocs(self,model_path,out_path):
+        print("Grouping waters")
+        k=len(self.model_protein_altlocs)
+        
+        structure:Structure = PDBParser(model_path).get_structure("struct",model_path)
+        ordered_ordered_waters:list[Atom]=[]
+        water_coords=[]
+        water_residues=[]
+        starting_resnum=np.inf
+        for atom in structure.get_atoms():
+            if res_is_water(atom.get_parent()):
+                resnum=OrderedAtomLookup.atom_res_seq_num(atom)
+                starting_resnum=int(min(starting_resnum,resnum))
+                water_residues[resnum]=atom.get_parent()
+                for ordered_atom in atom:
+                    ordered_atom:Atom
+                    ordered_ordered_waters.append(atom)
+                    water_coords.append(ordered_atom.get_coord())
+
+        # nearest neighbours
+        
+        neighbours = NearestNeighbors(n_neighbors=k).fit(np.array(water_coords))
+        distances, indices = neighbours.kneighbors(water_coords)
+        indices:list[list[int]] = indices.tolist()
+        for g, group in enumerate(indices):
+            assert len(group)==len(self.model_protein_altlocs)
+            for i, altloc in enumerate(self.model_protein_altlocs):
+                ordered_ordered_waters[group[i]].set_altloc(altloc)
+                ordered_ordered_waters[group[i]].set_occupancy(1/k)
+                ordered_ordered_waters[group[i]].set_parent(water_residues[int(g+starting_resnum)])
+
+        io = PDBIO()
+        io.set_structure(structure)
+        io.save(out_path)             
+
+        self.model_solvent_altlocs=self.model_protein_altlocs
+
+
+
+    #def get_refine_params(self,param_dict: SimpleNamespace | dict[str,Any]):
+    def get_refine_params(self, out_tag=None, model_path=None,num_macro_cycles=None, # mandatory
                           wc=1,wu=1, shake=0, optimize_R=False,
-                          hold_water_positions=False,hold_protein_positions=False):
+                          hold_water_positions=False,hold_protein_positions=False,
+                          refine_occupancies=True,turn_off_bulk_solvent=True,ordered_solvent=False):
         ### Override next_model with formatted one.
-        next_model = model_path[:-4]+"_fmtd.pdb"
-        self.prepare_pdb_and_read_altlocs(model_path,next_model,refine_format=True)
-        model_path = next_model 
+        #next_model = model_path[:-4]+"_fmtd.pdb"
+        #self.prepare_pdb_and_read_altlocs(model_path,next_model,sep_chain_format=True)
+        #model_path = next_model 
         ###
 
         assert (not hold_water_positions) or (not hold_protein_positions) 
         param_dict = locals()
         del param_dict["self"]
-        del param_dict["next_model"]
+        #del param_dict["next_model"]
         #####################
 
 
+        #TODO remove.
         P_defaults = dict(out_tag=None,model_path=None,num_macro_cycles=None, # mandatory
                           wc=1,wu=1, shake=0, optimize_R=False,
                           hold_water_positions=False,hold_protein_positions=False,
-                          debug_skip=False)
+                          refine_occupancies=True,turn_off_bulk_solvent=True,ordered_solvent=False)
         
         if type(param_dict) is SimpleNamespace:
             param_dict:dict[str,Any] = vars(param_dict)
@@ -595,7 +686,7 @@ class Untangler():
             "-o",f"{self.model_handle}_{P.out_tag}",
             "-s",f"{P.shake}",
             "-d", self.hkl_handle]
-        for bool_param, flag in ([P.hold_water_positions,"-h"],[P.optimize_R,"-r"],[P.hold_protein_positions,"-p"]):
+        for bool_param, flag in ([P.hold_water_positions,"-h"],[P.optimize_R,"-r"],[P.hold_protein_positions,"-p"],[P.refine_occupancies,"-O"],[P.turn_off_bulk_solvent,"-t"],[P.ordered_solvent,"-S"]):
             if bool_param:
                 args.append(flag)
         return P, args
@@ -750,8 +841,8 @@ def main():
     xray_data = sys.argv[2]
     Untangler(
         # max_num_best_swaps_considered=5,
-        max_num_best_swaps_considered=1,
-        starting_num_best_swaps_considered=1,
+        max_num_best_swaps_considered=30,
+        starting_num_best_swaps_considered=10,
         num_unrestrained_macro_cycles=1
         ).run(
         starting_model,

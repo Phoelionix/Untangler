@@ -8,6 +8,7 @@ from Bio.PDB.PDBIO import PDBIO
 import os
 import subprocess
 import matplotlib
+from time import sleep
 matplotlib.use('AGG')
 
 
@@ -70,16 +71,32 @@ def create_score_file(log_out_folder_path,pdb_file_path,phenixgeometry_only=Fals
     if phenixgeometry_only:
         generate_holton_data_shell_file=holton_folder_path+'GenerateHoltonDataQuick.sh' #
 
-    print("--==--")
-    print (f"running {generate_holton_data_shell_file}")
-    rel_path = os.path.relpath(pdb_file_path,start=holton_folder_path)
-    with open(log_out_folder_path+f"{handle}_log.txt","w") as log:
-        args = ["bash", f"{generate_holton_data_shell_file}",f"{rel_path}"]
-        print(f"Running {args}")
-        subprocess.run(args,stdout=log)
-    print("finished")
-    print("--==--")
-    return score_file_name(pdb_file_path)
+    score_file=score_file_name(pdb_file_path)
+    if os.path.exists(score_file):
+        os.remove(score_file)
+
+    assert os.path.exists(pdb_file_path)
+    max_attempts=5
+    i=0
+    # Sometimes get seg faults
+    while i < max_attempts and not os.path.exists(score_file):
+        i+=1 
+        sleep(1)
+        print("--==--")
+        print (f"running {generate_holton_data_shell_file}")
+        rel_path = os.path.relpath(pdb_file_path,start=holton_folder_path)
+        with open(log_out_folder_path+f"{handle}_log.txt","w") as log:
+            args = ["bash", f"{generate_holton_data_shell_file}",f"{rel_path}"]
+            print(f"Running {args}")
+            subprocess.run(args,stdout=log)
+    if os.path.exists(score_file):
+        print("finished")
+        print("--==--")
+    else:
+        raise Exception(f"Failed to locate expected output file {score_file}")    
+
+
+    return score_file
 
 def score_file_name(pdb_file_path):
     holton_folder_path = UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/"
