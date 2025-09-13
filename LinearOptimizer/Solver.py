@@ -320,7 +320,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             perm_scores = [0]
 
         for p, (perm, score) in enumerate(zip(permutations,perm_scores)):
-            allowed = score <= tolerable_score
+            is_no_swap_perm = set([ch.altloc for ch in perm[0].atom_chunks])==1
+            allowed = (score <= tolerable_score) or  is_no_swap_perm
             permutation_vars = []
             for ordered_connection_option in perm:
                 from_ordered_atoms = "|".join([f"{ch.resnum}.{ch.name}_{ch.altloc}" for ch in ordered_connection_option.atom_chunks])
