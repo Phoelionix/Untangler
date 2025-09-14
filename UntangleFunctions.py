@@ -232,7 +232,6 @@ def parse_symmetries_from_pdb(pdb_file_path):
             # symmetry matrices
             if line == "REMARK 290 RELATED MOLECULES.":
                 at_symmetry_xformations = True
-    print(sym_mtces_parsed)
     return sym_mtces_parsed
 
 def get_sym_xfmed_point(R,symmetry):

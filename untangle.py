@@ -244,7 +244,7 @@ class Untangler():
         self.refinement_loop()
 
 
-    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=18,repeats=1):
+    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=1,repeats=2):
         #TODO try strategy of making one altloc as good as possible, while other can be terrible.
         
         working_model = f"{self.output_dir}/{self.model_handle}_manySwaps.pdb"
@@ -258,16 +258,31 @@ class Untangler():
             repeats = 1 # No point repeating if considering all at once.
         for r in range(repeats+1):
 
-            altloc_subset_combinations:itertools.combinations[tuple[str]] = list(itertools.combinations(self.model_protein_altlocs, altloc_subset_size))
-            print("num possible combinations:",len(altloc_subset_combinations))
-            if len(altloc_subset_combinations) > num_combinations:
-                altloc_subset_combinations = random.sample(altloc_subset_combinations,num_combinations)
-            for n, altloc_subset in enumerate(altloc_subset_combinations): 
-                header=f"=========Altloc Allotment {n+1}/{len(altloc_subset_combinations)}, Cycle {r+1}/{repeats+1}=========="
+            #altloc_subset_combinations:itertools.combinations[tuple[str]] = list(itertools.combinations(self.model_protein_altlocs, altloc_subset_size))
+            #print("num possible combinations:",len(altloc_subset_combinations))
+            #if len(altloc_subset_combinations) > num_combinations:
+                #altloc_subset_combinations = random.sample(altloc_subset_combinations,num_combinations)
+
+            # ITerate over unique sets, since we are creating geom files for all altloc subsets in the below loop
+            altloc_subsets = []
+            altlocs = [altloc for altloc in self.model_protein_altlocs]
+            random.shuffle(altlocs)
+            while len(altlocs) >= altloc_subset_size and len(altloc_subsets) < num_combinations:  
+                altloc_subsets.append(altlocs[:altloc_subset_size])
+                del altlocs[:altloc_subset_size]
+
+            debug_prev_subset = ["E","A"]
+            if debug_prev_subset is not None:
+                altloc_subsets=[["E","A"]]
+            else:
+                Solver.MTSP_Solver.prepare_geom_files(working_model,altloc_subsets)
+
+            for n, altloc_subset in enumerate(altloc_subsets): 
+                header=f"=========Altloc Allotment {n+1}/{len(altloc_subsets)}, Cycle {r+1}/{repeats+1}=========="
                 print(f"\n{header}\n{'-'*len(header)}")
                 print(f"Optimizing connections across altlocs {', '.join(altloc_subset)}")
                 cand_models, cand_swaps = self.candidate_models_from_swapper(swapper,1,working_model,allot_protein_independent_of_waters,
-                                                                   altloc_subset=altloc_subset)
+                                                                   altloc_subset=altloc_subset,need_to_prepare_geom_files=False)
                 assert len(cand_models)==len(cand_swaps)==1
                 shutil.move(cand_models[0],working_model)
                 all_swaps.extend(cand_swaps[0])
@@ -278,24 +293,29 @@ class Untangler():
                     ordered_atom_lookup = OrderedAtomLookup(struct.get_atoms(),
                                                                 protein=True,waters=not allot_protein_independent_of_waters,
                                                                 altloc_subset=altloc_subset)   
-                    temp_path=working_model[:-4]+"_subsetOut.pdb"
+                    #temp_path=working_model[:-4]+"_subsetOut.pdb"
+                    temp_path=Solver.MTSP_Solver.subset_model_path(working_model,altloc_subset)[:-4]+"Out.pdb"
                     ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=working_model,out_path=temp_path)
-                    assess_geometry_wE(temp_path,self.output_dir)
+                    assess_geometry_wE(temp_path,Solver.MTSP_Solver.geo_log_out_folder())
+            if debug_prev_subset is not None:
+                raise Exception("End debug")
 
         print("=======End Altloc Allotment=============\n")
         return working_model, all_swaps
-    def candidate_models_from_swapper(self,swapper:Swapper,num_solutions,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset=None,skip_geom_file_generation=False): #TODO refactor as method of Swapper class
+    def candidate_models_from_swapper(self,swapper:Swapper,num_solutions,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset=None,need_to_prepare_geom_files=True): #TODO refactor as method of Swapper class
         # TODO should be running solver for altloc set partitioned into subsets, not a single subset. 
-        
+        assert not need_to_prepare_geom_files, "Not implemented"
+
         if self.debug_skip_holton_data_generation:
             #Override
-            skip_geom_file_generation=True
+            need_to_prepare_geom_files=False
+
+
         swapper.clear_candidates()
-        atoms, connections = Solver.MTSP_Solver(model_to_swap,ignore_waters=allot_protein_independent_of_waters,altloc_subset=altloc_subset,skip_subset_file_generation=skip_geom_file_generation).calculate_paths(
+        atoms, connections = Solver.MTSP_Solver(model_to_swap,ignore_waters=allot_protein_independent_of_waters,altloc_subset=altloc_subset).calculate_paths(
             clash_punish_thing=False,
             nonbonds=True,   # Note this won't look at nonbonds with water if ignore_waters=True. 
             water_water_nonbond = True, 
-            skip_geom_file_generation=skip_geom_file_generation,
         )
         swaps_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
                                         out_handle=self.model_handle,

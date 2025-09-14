@@ -39,6 +39,7 @@ import os
 import random
 import numpy as np
 import itertools
+from multiprocessing import Pool
 
 class OrderedAtomLookup: #TODO pandas?
     def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False,altloc_subset=None,allowed_resnums=None): # TODO type hint for sequence?
@@ -372,6 +373,7 @@ class ConstraintsHandler:
             super().__init__(atom_ids,ideal_separation,weight)
             self.kind="Nonbond"
             self.symmetries=symmetries
+            print(atom_ids)
         @staticmethod
         def symm_min_separation(a:Atom,b:Atom,symmetries):
             coord_dict={"a":[],"b":[]}
@@ -688,7 +690,7 @@ class MTSP_Solver:
             return f"{self.connection_type}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
 
 
-    def __init__(self,pdb_file_path:str, align_uncertainty=False,ignore_waters=False,altloc_subset=None,skip_subset_file_generation=False): 
+    def __init__(self,pdb_file_path:str, align_uncertainty=False,ignore_waters=False,altloc_subset=None): 
         # TODO when subset size > 2, employ fragmentation/partitioning.
          
         # Note if we ignore waters then we aren't considering nonbond clashes between macromolecule and water.
@@ -706,9 +708,7 @@ class MTSP_Solver:
                                                      protein=True,waters=not ignore_waters,
                                                      altloc_subset=altloc_subset,
                                                      allowed_resnums=resnums)   
-        self.model_path=pdb_file_path[:-4]+"_subset.pdb"
-        if not skip_subset_file_generation:
-            self.ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=pdb_file_path,out_path=self.model_path)
+        self.model_path=MTSP_Solver.subset_model_path(pdb_file_path,altloc_subset)
         
     def align_uncertainty(self,structure:Structure.Structure):
         # in x-ray data and geom.
@@ -721,10 +721,58 @@ class MTSP_Solver:
                 a.coord = b.coord =  mean_coord
                 atom.coord = mean_coord
 
+    @staticmethod 
+    def subset_model_path(pdb_file_path,altloc_subset:list[str]):
+        tag=""
+        if altloc_subset is not None:
+            tag = f"_subset{''.join(altloc_subset)}"
+        return pdb_file_path[:-4]+tag+".pdb"
+    @staticmethod
+    def prepare_geom_files(base_model_path,all_altloc_subsets,num_threads=10):
 
+        original_structure = PDBParser().get_structure("struct",base_model_path)
+        subset_model_paths=[]
+        for altloc_subset in all_altloc_subsets:
+            ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),
+                                                     protein=True,waters=True,
+                                                     altloc_subset=altloc_subset)
+                    
+            subset_model = MTSP_Solver.subset_model_path(base_model_path,altloc_subset)
+            assert subset_model not in subset_model_paths
+            subset_model_paths.append(subset_model)
+            ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=base_model_path,out_path=subset_model)
+
+
+        global pooled_method # not sure if this is a good idea. Did this because it tries to pickle but fails if local. Try replacing with line: multiprocessing.set_start_method(‘fork’)
+        def pooled_method(i):
+            MTSP_Solver.prepare_geom_files_for_one_subset(subset_model_paths[i])
+
+        with Pool(num_threads) as p:
+            p.map(pooled_method,range(len(subset_model_paths)))
+            
+
+    @staticmethod
+    def geo_log_out_folder():
+        return UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/HoltonOutputs/"
+    
+    @staticmethod
+    def prepare_geom_files_for_one_subset(model_path):
+        UntangleFunctions.assess_geometry_wE(model_path,MTSP_Solver.geo_log_out_folder()) 
+        model_water_swapped_path=UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{MTSP_Solver.water_swapped_handle(model_path)}.pdb"
+        Swapper.MakeSwapWaterFile(model_path,model_water_swapped_path)
+        UntangleFunctions.assess_geometry_wE(model_water_swapped_path,MTSP_Solver.geo_log_out_folder()) 
+
+    @staticmethod 
+    def water_swapped_handle(model_path):
+        return MTSP_Solver.model_handle(model_path)+"_WaSw"
+    @staticmethod 
+    def model_handle(model_path):
+        assert model_path[-4:]==".pdb"
+        return os.path.basename(model_path)[:-4]
+        
     def calculate_paths(self,quick_wE=False, dry_run=False,atoms_only=True,
                         clash_punish_thing=False,nonbonds=True,water_water_nonbond=None,
-                        skip_geom_file_generation=False,)->tuple[list[Chunk],dict[str,list[AtomChunkConnection]]]: #disorderedResidues:list[Residue]
+                        )->tuple[list[Chunk],dict[str,list[AtomChunkConnection]]]: #disorderedResidues:list[Residue]
         print("Calculating geometric costs for all possible connections between chunks of atoms (pairs for bonds, triplets for angles, etc.)")
         
         if water_water_nonbond is None:
@@ -778,8 +826,7 @@ class MTSP_Solver:
             return atom_id_from_params(atom.get_name(),atom.get_altloc(),OrderedAtomLookup.atom_res_seq_num(atom))
         
         nonbond_scores_path=nonbond_water_flipped_scores_path=None
-        assert self.model_path[-4:]==".pdb"
-        model_handle = os.path.basename(self.model_path)[:-4]
+        model_handle = self.model_handle(self.model_path)
 
         needToFixWaterAltlocsDebugging=False
         if needToFixWaterAltlocsDebugging:
@@ -789,11 +836,7 @@ class MTSP_Solver:
         # Generate geo file
         nonbond_scores_files = []
         water_clashes=[]
-        geo_log_out_folder = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/HoltonOutputs/"
-        if not skip_geom_file_generation:
-            UntangleFunctions.assess_geometry_wE(self.model_path,geo_log_out_folder) 
         if nonbonds:
-
 
             # CLASH 26.6682 0.79 | A  62 AARG  HD2| S 128 AHOH  O 
             # Terrible code. XXX
@@ -826,10 +869,7 @@ class MTSP_Solver:
 
             nonbond_scores_files = [nonbond_scores_path]
 
-
-
-            model_water_swapped_handle=model_handle+"WS"
-            model_water_swapped_path=UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{model_water_swapped_handle}.pdb"
+            model_water_swapped_handle=self.water_swapped_handle(self.model_path)
 
             unflipped_water_dict = {}
             for altloc in self.ordered_atom_lookup.get_altlocs():
@@ -843,9 +883,6 @@ class MTSP_Solver:
                 for i in range(2):
                     flipped_water_dict[altlocs[i]]=altlocs[-i-1]
 
-                if not skip_geom_file_generation:
-                    Swapper.MakeSwapWaterFile(self.model_path,model_water_swapped_path)
-                    UntangleFunctions.assess_geometry_wE(model_water_swapped_path,geo_log_out_folder) 
                 water_clashes+= get_water_clashes(model_water_swapped_handle,flipped_water_dict)
 
             
