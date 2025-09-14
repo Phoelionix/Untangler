@@ -9,6 +9,7 @@ import os
 import subprocess
 import matplotlib
 from time import sleep
+import numpy as np
 matplotlib.use('AGG')
 
 
@@ -188,5 +189,54 @@ def H_get_parent_fullname(H_name:str,nonH_fullname_list:list[str],debug_print=Fa
                     print(k,k[2:].strip())
                 assert False
         return parent_name
+
+def parse_symmetries_from_pdb(pdb_file_path):
+    '''
+    Parses the symmetry transformations from the pdb file into ndarrays and adds each to the crystal.  
+    No unit operations are performed.
+    Also returns the parsed matrices. 
+    '''
+    at_SYMOP = False
+    at_symmetry_xformations = False
+    sym_factor = np.zeros((3,3))
+    sym_trans = np.zeros((3))
+    sym_labels = []
+    sym_mtces_parsed = []        
+    with open(pdb_file_path) as pdb_file:
+        for line in pdb_file:
+            line = line.strip()
+            # End data - Check if left section of data; flagged by the line containing solely "REMARK ###". 
+            if len(line) <= 10: 
+                if at_SYMOP:
+                    at_SYMOP = False
+                if at_symmetry_xformations: 
+                    at_symmetry_xformations = False
+            if line[0:4] == "ATOM":
+                break
+            # Symmetry operators (purely for terminal output - doesn't affect simulation)
+            if at_SYMOP:
+                sym_labels.append(line[17:21]+": ("+line[21:].strip()+")")
+            # Add each symmetry to target
+            if at_symmetry_xformations:
+                entries = line.split()[2:]
+                x = int(entries[0][-1]) - 1  
+                entries = [float(f) for f in entries[2:]]
+                # x/y index rows/cols
+                for y, element in enumerate(entries[:-1]):
+                    sym_factor[x,y] = element
+                sym_trans[x] = entries[-1]
+                if x == 2:
+                    sym_mtces_parsed.append([sym_factor.copy(),sym_trans.copy()])
+
+
+            # symmetry matrices
+            if line == "REMARK 290 RELATED MOLECULES.":
+                at_symmetry_xformations = True
+    print(sym_mtces_parsed)
+    return sym_mtces_parsed
+
+def get_sym_xfmed_point(R,symmetry):
+    sym_rot, sym_trans = symmetry
+    return (sym_rot @ R.T).T+ sym_trans
 
 # %%

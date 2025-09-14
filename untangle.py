@@ -244,7 +244,7 @@ class Untangler():
         self.refinement_loop()
 
 
-    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=12,repeats=1):
+    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=18,repeats=1):
         #TODO try strategy of making one altloc as good as possible, while other can be terrible.
         
         working_model = f"{self.output_dir}/{self.model_handle}_manySwaps.pdb"
@@ -272,7 +272,7 @@ class Untangler():
                 shutil.move(cand_models[0],working_model)
                 all_swaps.extend(cand_swaps[0])
 
-                measure_wE_after=False
+                measure_wE_after=True
                 if measure_wE_after:
                     struct=PDBParser().get_structure("struct",working_model)
                     ordered_atom_lookup = OrderedAtomLookup(struct.get_atoms(),

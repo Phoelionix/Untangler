@@ -364,12 +364,32 @@ class ConstraintsHandler:
 
 
     class NonbondConstraint(Constraint):
+        # TODO currently just looks at the smallest separation of all symmetries.
         default_weight=1
-        def __init__(self,atom_ids,ideal_separation,weight=None):
+        def __init__(self,atom_ids,ideal_separation,symmetries,weight=None):
             if weight is None:
                 weight = ConstraintsHandler.NonbondConstraint.default_weight
             super().__init__(atom_ids,ideal_separation,weight)
             self.kind="Nonbond"
+            self.symmetries=symmetries
+        @staticmethod
+        def symm_min_separation(a:Atom,b:Atom,symmetries):
+            coord_dict={"a":[],"b":[]}
+            for atom, key in zip([a,b],coord_dict):
+                for symm in symmetries:
+                    coord_dict[key].append(
+                        UntangleFunctions.get_sym_xfmed_point(
+                            atom.get_coord(),
+                            symm)
+                    )
+            min_separation = np.inf
+            for coord_a in coord_dict["a"]:
+                for coord_b in coord_dict["b"]:
+                    min_separation = min(min_separation,np.sqrt(np.sum((coord_a-coord_b)**2)))
+            # if min_separation < ConstraintsHandler.BondConstraint.separation(a,b):
+            #     print(f"Symmetry nonbond found for {a,b}")
+
+            return min_separation
         
         @staticmethod
         def lennard_jones(r,r0):
@@ -391,7 +411,7 @@ class ConstraintsHandler:
             if ordered_atoms is None:
                 return None
             a,b = ordered_atoms            
-            r = ConstraintsHandler.BondConstraint.separation(a,b)
+            r = ConstraintsHandler.NonbondConstraint.symm_min_separation(a,b,self.symmetries)
             r0 = self.ideal
             energy = ConstraintsHandler.NonbondConstraint.badness(r,r0)
             return energy * self.weight
@@ -424,7 +444,7 @@ class ConstraintsHandler:
                 self.atom_constraints[site]=[]
             self.atom_constraints[site].append(constraint)
 
-    def load_all_constraints(self,constraints_file,nonbond_scores_files,water_clashes,ordered_atom_lookup:OrderedAtomLookup,water_water_nonbond:bool):
+    def load_all_constraints(self,constraints_file,nonbond_scores_files,water_clashes,ordered_atom_lookup:OrderedAtomLookup,symmetries, water_water_nonbond:bool):
         print(f"Parsing constraints in {constraints_file}")
 
         self.constraints: list[ConstraintsHandler.Constraint]=[]
@@ -511,7 +531,7 @@ class ConstraintsHandler:
                         pdb_ids = (pdb1,pdb2)
                         pdb_ids_flipped = (pdb2,pdb1)
                         if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
-                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal))
+                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal,symmetries))  
                             NB_pdb_ids_added.append(pdb_ids)          
         
         num_nonbonded_from_geo = len(NB_pdb_ids_added)
@@ -522,13 +542,13 @@ class ConstraintsHandler:
                 for other_atom in waters:
                     if other_atom == atom:
                         continue
-                    if ConstraintsHandler.BondConstraint.separation(atom,other_atom) < 8:
+                    if ConstraintsHandler.NonbondConstraint.symm_min_separation(atom,other_atom,symmetries) < 8:
                         pdb1 = f"{atom.name}     ARES     A      {OrderedAtomLookup.atom_res_seq_num(atom)}"
                         pdb2 = f"{other_atom.name}     ARES     A      {OrderedAtomLookup.atom_res_seq_num(other_atom)}"
                         pdb_ids = (pdb1,pdb2)
                         pdb_ids_flipped = (pdb2,pdb1)
                         if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
-                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal_water_separation))
+                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal_water_separation,symmetries))
                             NB_pdb_ids_added.append(pdb_ids)     
         num_nonbonded_extra = len(NB_pdb_ids_added)-num_nonbonded_from_geo
 
@@ -680,6 +700,8 @@ class MTSP_Solver:
         # debug_quick=False
         # if debug_quick:
         #     resnums = range(64)
+        self.symmetries = UntangleFunctions.parse_symmetries_from_pdb(pdb_file_path)
+
         self.ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),
                                                      protein=True,waters=not ignore_waters,
                                                      altloc_subset=altloc_subset,
@@ -815,14 +837,15 @@ class MTSP_Solver:
             water_clashes =  get_water_clashes(model_handle,unflipped_water_dict) 
             
             more_water_swaps=True
-            if not skip_geom_file_generation and more_water_swaps and len(self.ordered_atom_lookup.get_altlocs())==2:
+            if more_water_swaps and len(self.ordered_atom_lookup.get_altlocs())==2:
                 flipped_water_dict = {}
                 altlocs = self.ordered_atom_lookup.get_altlocs()
                 for i in range(2):
                     flipped_water_dict[altlocs[i]]=altlocs[-i-1]
 
-                Swapper.MakeSwapWaterFile(self.model_path,model_water_swapped_path)
-                UntangleFunctions.assess_geometry_wE(model_water_swapped_path,geo_log_out_folder) 
+                if not skip_geom_file_generation:
+                    Swapper.MakeSwapWaterFile(self.model_path,model_water_swapped_path)
+                    UntangleFunctions.assess_geometry_wE(model_water_swapped_path,geo_log_out_folder) 
                 water_clashes+= get_water_clashes(model_water_swapped_handle,flipped_water_dict)
 
             
@@ -832,7 +855,7 @@ class MTSP_Solver:
 
         constraints_file = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}.geo" # NOTE we only read ideal and weights.
         constraints_handler=ConstraintsHandler()
-        constraints_handler.load_all_constraints(constraints_file,nonbond_scores_files,water_clashes,self.ordered_atom_lookup,water_water_nonbond=water_water_nonbond)
+        constraints_handler.load_all_constraints(constraints_file,nonbond_scores_files,water_clashes,self.ordered_atom_lookup,symmetries=self.symmetries,water_water_nonbond=water_water_nonbond)
         print("Nonordered constraint properties loaded.")
         #for n,atom in enumerate(self.ordered_atom_lookup.select_atoms_by(names=["CA","C","N"])):
 
