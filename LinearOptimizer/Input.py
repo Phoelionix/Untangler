@@ -373,7 +373,6 @@ class ConstraintsHandler:
             super().__init__(atom_ids,ideal_separation,weight)
             self.kind="Nonbond"
             self.symmetries=symmetries
-            print(atom_ids)
         @staticmethod
         def symm_min_separation(a:Atom,b:Atom,symmetries):
             coord_dict={"a":[],"b":[]}

@@ -244,7 +244,7 @@ class Untangler():
         self.refinement_loop()
 
 
-    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=1,repeats=2):
+    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=10,repeats=2):
         #TODO try strategy of making one altloc as good as possible, while other can be terrible.
         
         working_model = f"{self.output_dir}/{self.model_handle}_manySwaps.pdb"
@@ -271,9 +271,9 @@ class Untangler():
                 altloc_subsets.append(altlocs[:altloc_subset_size])
                 del altlocs[:altloc_subset_size]
 
-            debug_prev_subset = ["E","A"]
+            debug_prev_subset = None
             if debug_prev_subset is not None:
-                altloc_subsets=[["E","A"]]
+                altloc_subsets=debug_prev_subset
             else:
                 Solver.MTSP_Solver.prepare_geom_files(working_model,altloc_subsets)
 
