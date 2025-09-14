@@ -63,7 +63,7 @@ class OrderedAtomLookup: #TODO pandas?
         #TODO check whether zero occ affects wE/geom stuff. If not can skip zero occ safely. Otherwise need to deal with it.
         num_zero_occ_skip=0
         last_skipped_res_num=None
-        skip_zero_occ = False
+        skip_zero_occ = True
         for disorderedAtom in atoms:
             if disorderedAtom.get_occupancy()==0:
                 if skip_zero_occ:
@@ -518,7 +518,7 @@ class ConstraintsHandler:
                         altloc2 = pdb2.strip()[3]
                         broke=False
                         for a,r,n in zip((altloc1,altloc2),(resnum1,resnum2),(name1,name2)):
-                            if n not in ordered_atom_lookup.better_dict[r]: 
+                            if r not in ordered_atom_lookup.better_dict or n not in ordered_atom_lookup.better_dict[r]: 
                                 break
                         if broke:
                             continue
@@ -557,7 +557,7 @@ class ConstraintsHandler:
         if ordered_atom_lookup.waters_allowed:
             for name, res_num, badness, altloc in water_clashes:
                 for n, r, a in zip(name,res_num,altloc):
-                    if n not in ordered_atom_lookup.better_dict[r]: 
+                    if r not in ordered_atom_lookup.better_dict or n not in ordered_atom_lookup.better_dict[r]: 
                         break
                 else:
                     pdb_ids = [f"{n}     ARES     A      {r}" for (n,r) in zip(name,res_num)]
