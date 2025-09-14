@@ -325,10 +325,19 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
             assert best_score>=0
             
+            # Initial: 42906.504224237106
 
-            tolerable_score=(best_score*5+50)*len(altlocs) 
+            #tolerable_score=(best_score+50)  # 42402.3747
+            #tolerable_score=(best_score*3+50)  #42402.37474123579
+            #tolerable_score=np.inf  #42402.37474123579
+
+            #tolerable_score=(best_score*5+10) #42681.7407661614
+
+
+            tolerable_score=(best_score*1.5+50) 
             #tolerable_score = 2*(best_score*5+50)*len(altlocs)
             #tolerable_score = np.inf
+
 
             allowed_connections = []
         else:
@@ -480,8 +489,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     lp_problem += (
     badness,
     "badness",)
-
-    print(f"Initial badness: {badness.value()}")
+    initial_badness = badness.value()
+    print(f"Initial badness: {initial_badness}")
         
     
     # TODO: Suspect we want the two badness to be close to equal. Because if they aren't similar badness, we wouldn't expec to see both?
@@ -557,13 +566,15 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         #timeLimit=None
         #threads=None
         #threads=26
-        threads=12
+        threads=10
         logPath=out_dir+"xLO-Log"+out_handle+".log"
         #logPath=None
         pulp_solver = Solver.CPLX_PY # https://stackoverflow.com/questions/10035541/what-causes-a-python-segmentation-fault
         #pulp_solver = Solver.COIN
         warmStart=True
-        gapRel=0.0003
+        #gapRel=0.0003
+        #gapRel=0.001
+        gapRel=0.001
         #gapRel=None
 
         with open(f"{out_dir}/xLO-Initial{out_handle}.txt",'w') as f:
@@ -621,6 +632,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
             print(f"Target: {out_handle}")
             print("Total distance = ", value(lp_problem.objective))
+            print(f"c.f. initial distance: {initial_badness}") 
             #plt.scatter()
         get_status(verbose=False)
 
