@@ -387,6 +387,7 @@ class ConstraintsHandler:
             for coord_a in coord_dict["a"]:
                 for coord_b in coord_dict["b"]:
                     min_separation = min(min_separation,np.sqrt(np.sum((coord_a-coord_b)**2)))
+            assert min_separation != np.inf, (coord_dict,symmetries)
             # if min_separation < ConstraintsHandler.BondConstraint.separation(a,b):
             #     print(f"Symmetry nonbond found for {a,b}")
 
@@ -517,8 +518,7 @@ class ConstraintsHandler:
                         altloc2 = pdb2.strip()[3]
                         broke=False
                         for a,r,n in zip((altloc1,altloc2),(resnum1,resnum2),(name1,name2)):
-                            if n not in ordered_atom_lookup.better_dict[r] or a not in ordered_atom_lookup.better_dict[r][n]:
-                                broke=True
+                            if n not in ordered_atom_lookup.better_dict[r]: 
                                 break
                         if broke:
                             continue
@@ -533,8 +533,7 @@ class ConstraintsHandler:
                         pdb_ids_flipped = (pdb2,pdb1)
                         if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
                             self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal,symmetries))  
-                            NB_pdb_ids_added.append(pdb_ids)          
-        
+                            NB_pdb_ids_added.append(pdb_ids)  
         num_nonbonded_from_geo = len(NB_pdb_ids_added)
         if water_water_nonbond:  # TODO Symmetry clashes
             waters = ordered_atom_lookup.select_atoms_by(protein=False)
@@ -558,7 +557,7 @@ class ConstraintsHandler:
         if ordered_atom_lookup.waters_allowed:
             for name, res_num, badness, altloc in water_clashes:
                 for n, r, a in zip(name,res_num,altloc):
-                    if n not in ordered_atom_lookup.better_dict[r] or a not in ordered_atom_lookup.better_dict[r][n]: # Need to do this in case doing subset of altlocs
+                    if n not in ordered_atom_lookup.better_dict[r]: 
                         break
                 else:
                     pdb_ids = [f"{n}     ARES     A      {r}" for (n,r) in zip(name,res_num)]
