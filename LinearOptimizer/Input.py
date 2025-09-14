@@ -491,8 +491,8 @@ class ConstraintsHandler:
                         #     pdb1 = f"{name}     ARES     A      {res_num}"
                         pdb1=constraint[0].strip().split("\"")[1]
                         pdb2=constraint[1].strip().split("\"")[1]
-                        name1 = pdb1.strip()[0]
-                        name2 = pdb2.strip()[0]
+                        name1 = pdb1.strip()[0:3].strip()
+                        name2 = pdb2.strip()[0:3].strip()
                         resnum1 = int(pdb1.strip().split()[-1])
                         resnum2 = int(pdb2.strip().split()[-1])
                         resname1 = pdb1.strip().split()[1][1:]
