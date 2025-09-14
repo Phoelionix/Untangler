@@ -81,6 +81,46 @@ class Untangler():
         self.wc_anneal_start = wc_anneal_start
         self.wc_anneal_loops=wc_anneal_loops
 
+    def delete_zero_occupancy_waters(self,pdb_path,out_path):
+        assert os.path.abspath(pdb_path) != os.path.abspath(out_path)
+        solvent_res_names=["HOH"]
+        start_strs_considered = ["ATOM","HETATM"]
+        def replace_res_num(line,res_num):
+            res_num = str(res_num)
+            res_num = ' '*(4-len(res_num))+res_num
+            return line[:22]+res_num+line[26:]
+        def replace_serial_num(line,serial_num):
+            serial_num = str(serial_num)
+            serial_num = ' '*(5-len(serial_num))+serial_num
+            return line[:6]+serial_num+line[11:]
+        with open(pdb_path) as I, open(out_path,'w') as O:
+            max_resnum=0
+            max_serial_num=0
+            for line in I:
+                for s in start_strs_considered:
+                    if line.startswith(s):
+                        resname = line[17:20]
+                        if resname not in solvent_res_names:
+                            resnum = line[22:26]
+                            serial_num = line[6:11]
+                            max_resnum=max(max_resnum,int(resnum))
+                            max_serial_num=max(max_serial_num,int(serial_num))
+                        else:
+                            break
+                else: # Not modifying
+                    O.write(line)
+                    continue
+                occ = float(line[54:60].strip())
+                if occ == 0:
+                    continue
+                else:
+                    max_resnum+=1
+                    max_serial_num+=1
+                    line = replace_res_num(line,max_resnum)
+                    line = replace_serial_num(line,max_serial_num)
+                    O.write(line)
+                    
+
     def prepare_pdb_and_read_altlocs(self,pdb_path,out_path,sep_chain_format=False):
         # Gets into format we expect. !!!!!!Assumes single chain!!!!!
         protein_altlocs = []
@@ -244,7 +284,7 @@ class Untangler():
         self.refinement_loop()
 
 
-    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=10,repeats=2):
+    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=20,repeats=3):
         #TODO try strategy of making one altloc as good as possible, while other can be terrible.
         
         working_model = f"{self.output_dir}/{self.model_handle}_manySwaps.pdb"
@@ -253,7 +293,15 @@ class Untangler():
         if self.debug_skip_first_swaps and self.loop == 0:
             return working_model, ["Unknown"]
         
-        shutil.copy(model_to_swap,working_model)
+        measure_wE_after=False
+        debug_prev_subset = None
+        #debug_prev_subset=["D","B"]
+        #debug_prev_subset=[ "A", "B"]
+        #debug_prev_subset=[ "E", "C"]
+        #debug_prev_subset=[ "D", "H"]
+        if debug_prev_subset is None:
+            self.delete_zero_occupancy_waters(model_to_swap,working_model) 
+            #shutil.copy(model_to_swap,working_model)
         if len(self.model_protein_altlocs)<=altloc_subset_size:
             repeats = 1 # No point repeating if considering all at once.
         for r in range(repeats+1):
@@ -271,9 +319,11 @@ class Untangler():
                 altloc_subsets.append(altlocs[:altloc_subset_size])
                 del altlocs[:altloc_subset_size]
 
-            debug_prev_subset = None
+
             if debug_prev_subset is not None:
-                altloc_subsets=debug_prev_subset
+                measure_wE_after=True
+                altloc_subsets=[debug_prev_subset]
+                working_model
             else:
                 Solver.MTSP_Solver.prepare_geom_files(working_model,altloc_subsets)
 
@@ -287,7 +337,6 @@ class Untangler():
                 shutil.move(cand_models[0],working_model)
                 all_swaps.extend(cand_swaps[0])
 
-                measure_wE_after=True
                 if measure_wE_after:
                     struct=PDBParser().get_structure("struct",working_model)
                     ordered_atom_lookup = OrderedAtomLookup(struct.get_atoms(),
@@ -447,7 +496,7 @@ class Untangler():
         num_best_solutions=min(self.loop+self.n_best_swap_start,self.n_best_swap_max) # increase num solutions we search over time...
         
         self.prepare_pdb_and_read_altlocs(working_model,working_model)
-        measure_preswap_postswap = False
+        measure_preswap_postswap = True
         if measure_preswap_postswap:
             preswap_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
         if strategy == Untangler.Strategy.Batch:

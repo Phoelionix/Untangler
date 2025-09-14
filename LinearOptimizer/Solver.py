@@ -631,8 +631,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                         print(v.name, "=", v.value())
 
             print(f"Target: {out_handle}")
-            print("Total distance = ", value(lp_problem.objective))
-            print(f"c.f. initial distance: {initial_badness}") 
+            total_distance = value(lp_problem.objective)
+            print(f"Total distance = {total_distance} ({100*(total_distance/initial_badness-1):.3f}%)")
             #plt.scatter()
         get_status(verbose=False)
 

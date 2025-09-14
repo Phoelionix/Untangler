@@ -63,7 +63,7 @@ class OrderedAtomLookup: #TODO pandas?
         #TODO check whether zero occ affects wE/geom stuff. If not can skip zero occ safely. Otherwise need to deal with it.
         num_zero_occ_skip=0
         last_skipped_res_num=None
-        skip_zero_occ = True
+        skip_zero_occ = False
         for disorderedAtom in atoms:
             if disorderedAtom.get_occupancy()==0:
                 if skip_zero_occ:
