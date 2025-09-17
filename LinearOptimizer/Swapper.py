@@ -276,12 +276,12 @@ class Swapper():
         altlocs = []
         for line in lines:
             P = Swapper.PDB_Params(line)
-            if (not P.valid) or (not P.res_name=="HOH"):
+            if (not P.valid):
                 continue
-            else:
-                if P.altloc not in altlocs:
-                    altlocs.append(P.altloc)
-        assert len(altlocs)==2
+            if P.altloc not in altlocs:
+                altlocs.append(P.altloc)
+
+        assert len(altlocs)==2, (altlocs, out_path)
         for line in lines:
             P = Swapper.PDB_Params(line)
             if (not P.valid) or (not P.res_name=="HOH"):

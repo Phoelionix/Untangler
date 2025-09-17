@@ -583,9 +583,9 @@ refinement {
     }
     c_beta_restraints = False
     reference_coordinate_restraints {
-      enabled = False
+      enabled = True
       exclude_outliers = False
-      selection = water
+      selection = all
       sigma = 0.1
     }
     automatic_linking {

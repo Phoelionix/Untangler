@@ -36,6 +36,7 @@ from LinearOptimizer.Input import *
 import itertools
 import UntangleFunctions
 import json
+from copy import deepcopy
 import gc; 
 #import pulp as pl
 # just for residues for now
@@ -498,14 +499,20 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     
     ######################
     swaps_file =  f"{out_dir}/xLO-toFlip_{out_handle}.json"
-    def update_swaps_file(distances, site_assignment_arrays):
+    def update_swaps_file(distances, site_assignment_arrays,record_notable_improvements_threshold=None): # record_notable_improvements_threshold: fractional improvement required to record separately
     # Create json file that lists all the site *changes* that are required to meet the solution. 
-        out_dict = {"target": out_handle,"solutions":{}}
+        out_dict = {"target": out_handle,"initial badness":initial_badness,"solutions":{}}
+        if record_notable_improvements_threshold is not None:
+            assert 0 <= record_notable_improvements_threshold < 1
+            sep_dict= deepcopy(out_dict)
+            best_improvement = 0
         verbose=False
         for i, (distance, atom_assignments) in enumerate(zip(distances,site_assignment_arrays)):
             solution_dict = {"badness": distance}
-            print(solution_dict)
             out_dict["solutions"][f"solution {i+1}"] = solution_dict
+            if record_notable_improvements_threshold is not None and 1-distance/initial_badness >= record_notable_improvements_threshold: 
+                best_improvement=max(best_improvement,1-distance/initial_badness)
+                sep_dict["solutions"][f"solution {i+1}"]=solution_dict
             moves:dict[str,dict[str]] = {}
             solution_dict["moves"]=moves
             for site in atom_assignments:
@@ -522,6 +529,11 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                     moves[site_key][from_altloc] = to_altloc
         with open(swaps_file,'w') as f: 
             json.dump(out_dict,f,indent=4)
+
+        if len(sep_dict["solutions"])>0:
+            separate_record_file = f"{out_dir}/xLO-Diff_{f'{best_improvement*100:.2f}'}_{out_handle}.json"
+            with open(separate_record_file,'w') as f2: 
+                json.dump(sep_dict,f2,indent=4)
 
 
     assert num_solutions >= len(forced_swap_solutions) 
@@ -619,8 +631,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         #     solver = CPLEX_PY(timeLimit=timeLimit,threads=threads)
         # lp_problem.solve(solver)
 
-
-
+        
         def get_status(verbose=False):
             print("Status:", LpStatus[lp_problem.status])
             
@@ -632,9 +643,12 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
             print(f"Target: {out_handle}")
             total_distance = value(lp_problem.objective)
-            print(f"Total distance = {total_distance} ({100*(total_distance/initial_badness-1):.3f}%)")
+            diff=total_distance/initial_badness-1
+            print(f"Total distance = {total_distance} ({100*(diff):.3f}%)")
             #plt.scatter()
         get_status(verbose=False)
+
+
 
 
         # dry = None
@@ -693,7 +707,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         #     print(key)
         distances.append(value(lp_problem.objective))
         
-        update_swaps_file(distances,site_assignment_arrays)
+        update_swaps_file(distances,site_assignment_arrays,record_notable_improvements_threshold=0.03)
       
        
         # solution = [var.value() for var in lp_problem.variables()] 

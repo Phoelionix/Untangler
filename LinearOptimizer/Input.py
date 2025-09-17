@@ -78,7 +78,12 @@ class OrderedAtomLookup: #TODO pandas?
             if not is_water and not protein:
                 continue
             
-            assert type(disorderedAtom)==DisorderedAtom, type(disorderedAtom)  # Not sure if a single altloc atom will still be stored as a disorderedatom by Bio.PDB
+            if type(disorderedAtom)!=DisorderedAtom:
+                assert type(disorderedAtom)==Atom, type(disorderedAtom)
+                tmp = DisorderedAtom(disorderedAtom.name)
+                tmp.set_parent(disorderedAtom.get_parent())
+                tmp.disordered_add(disorderedAtom)
+                disorderedAtom=tmp
             res_num=OrderedAtomLookup.atom_res_seq_num(disorderedAtom)
             if allowed_resnums is not None and res_num not in allowed_resnums:
                 continue
@@ -491,8 +496,8 @@ class ConstraintsHandler:
                         #     pdb1 = f"{name}     ARES     A      {res_num}"
                         pdb1=constraint[0].strip().split("\"")[1]
                         pdb2=constraint[1].strip().split("\"")[1]
-                        name1 = pdb1.strip()[0:3].strip()
-                        name2 = pdb2.strip()[0:3].strip()
+                        name1 = pdb1[0:4].strip()
+                        name2 = pdb2[0:4].strip()
                         resnum1 = int(pdb1.strip().split()[-1])
                         resnum2 = int(pdb2.strip().split()[-1])
                         resname1 = pdb1.strip().split()[1][1:]
@@ -688,7 +693,7 @@ class MTSP_Solver:
             return f"{self.connection_type}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
 
 
-    def __init__(self,pdb_file_path:str, align_uncertainty=False,ignore_waters=False,altloc_subset=None): 
+    def __init__(self,pdb_file_path:str,symmetries, align_uncertainty=False,ignore_waters=False,altloc_subset=None): 
         # TODO when subset size > 2, employ fragmentation/partitioning.
          
         # Note if we ignore waters then we aren't considering nonbond clashes between macromolecule and water.
@@ -700,7 +705,13 @@ class MTSP_Solver:
         # debug_quick=False
         # if debug_quick:
         #     resnums = range(64)
+
+
+        # Disabling because phenix seems to be deleting remark 290 :C
+        '''
         self.symmetries = UntangleFunctions.parse_symmetries_from_pdb(pdb_file_path)
+        '''
+        self.symmetries = symmetries
 
         self.ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),
                                                      protein=True,waters=not ignore_waters,
@@ -723,10 +734,14 @@ class MTSP_Solver:
     def subset_model_path(pdb_file_path,altloc_subset:list[str]):
         tag=""
         if altloc_subset is not None:
-            tag = f"_subset{''.join(altloc_subset)}"
-        return pdb_file_path[:-4]+tag+".pdb"
+            if len(altloc_subset)==1:
+                tag = f"_conformer-{''.join(altloc_subset)}"
+            else:
+                tag = f"_subset-{''.join(altloc_subset)}"
+        assert pdb_file_path[-4:]==".pdb",pdb_file_path
+        return os.path.join(UntangleFunctions.separated_conformer_pdb_dir(), os.path.basename(pdb_file_path)[:-4]+tag+".pdb")
     @staticmethod
-    def prepare_geom_files(base_model_path,all_altloc_subsets,num_threads=10):
+    def prepare_geom_files(base_model_path,all_altloc_subsets,num_threads=10,water_swaps=True):
 
         original_structure = PDBParser().get_structure("struct",base_model_path)
         subset_model_paths=[]
@@ -743,7 +758,7 @@ class MTSP_Solver:
 
         global pooled_method # not sure if this is a good idea. Did this because it tries to pickle but fails if local. Try replacing with line: multiprocessing.set_start_method(‘fork’)
         def pooled_method(i):
-            MTSP_Solver.prepare_geom_files_for_one_subset(subset_model_paths[i])
+            MTSP_Solver.prepare_geom_files_for_one_subset(subset_model_paths[i],water_swaps=water_swaps)
 
         with Pool(num_threads) as p:
             p.map(pooled_method,range(len(subset_model_paths)))
@@ -754,11 +769,12 @@ class MTSP_Solver:
         return UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/HoltonOutputs/"
     
     @staticmethod
-    def prepare_geom_files_for_one_subset(model_path):
+    def prepare_geom_files_for_one_subset(model_path,water_swaps=True):
         UntangleFunctions.assess_geometry_wE(model_path,MTSP_Solver.geo_log_out_folder()) 
         model_water_swapped_path=UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{MTSP_Solver.water_swapped_handle(model_path)}.pdb"
-        Swapper.MakeSwapWaterFile(model_path,model_water_swapped_path)
-        UntangleFunctions.assess_geometry_wE(model_water_swapped_path,MTSP_Solver.geo_log_out_folder()) 
+        if water_swaps:
+            Swapper.MakeSwapWaterFile(model_path,model_water_swapped_path)
+            UntangleFunctions.assess_geometry_wE(model_water_swapped_path,MTSP_Solver.geo_log_out_folder()) 
 
     @staticmethod 
     def water_swapped_handle(model_path):

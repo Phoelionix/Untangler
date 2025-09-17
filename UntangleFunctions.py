@@ -17,7 +17,11 @@ matplotlib.use('AGG')
 UNTANGLER_WORKING_DIRECTORY= os.path.join(os.path.abspath(os.getcwd()),"")
 
 def pdb_data_dir():
-    return UNTANGLER_WORKING_DIRECTORY+"data/"
+    return os.path.join(UNTANGLER_WORKING_DIRECTORY,"data","")
+
+def separated_conformer_pdb_dir():
+    return os.path.join(UNTANGLER_WORKING_DIRECTORY,"output","conformer_subsets","")
+
 
 def get_header(pdb_file_path):
     header = ""
@@ -61,7 +65,7 @@ def get_score(score_file,phenixgeometry_only=False):
                 return combined_score,wE_score,Rwork, Rfree
 
 
-def create_score_file(log_out_folder_path,pdb_file_path,phenixgeometry_only=False):
+def create_score_file(pdb_file_path,log_out_folder_path,phenixgeometry_only=False):
     holton_folder_path = UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/"
 
     #generate_holton_data_shell_file=self.holton_folder_path+'GenerateHoltonData.sh'
@@ -86,10 +90,10 @@ def create_score_file(log_out_folder_path,pdb_file_path,phenixgeometry_only=Fals
         print("--==--")
         print (f"running {generate_holton_data_shell_file}")
         rel_path = os.path.relpath(pdb_file_path,start=holton_folder_path)
-        with open(log_out_folder_path+f"{handle}_log.txt","w") as log:
-            args = ["bash", f"{generate_holton_data_shell_file}",f"{rel_path}"]
-            print(f"Running {args}")
-            subprocess.run(args,stdout=log)
+        #with open(log_out_folder_path+f"{handle}_log.txt","w") as log:
+        args = ["bash", f"{generate_holton_data_shell_file}",f"{rel_path}"]
+        print(f"Running {args}")
+        subprocess.run(args)
     if os.path.exists(score_file):
         print("finished")
         print("--==--")
@@ -106,7 +110,7 @@ def score_file_name(pdb_file_path):
     return holton_folder_path+f'HoltonOutputs/{handle}_score.txt'
 
 def assess_geometry_wE(pdb_file_path,log_out_folder_path,phenixgeometry_only=False):
-    score_file = create_score_file(log_out_folder_path,pdb_file_path,phenixgeometry_only)
+    score_file = create_score_file(pdb_file_path,log_out_folder_path,phenixgeometry_only)
     assert score_file == score_file_name(pdb_file_path)
     return get_score(score_file,phenixgeometry_only=phenixgeometry_only)
 
