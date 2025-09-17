@@ -25,16 +25,20 @@ class Untangler():
     working_dir = os.path.abspath(os.getcwd())
     output_dir = f"{working_dir}/output/"
     refine_shell_file=f"Refinement/Refine.sh"
+    refine_refmac_shell_file=f"Refinement/Refine_refmac.sh"
     ####
     # Skip stages. Requires files to already have been generated (up to the point you are debugging).
     debug_skip_refine = False
-    debug_skip_initial_refine=True
-    debug_skip_first_unrestrained_refine=True
+    debug_skip_initial_refine=False
+    debug_skip_first_unrestrained_refine=False
     debug_skip_first_swaps=False
     debug_skip_unrestrained_refine=False
     debug_skip_holton_data_generation=False
     debug_skip_initial_holton_data_generation=debug_skip_initial_refine
     auto_group_waters=False
+    PHENIX = 1
+    REFMAC = 2
+    refinement=REFMAC
     ####
     num_threads=10
     class Score():
@@ -246,6 +250,7 @@ class Untangler():
         # hkl_file_path: path to reflection data.
         # TODO Currently assume in data folder.
         assert hkl_file_path[-4:]==".mtz", f"hkl path doesn't end in '.mtz': {hkl_file_path}"
+        self.hkl_path = os.path.abspath(hkl_file_path) 
         self.hkl_handle = os.path.basename(hkl_file_path)[:-4] 
         #assert os.path.dirname(hkl_file_path)[-5:-1]=="data", hkl_file_path    
         assert pdb_file_path[-4:]==".pdb", f"file path doesn't end in '.pdb': {pdb_file_path}"
@@ -640,15 +645,23 @@ class Untangler():
         #for wc, wu, n_cycles in zip([1,0.5,0.2,0.1],[1,0,0,0],[2,4,5,5]):
         #for wc, wu, n_cycles in zip([1,0.5],[1,0],[8,4]):
         for wc, wu, n_cycles in zip([1],[1],[self.num_end_loop_refine_cycles]):
-            refine_params = self.get_refine_params(
-                "initial",
-                model_path=model_path,
-                num_macro_cycles=n_cycles,
-                wc=wc,
-                wu=wu,
-                hold_water_positions=self.holding_water(),
-                #ordered_solvent=True
-            )
+            if self.refinement==self.PHENIX:
+                refine_params = self.get_refine_params_phenix(
+                    "initial",
+                    model_path=model_path,
+                    num_macro_cycles=n_cycles,
+                    wc=wc,
+                    wu=wu,
+                    hold_water_positions=self.holding_water(),
+                    #ordered_solvent=True
+                )
+            elif self.refinement == self.REFMAC:
+                refine_params=self.get_refine_params_refmac(
+                    "initial",
+                    model_path=model_path,
+                    unrestrained=False,
+                    trials=20
+                )
             model_path = self.refine(
                 refine_params,
                 **kwargs
@@ -659,17 +672,25 @@ class Untangler():
         # No idea why need to do this. But otherwise it jumps at 1_xyzrec
         next_model=model_path
         for n in range(self.num_unrestrained_macro_cycles):
-            refine_params = self.get_refine_params(
-                f"unrestrained-mc{n}",
-                model_path=next_model,
-                num_macro_cycles=1,
-                wc=0,
-                hold_water_positions=True,
-            )
+            if self.refinement==self.PHENIX:
+                refine_params = self.get_refine_params_phenix(
+                    f"unrestrained-mc{n}",
+                    model_path=next_model,
+                    num_macro_cycles=1,
+                    wc=0,
+                    hold_water_positions=True,
+                )
+            elif self.refinement == self.REFMAC:
+                refine_params=self.get_refine_params_refmac(
+                    f"unrestrained-mc{n}",
+                    model_path=next_model,
+                    unrestrained=True
+                )
             next_model = self.refine(
                 refine_params,
                 **kwargs
             )
+
         return next_model
     
         
@@ -677,42 +698,44 @@ class Untangler():
     def regular_batch_refine(self,model_paths,**kwargs):
         param_set = []
         for i, model in enumerate(model_paths):
-            param_set.append(self.get_refine_params(
-                f"loopEnd{self.loop}-{i+1}",
-                model_path=model,
-                num_macro_cycles=self.num_end_loop_refine_cycles,
-                wc=self.wc_anneal_start if self.wc_anneal_loops==0 else min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
-                hold_water_positions=self.holding_water(),
-                #ordered_solvent=True,
-                #refine_occupancies=False
-                ))
+            if self.refinement==self.PHENIX:
+                param_set.append(self.get_refine_params_phenix(
+                    f"loopEnd{self.loop}-{i+1}",
+                    model_path=model,
+                    num_macro_cycles=self.num_end_loop_refine_cycles,
+                    wc=self.wc_anneal_start if self.wc_anneal_loops==0 else min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
+                    hold_water_positions=self.holding_water(),
+                    #ordered_solvent=True,
+                    #refine_occupancies=False
+                    ))
+            elif self.refinement == self.REFMAC:
+                assert False
+            
         return self.batch_refine(f"loopEnd{self.loop}",param_set,**kwargs)
 
 
     def regular_refine(self,model_path,**kwargs)->str:
 
-        refine_params = self.get_refine_params(
-            f"loopEnd{self.loop}",
-            model_path=model_path,
-            num_macro_cycles=self.num_end_loop_refine_cycles,
-            wc= self.wc_anneal_start if self.wc_anneal_loops==0 else min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
-            hold_water_positions=self.holding_water(),
-            #ordered_solvent=True,
-            #refine_occupancies=False
-        )
+        if self.refinement==self.PHENIX:
+            refine_params = self.get_refine_params_phenix(
+                f"loopEnd{self.loop}",
+                model_path=model_path,
+                num_macro_cycles=self.num_end_loop_refine_cycles,
+                wc= self.wc_anneal_start if self.wc_anneal_loops==0 else min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
+                hold_water_positions=self.holding_water(),
+                #ordered_solvent=True,
+                #refine_occupancies=False
+            )
+        elif self.refinement == self.REFMAC:
+            refine_params=self.get_refine_params_refmac(
+                f"loopEnd{self.loop}",
+                model_path=model_path,
+                unrestrained=False
+            )
         return self.refine(
             refine_params,
             **kwargs
         )
-        # return self.refine(
-        #     model_path,
-        #     "loopEnd",
-        #     num_macro_cycles=self.num_end_loop_refine_cycles,
-        #     wc=min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
-        #     #hold_water_positions= self.holding_water(),  
-        #     hold_protein_positions = True,
-        #     **kwargs
-        # )
 
     def holding_water(self)->bool:
         return self.loop<self.num_loops_water_held
@@ -783,9 +806,27 @@ class Untangler():
         self.model_solvent_altlocs=self.model_protein_altlocs
 
 
+    def get_refine_params_refmac(self,out_tag,model_path,unrestrained=False,trials=5):
+        reflections_path = self.hkl_path
 
-    #def get_refine_params(self,param_dict: SimpleNamespace | dict[str,Any]):
-    def get_refine_params(self, out_tag=None, model_path=None,num_macro_cycles=None, # mandatory
+        param_dict = locals()
+        del param_dict["self"]
+        P = SimpleNamespace(**param_dict)
+
+        args=["bash", 
+            f"{self.working_dir}/{self.refine_refmac_shell_file}",f"{P.model_path}",f"{P.reflections_path}",
+            "-n",f"{P.trials}",
+            "-o",f"{self.model_handle}_{P.out_tag}",
+            
+            ]
+        for bool_param, flag in ([P.unrestrained,"-u"],):
+            if bool_param:
+                args.append(flag)
+        return P, args
+
+
+            
+    def get_refine_params_phenix(self, out_tag=None, model_path=None,num_macro_cycles=None, # mandatory
                           wc=1,wu=1, shake=0, optimize_R=False,
                           hold_water_positions=False,hold_protein_positions=False,
                           refine_occupancies=False,turn_off_bulk_solvent=True,ordered_solvent=False,

@@ -4,150 +4,110 @@
 
 set -u
 
-xyz_path=$1; 
-out_tag=$2; shift 2 # redundant?
+xyz_path=$1 
+hkl_path=$2; shift 2 
 
 xyz_file=${xyz_path##*/}
 xyz_handle=${xyz_file%.*}
 
+trials=1
+
+####
 
 out_handle_override='false'
-
-# defaults
-hkl_name=refme
-serial=999
-wc=1
-wu=1
-wxc_scale=0.5
-macro_cycles=5
+unrestrained='false'
 calc_wE='false'
-hold_water='false'
-hold_protein='false'
-optimize_R='false'
-shake=0
-refine_no_hold='false'
-no_mlhl=true
-generate_r_free='false'
-turn_off_bulk_solvent='false'
-restrain_movement='true'
-refine_occupancies='false'
-ordered_solvent='false'
+refine_water_occupancy='false'
 
-while getopts ":o:u:c:n:s:d:whpragtzORS" flag; do
+while getopts ":o:n:uw" flag; do
  case $flag in
     o) out_handle=$OPTARG
        out_handle_override='true'
     ;;
-    u) wu=$OPTARG
+    n) trials=$OPTARG
     ;;
-    c) wc=$OPTARG
-    ;;
-    n) macro_cycles=$OPTARG
-    ;;
-    s) shake=$OPTARG
-    ;;
-    d) hkl_name=$OPTARG
-       hkl_name=${hkl_name##*/}
-       hkl_name=${hkl_name%.*}
+    u) unrestrained='true'
     ;;
     w) calc_wE='true'
     ;;
-    h) hold_water='true'
-    ;;
-    p) hold_protein='true'
-    ;;
-    r) optimize_R='true'
-    ;;
-    g) generate_r_free='true'
-    ;;
-    t) turn_off_bulk_solvent='true'
-    ;;
-    z) refine_no_hold='true'
-    ;;
-    O) refine_occupancies='true'
-    ;;
-    R) restrain_movement='false' 
-    ;;
-    S) ordered_solvent='true'
+    W) refine_water_occupancy='true'
     ;;
    \?)
    echo INVALID FLAG
+   exit 0
    ;;
  esac
 done
 
 
 if ! $out_handle_override; then
-  out_handle=${xyz_handle}-${hkl_name}_${out_tag}
-
+  out_handle=${xyz_handle}_refined
 fi 
 
-echo $xyz_path $hkl_name $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R $generate_r_free $refine_no_hold $turn_off_bulk_solvent $restrain_movement $refine_occupancies
-
-
-expected_path=$xyz_path
-if [ ! -f $expected_path ]; then  # TODO checks after other files or make Refine and RptRefine do exit 0 on error 
-    echo "File ${expected_path} not found!"
-    exit 0
-fi
-
-
-# if ${shake}; then
-#     paramFileTemplate=refine_water_hold_and_shake_protein_template.eff
-# fi
-
-
-#paramFileTemplate=refine_water_bond_length_hold_template.eff
-paramFileTemplate=refine_no_hold_template.eff
-if $optimize_R; then 
-  #paramFileTemplate=refine_water_bond_length_hold_optimize_R_template.eff
-  paramFileTemplate=refine_no_hold_optimize_R_template.eff
-fi
-if $hold_water; then
-  paramFileTemplate=refine_water_hold_template.eff
-  if $optimize_R; then 
-    paramFileTemplate=refine_water_hold_optimize_R_template.eff
-  fi
-fi
-
-if $hold_protein; then
-  paramFileTemplate=refine_protein_hold_template.eff
-fi
-
-#TEMPORARY
-if $refine_no_hold; then
-  paramFileTemplate=refine_no_hold_template.eff
-fi
-
-echo  $paramFileTemplate
-
-#paramFileTemplate=refine_water_bond_length_hold_template.eff
-#paramFileTemplate=refine_water_hold_template_free_necessary_waters.eff
-
-paramFile=${out_handle}_initial_refine.eff
 
 cd $(dirname "$0")
+
+working_folder=$out_handle
+
 mkdir -p tmp_refinement
 
 
-mkdir -p tmp_refinement/$out_handle # Do refinement in own directory in attempt to stop seg faults when parallel. Possibly issue is due to the annoying .status.pkl file that is created
+mkdir -p tmp_refinement/$working_folder
 
-rm -f tmp_refinement/$out_handle/$paramFile
-cp $paramFileTemplate tmp_refinement/$out_handle/$paramFile
-cp $xyz_path tmp_refinement/$out_handle/${xyz_handle}.pdb
+cp $xyz_path tmp_refinement/$working_folder/initial_model.pdb
+cp $hkl_path tmp_refinement/$working_folder/xray.mtz
 
 
-cd tmp_refinement/$out_handle
+cd tmp_refinement/$working_folder
 
-export TMPDIR=$PWD/tmp_${out_handle}
-mkdir -p $TMPDIR
 
-# env -i PATH=/usr/local/phenix-2/build/bin:/usr/bin:/bin \
-#   PHENIX=/usr/local/phenix-2 \
-phenix.refine $paramFile > $logs_path/${out_handle}.log
-unset TMPDIR
+logs_path="../../../output/refine_logs"
+mkdir -p $logs_path
 
-mv ${out_handle}_${serial}.pdb ../../../output/${out_handle}.pdb  
+######Options######
+
+cat > refmac_opts.txt  << EOF 
+make hydr Y
+make hout Y
+EOF
+
+# Appending...
+
+cat >> refmac_opts.txt << EOF
+damp 0.02 0.02 0.05
+EOF
+
+if $unrestrained; then
+cat << EOF >> refmac_opts.txt
+weight matrix 0
+REFI TYPE UNREstrained
+EOF
+else
+cat >> refmac_opts.txt << EOF 
+weight matrix 0.5
+EOF
+fi
+
+if $refine_water_occupancy; then
+setup_occupancy_waters.com initial_model.pdb refmac_opts.txt
+fi 
+##############################
+
+#########
+refmacout=refmacout_minRfree.pdb
+
+if [ -f $refmacout ]; then
+  mv $refmacout ${refmacout}#
+fi
+
+converge_refmac.com "initial_model.pdb xray.mtz trials=$trials" > $logs_path/${out_handle}.log
+
+if [ ! -f $refmacout ]; then
+  echo Could not find output file $refmacout
+  exit 0
+fi
+
+cp $refmacout ../../../output/${out_handle}.pdb  
 
 cd ../.. 
 
@@ -163,3 +123,18 @@ fi
 
 
 
+
+######## setup_occupancy_waters.com #######
+# ##
+# #! /bin/tcsh -f
+# #
+# #
+# #
+
+# if(! -e "$2") then
+#     echo "usage: $0 refmacin.pdb refmac_opts.txt"
+#     exit 9
+# endif
+
+# grep HOH $1 >! occme.pdb
+# refmac_occupancy_setup.com occme.pdb >> $2
