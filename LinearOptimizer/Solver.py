@@ -280,7 +280,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         allowed_connections = []
         permutations = None
         tolerable_score=np.inf
-        debugging_more_than_2=True
+        debugging_more_than_2=False
         all_allowed=False
         #if (len(altlocs)==2 or debugging_more_than_2) and (disordered_connection[0].connection_type in [VariableKind.Bond.value,VariableKind.Angle.value]):
         #if not all_allowed and (len(altlocs)==2 or debugging_more_than_2) and (disordered_connection[0].connection_type!=VariableKind.Clash.value):
@@ -334,10 +334,13 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
             #tolerable_score=(best_score*5+10) #42681.7407661614
 
-
-            tolerable_score=(best_score*1.5+50) 
             #tolerable_score = 2*(best_score*5+50)*len(altlocs)
             #tolerable_score = np.inf
+
+            tolerable_score=np.inf 
+            speedy=True
+            if speedy:
+                tolerable_score=(best_score*1.5+50)  # BEST FROM VERY BRIEF TESTS SO FAR            
 
 
             allowed_connections = []
@@ -498,6 +501,15 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
     
     ######################
+    log_file = f"{out_dir}/xLO-HighLevelLog_{out_handle}.log"
+    if not os.path.exists(log_file):
+        with open(log_file,'w') as f:
+            f.write(f"{out_handle} altloc optimizer log\n")
+    def log(line:str):
+        with open(log_file, 'a') as f:
+            f.write(line+"\n")
+            
+
     swaps_file =  f"{out_dir}/xLO-toFlip_{out_handle}.json"
     def update_swaps_file(distances, site_assignment_arrays,record_notable_improvements_threshold=None): # record_notable_improvements_threshold: fractional improvement required to record separately
     # Create json file that lists all the site *changes* that are required to meet the solution. 
@@ -645,6 +657,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             total_distance = value(lp_problem.objective)
             diff=total_distance/initial_badness-1
             print(f"Total distance = {total_distance} ({100*(diff):.3f}%)")
+            log(f"{100*(diff):.3f}%")
             #plt.scatter()
         get_status(verbose=False)
 
