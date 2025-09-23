@@ -20,6 +20,8 @@ import numpy as np
 import os
 from UntangleFunctions import H_get_parent_fullname
 import json
+import copy
+import gc
 
 # TODO Before, we flagged when the altloc assignments changed. And determined swaps based off this.
 # It's not very interesting if atoms are swapped in the same way as the last atom in the backbone or sidechain
@@ -139,7 +141,8 @@ class Swapper():
         swap_group_candidates :list[Swapper.SwapGroup] = []
         assert swaps_file_path[-5:]==".json"
         with open(swaps_file_path,'r') as f:
-            solutions =  json.load(f)["solutions"]
+            #solutions =  json.load(f)["solutions"]
+            solutions =  copy.deepcopy(json.load(f))["solutions"]  # May avoid memory leak? TODO test. https://stackoverflow.com/questions/49369778/python-memory-increases-despite-garbage-collection
             for solution_name, solution_dict in solutions.items():
                 badness:float = solution_dict["badness"]
                 moves: dict[str,dict[str]] = solution_dict["moves"]
@@ -206,6 +209,7 @@ class Swapper():
         else:
             self.sol_idx=0
             print(f"Loaded {len(sorted_groups)} candidate solutions successfully ({len(self.swap_groups_sorted)} total)")
+        gc.collect()
         
     def solutions_remaining(self):
         return len(self.swap_groups_sorted) - self.sol_idx

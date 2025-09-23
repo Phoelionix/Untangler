@@ -143,7 +143,7 @@ cp $xyz_path tmp_refinement/$out_handle/${xyz_handle}.pdb
 cd tmp_refinement/$out_handle
 
 
-#TODO insert relative paths
+
 sed "s/XYZ_TEMPLATE/${xyz_handle}/g" $paramFile > tmp.$$
 mv tmp.$$ $paramFile
 sed  "s/HKL_TEMPLATE/${hkl_handle}/g" $paramFile  > tmp.$$
