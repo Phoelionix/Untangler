@@ -959,7 +959,7 @@ class MTSP_Solver:
             water_clashes =  get_water_clashes(model_handle,unflipped_water_dict) 
             
             more_water_swaps=True
-            if more_water_swaps and len(self.ordered_atom_lookup.get_altlocs())==2:
+            if water_water_nonbond and more_water_swaps and len(self.ordered_atom_lookup.get_altlocs())==2:
                 flipped_water_dict = {}
                 altlocs = self.ordered_atom_lookup.get_altlocs()
                 for i in range(2):

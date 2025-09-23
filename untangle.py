@@ -21,7 +21,7 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.neighbors import KNeighborsClassifier
 import psutil
 
-DISABLE_WATER_ALTLOC_OPTIM=False
+DISABLE_WATER_ALTLOC_OPTIM=True
 
 
 class Untangler():
@@ -354,7 +354,7 @@ class Untangler():
         self.refinement_loop()
 
 
-    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=30,cycles=7,conformer_stats=False):
+    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=30,cycles=3,conformer_stats=False):
         #TODO try strategy of making one altloc as good as possible, while other can be terrible.
         
         #TODO try strategy of focusing on worst conformers
@@ -454,7 +454,7 @@ class Untangler():
             
         if need_to_prepare_geom_files:
             self.prepare_pdb_and_read_altlocs(model_to_swap,model_to_swap,sep_chain_format=False) 
-            Solver.MTSP_Solver.prepare_geom_files(model_to_swap,[None])
+            Solver.MTSP_Solver.prepare_geom_files(model_to_swap,[None],water_swaps=not DISABLE_WATER_ALTLOC_OPTIM)
             need_to_prepare_geom_files=False
 
         swapper.clear_candidates()
@@ -462,7 +462,7 @@ class Untangler():
             atoms, connections = Solver.MTSP_Solver(model_to_swap, self.symmetries, ignore_waters=DISABLE_WATER_ALTLOC_OPTIM or allot_protein_independent_of_waters,altloc_subset=altloc_subset).calculate_paths(
                 clash_punish_thing=False,
                 nonbonds=True,   # Note this won't look at nonbonds with water if ignore_waters=True. 
-                water_water_nonbond = True, 
+                water_water_nonbond = not DISABLE_WATER_ALTLOC_OPTIM, 
             )
             swaps_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
                                             out_handle=self.model_handle,
