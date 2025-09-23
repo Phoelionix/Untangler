@@ -32,7 +32,7 @@ class Untangler():
     ####
     # Skip stages. Requires files to already have been generated (up to the point you are debugging).
     debug_skip_refine = False
-    debug_skip_initial_refine=True
+    debug_skip_initial_refine=False
     debug_skip_first_unrestrained_refine=False
     debug_skip_first_swaps=False
     debug_skip_unrestrained_refine=False
@@ -248,8 +248,19 @@ class Untangler():
                     start_lines.append(modified_line)
 
         # Make sure waters don't share residue numbers with protein
+        min_solvent_resnum=99999999
         for line in solvent_lines:
-            max_resnum+=1
+            solvent_resnum=int(line[22:26])
+            min_solvent_resnum = min(solvent_resnum,min_solvent_resnum)
+        shift = max_resnum-min_solvent_resnum + 1
+        for line in solvent_lines:
+            solvent_resnum=int(line[22:26])
+            # in case of gaps...
+            assert (solvent_resnum+shift) - max_resnum >=0, (max_resnum,solvent_resnum,shift)
+            if (solvent_resnum+shift)-max_resnum > 1:
+                shift = max_resnum-solvent_resnum + 1 
+            max_resnum = shift+solvent_resnum
+            
             modified_line = replace_res_num(line,max_resnum)
             start_lines.append(modified_line)
 

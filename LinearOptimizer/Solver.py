@@ -258,6 +258,10 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
         altlocs = None
         all_perms=True
+        #TODO This check is not complete. Doesn't work if just have one ordered connection for example. Assuming False for safety for all clashes for now. 
+        # Actually this check is almost useless.
+        if disordered_connection[0].connection_type==VariableKind.Clash.value:
+            all_perms=False
         for ch in disordered_connection[0].atom_chunks:
             site = VariableID.Atom(ch)
             if not site_being_considered(site):
@@ -305,6 +309,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                     if broke:
                         continue
                 ##################################
+                # TODO this seems wrong
                 for from_altlocs_per_site in zip(*[c.from_altlocs for c in combo]):
                     if len(set(from_altlocs_per_site)) != len(altlocs):
                         break
@@ -313,7 +318,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                     permutations.append(combo)
 
                 # probably only true for two altlocs
-            assert len(permutations)==len(altlocs)**(num_sites-1), (disordered_connection[0].connection_type, len(permutations), '\n'.join([str([c.from_altlocs for c in p]) for p in permutations]))
+            assert len(permutations)==len(altlocs)**(num_sites-1), (disordered_connection[0].connection_type, len(permutations), '\n'.join([str([c.from_altlocs for c in p]) for p in permutations]),disordered_connection[0].get_disordered_connection_id())
 
             best_score = np.inf
             perm_scores=[]

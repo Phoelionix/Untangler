@@ -139,11 +139,14 @@ def split(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False):
                 start_lines.append(modified_line)
 
     # Make sure waters don't share residue numbers with protein
+    min_solvent_resnum=99999999
     for line in solvent_lines:
-        max_resnum+=1
-        modified_line = replace_res_num(line,max_resnum)
-        max_serial_num+=1
-        modified_line = replace_serial_num(modified_line,max_serial_num)
+        solvent_resnum=int(line[22:26])
+        min_solvent_resnum = min(solvent_resnum,min_solvent_resnum)
+        shift = max_resnum-min_solvent_resnum + 1
+    for line in solvent_lines:
+        solvent_resnum=int(line[22:26])
+        modified_line = replace_res_num(line,shift+solvent_resnum)
         start_lines.append(modified_line)
         splt = replace_altloc(modified_line,split_altloc(modified_line))
         max_serial_num+=1
