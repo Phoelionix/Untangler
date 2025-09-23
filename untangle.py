@@ -32,8 +32,8 @@ class Untangler():
     ####
     # Skip stages. Requires files to already have been generated (up to the point you are debugging).
     debug_skip_refine = False
-    debug_skip_initial_refine=False
-    debug_skip_first_unrestrained_refine=False
+    debug_skip_initial_refine=True
+    debug_skip_first_unrestrained_refine=True
     debug_skip_first_swaps=False
     debug_skip_unrestrained_refine=False
     debug_skip_holton_data_generation=False
@@ -247,22 +247,29 @@ class Untangler():
                 for modified_line in lines:
                     start_lines.append(modified_line)
 
+
         # Make sure waters don't share residue numbers with protein
-        min_solvent_resnum=99999999
         for line in solvent_lines:
-            solvent_resnum=int(line[22:26])
-            min_solvent_resnum = min(solvent_resnum,min_solvent_resnum)
-        shift = max_resnum-min_solvent_resnum + 1
-        for line in solvent_lines:
-            solvent_resnum=int(line[22:26])
-            # in case of gaps...
-            assert (solvent_resnum+shift) - max_resnum >=0, (max_resnum,solvent_resnum,shift)
-            if (solvent_resnum+shift)-max_resnum > 1:
-                shift = max_resnum-solvent_resnum + 1 
-            max_resnum = shift+solvent_resnum
-            
+            max_resnum+=1
             modified_line = replace_res_num(line,max_resnum)
             start_lines.append(modified_line)
+
+        # # Make sure waters don't share residue numbers with protein
+        # min_solvent_resnum=99999999
+        # for line in solvent_lines:
+        #     solvent_resnum=int(line[22:26])
+        #     min_solvent_resnum = min(solvent_resnum,min_solvent_resnum)
+        # shift = max_resnum-min_solvent_resnum + 1
+        # for line in solvent_lines:
+        #     solvent_resnum=int(line[22:26])
+        #     # in case of gaps...
+        #     assert (solvent_resnum+shift) - max_resnum >=0, (max_resnum,solvent_resnum,shift)
+        #     if (solvent_resnum+shift)-max_resnum > 1:
+        #         shift = max_resnum-solvent_resnum + 1 
+        #     max_resnum = shift+solvent_resnum
+            
+        #     modified_line = replace_res_num(line,max_resnum)
+        #     start_lines.append(modified_line)
 
         with open(out_path,'w') as O:
             O.writelines(start_lines+end_lines)
@@ -446,6 +453,7 @@ class Untangler():
             need_to_prepare_geom_files=False
             
         if need_to_prepare_geom_files:
+            self.prepare_pdb_and_read_altlocs(model_to_swap,model_to_swap,sep_chain_format=False) 
             Solver.MTSP_Solver.prepare_geom_files(model_to_swap,[None])
             need_to_prepare_geom_files=False
 
