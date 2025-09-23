@@ -10,7 +10,10 @@ hkl_path=$2; shift 2
 xyz_file=${xyz_path##*/}
 xyz_handle=${xyz_file%.*}
 
-trials=1
+trials=0
+
+dampA=0.02
+dampB=0.05
 
 ####
 
@@ -19,12 +22,16 @@ unrestrained='false'
 calc_wE='false'
 refine_water_occupancy='false'
 
-while getopts ":o:n:uw" flag; do
+while getopts ":o:n:A:B:uwW" flag; do
  case $flag in
     o) out_handle=$OPTARG
        out_handle_override='true'
     ;;
     n) trials=$OPTARG
+    ;;
+    A) dampA=$OPTARG
+    ;;
+    B) dampB=$OPTARG
     ;;
     u) unrestrained='true'
     ;;
@@ -74,12 +81,12 @@ EOF
 # Appending...
 
 cat >> refmac_opts.txt << EOF
-damp 0.02 0.02 0.05
+damp $dampA $dampA $dampB
 EOF
 
 if $unrestrained; then
 cat << EOF >> refmac_opts.txt
-weight matrix 0
+weight matrix 99
 REFI TYPE UNREstrained
 EOF
 else
@@ -87,6 +94,15 @@ cat >> refmac_opts.txt << EOF
 weight matrix 0.5
 EOF
 fi
+
+# cat > refmac_opts.txt  << EOF 
+# damp 0.02 0.02 0.05
+# make hydr Y
+# make hout Y
+# weight matrix 0.5
+# EOF
+
+
 
 if $refine_water_occupancy; then
 setup_occupancy_waters.com initial_model.pdb refmac_opts.txt
@@ -100,7 +116,11 @@ if [ -f $refmacout ]; then
   mv $refmacout ${refmacout}#
 fi
 
-converge_refmac.com "initial_model.pdb xray.mtz trials=$trials" > $logs_path/${out_handle}.log
+if [ "$trials" -eq "0" ]; then 
+  converge_refmac.com "initial_model.pdb xray.mtz" > $logs_path/${out_handle}.log
+else
+  converge_refmac.com "initial_model.pdb xray.mtz trials=$trials" > $logs_path/${out_handle}.log
+fi
 
 if [ ! -f $refmacout ]; then
   echo Could not find output file $refmacout

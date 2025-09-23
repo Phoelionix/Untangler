@@ -1,0 +1,37 @@
+  ordered_solvent {
+    low_resolution = 2.8
+    mode = second_half filter_only *every_macro_cycle \
+           every_macro_cycle_after_first
+    mask_atoms_selection = protein and (name CA or name CB or name N or name \
+                           C or name O)
+    include_altlocs = True
+    n_cycles = 1
+    output_residue_name = HOH
+    output_chain_id = S
+    output_atom_name = O
+    scattering_type = O
+    primary_map_type = mFobs-DFmodel
+    primary_map_cutoff = 3.
+    secondary_map_and_map_cc_filter {
+      cc_map_1_type = "Fmodel"
+      cc_map_2_type = 2mFobs-DFmodel
+      poor_cc_threshold = 0.70
+      poor_map_value_threshold = 1.0
+    }
+    dist_min = 1.8
+    dist_max = 3.2
+    dist_min_altloc = 0
+    refine_oat = False
+    refine_adp = True
+    refine_occupancies = False
+    new_solvent = *isotropic anisotropic
+    b_iso_min = 1.0
+    b_iso_max = 80.0
+    anisotropy_min = 0.1
+    occupancy_min = 0.33
+    occupancy_max = 0.34
+    occupancy = 0.33
+    filter_at_start = True
+    ignore_final_filtering_step = False
+    correct_drifted_waters = True
+  }

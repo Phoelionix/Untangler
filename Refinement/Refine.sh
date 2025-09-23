@@ -5,16 +5,17 @@
 set -u
 
 xyz_path=$1; 
-out_tag=$2; shift 2 # redundant?
+hkl_path=$2; shift 2 # redundant?
 
 xyz_file=${xyz_path##*/}
 xyz_handle=${xyz_file%.*}
+hkl_file=${hkl_path##*/}
+hkl_handle=${hkl_file%.*}
 
 
 out_handle_override='false'
 
 # defaults
-hkl_name=refme
 serial=999
 wc=1
 wu=1
@@ -32,8 +33,9 @@ turn_off_bulk_solvent='false'
 restrain_movement='true'
 refine_occupancies='false'
 ordered_solvent='false'
+disable_ADP='false'
 
-while getopts ":o:u:c:n:s:d:whpragtzORS" flag; do
+while getopts ":o:u:c:n:s:whpragtzAORS" flag; do
  case $flag in
     o) out_handle=$OPTARG
        out_handle_override='true'
@@ -45,10 +47,6 @@ while getopts ":o:u:c:n:s:d:whpragtzORS" flag; do
     n) macro_cycles=$OPTARG
     ;;
     s) shake=$OPTARG
-    ;;
-    d) hkl_name=$OPTARG
-       hkl_name=${hkl_name##*/}
-       hkl_name=${hkl_name%.*}
     ;;
     w) calc_wE='true'
     ;;
@@ -64,6 +62,8 @@ while getopts ":o:u:c:n:s:d:whpragtzORS" flag; do
     ;;
     z) refine_no_hold='true'
     ;;
+    A) disable_ADP='true'
+    ;;
     O) refine_occupancies='true'
     ;;
     R) restrain_movement='false' 
@@ -78,11 +78,10 @@ done
 
 
 if ! $out_handle_override; then
-  out_handle=${xyz_handle}-${hkl_name}_${out_tag}
-
+  out_handle=${xyz_handle}-${hkl_handle}
 fi 
 
-echo $xyz_path $hkl_name $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R $generate_r_free $refine_no_hold $turn_off_bulk_solvent $restrain_movement $refine_occupancies
+echo $xyz_path $hkl_path $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R $generate_r_free $refine_no_hold $turn_off_bulk_solvent $restrain_movement $refine_occupancies
 
 
 expected_path=$xyz_path
@@ -126,8 +125,12 @@ echo  $paramFileTemplate
 
 paramFile=${out_handle}_initial_refine.eff
 
+xyz_path=$(realpath -s --relative-to="$(dirname "$0")" "$xyz_path" )
+hkl_path=$(realpath -s --relative-to="$(dirname "$0")" "$hkl_path" )
+
 cd $(dirname "$0")
 mkdir -p tmp_refinement
+
 
 
 mkdir -p tmp_refinement/$out_handle # Do refinement in own directory in attempt to stop seg faults when parallel. Possibly issue is due to the annoying .status.pkl file that is created
@@ -139,9 +142,11 @@ cp $xyz_path tmp_refinement/$out_handle/${xyz_handle}.pdb
 
 cd tmp_refinement/$out_handle
 
+
+#TODO insert relative paths
 sed "s/XYZ_TEMPLATE/${xyz_handle}/g" $paramFile > tmp.$$
 mv tmp.$$ $paramFile
-sed  "s/HKL_TEMPLATE/${hkl_name}/g" $paramFile  > tmp.$$
+sed  "s/HKL_TEMPLATE/${hkl_handle}/g" $paramFile  > tmp.$$
 mv tmp.$$ $paramFile
 sed  "s/PREFIX_TEMPLATE/${out_handle}/g" $paramFile  > tmp.$$
 mv tmp.$$ $paramFile
@@ -187,15 +192,19 @@ if $ordered_solvent; then
   mv tmp.$$ $paramFile
 fi
 
-logs_path="../../../output/refine_logs"
-if [ ! -d $logs_path ]; then
-  mkdir $logs_path
+if $disable_ADP; then 
+  sed "s/*individual_adp/individual_adp/g" $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
 fi
+
+logs_path="../../../output/refine_logs"
+mkdir -p $logs_path
 
 if ! $restrain_movement; then 
     sed 's/reference_coordinate_restraints {\n      enabled = True/reference_coordinate_restraints {\n      enabled = False/g' $paramFile  > tmp.$$ 
     mv tmp.$$ $paramFile
 fi 
+
 
 
 # Broad sweep attempt to stop phenix segfaulting when run in parallel
