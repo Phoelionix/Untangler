@@ -510,7 +510,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             f.write(line+"\n")
             
 
-    swaps_file =  f"{out_dir}/xLO-toFlip_{out_handle}.json"
+    swaps_file =  swaps_file_path(out_dir,out_handle)
     def update_swaps_file(distances, site_assignment_arrays,record_notable_improvements_threshold=None): # record_notable_improvements_threshold: fractional improvement required to record separately
     # Create json file that lists all the site *changes* that are required to meet the solution. 
         out_dict = {"target": out_handle,"initial badness":initial_badness,"solutions":{}}
@@ -758,9 +758,11 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     gc.collect()
         ##################
 
-    
+    assert swaps_file==swaps_file_path(out_handle) # XXX
     return swaps_file
 
+def swaps_file_path(out_dir,out_handle):
+    return f"{out_dir}/xLO-toFlip_{out_handle}.json"
 
 if __name__=="__main__":
     handle = sys.argv[1]

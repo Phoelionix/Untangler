@@ -34,7 +34,7 @@ class Untangler():
     debug_skip_refine = False
     debug_skip_initial_refine=True
     debug_skip_first_unrestrained_refine=True
-    debug_skip_first_swaps=False
+    debug_skip_first_swaps=True
     debug_skip_unrestrained_refine=False
     debug_skip_holton_data_generation=False
     debug_skip_initial_holton_data_generation=debug_skip_initial_refine
@@ -426,7 +426,7 @@ class Untangler():
 
         print("=======End Altloc Allotment=============\n")
         return working_model, all_swaps
-    def candidate_models_from_swapper(self,swapper:Swapper,num_solutions,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset=None,need_to_prepare_geom_files=True): #TODO refactor as method of Swapper class
+    def candidate_models_from_swapper(self,swapper:Swapper,num_solutions,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset=None,need_to_prepare_geom_files=True,read_prior_run=False): #TODO refactor as method of Swapper class
         # TODO should be running solver for altloc set partitioned into subsets, not a single subset. 
             
 
@@ -439,19 +439,22 @@ class Untangler():
             need_to_prepare_geom_files=False
 
         swapper.clear_candidates()
-        atoms, connections = Solver.MTSP_Solver(model_to_swap, self.symmetries, ignore_waters=DISABLE_WATER_ALTLOC_OPTIM or allot_protein_independent_of_waters,altloc_subset=altloc_subset).calculate_paths(
-            clash_punish_thing=False,
-            nonbonds=True,   # Note this won't look at nonbonds with water if ignore_waters=True. 
-            water_water_nonbond = True, 
-        )
-        swaps_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
-                                        out_handle=self.model_handle,
-                                        num_solutions=num_solutions,
-                                        force_sulfur_bridge_swap_solutions=False, #True
-                                        protein_sites=True, 
-                                        water_sites= not allot_protein_independent_of_waters,
-                                        #water_sites=False,
-                                        )
+        if not read_prior_run:
+            atoms, connections = Solver.MTSP_Solver(model_to_swap, self.symmetries, ignore_waters=DISABLE_WATER_ALTLOC_OPTIM or allot_protein_independent_of_waters,altloc_subset=altloc_subset).calculate_paths(
+                clash_punish_thing=False,
+                nonbonds=True,   # Note this won't look at nonbonds with water if ignore_waters=True. 
+                water_water_nonbond = True, 
+            )
+            swaps_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
+                                            out_handle=self.model_handle,
+                                            num_solutions=num_solutions,
+                                            force_sulfur_bridge_swap_solutions=False, #True
+                                            protein_sites=True, 
+                                            water_sites= not allot_protein_independent_of_waters,
+                                            #water_sites=False,
+                                            )
+        else:
+            swaps_file_path = Solver.swaps_file_path(out_dir=self.output_dir,out_handle=self.model_handle)
         
         # Translate candidate solutions from LinearOptimizer into swaps lists
         # Try proposing each solution until one is accepted or we run out.
@@ -584,9 +587,9 @@ class Untangler():
         if measure_preswap_postswap:
             preswap_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
         if strategy == Untangler.Strategy.Batch:
-            if self.debug_skip_first_swaps:
-                assert False, "Unimplemented"
-            cand_models,cand_swaps = self.candidate_models_from_swapper(self.swapper,num_best_solutions,working_model,allot_protein_independent_of_waters,need_to_prepare_geom_files=True)
+            skip_swaps = self.debug_skip_first_swaps and self.loop==0
+            cand_models,cand_swaps = self.candidate_models_from_swapper(self.swapper,num_best_solutions,working_model,allot_protein_independent_of_waters,
+                                    need_to_prepare_geom_files=not skip_swaps,read_prior_run=skip_swaps)
             refined_model_dir = self.regular_batch_refine(cand_models,debug_skip=self.debug_skip_refine)
             working_model = self.determine_best_model(refined_model_dir)
             #### TODO Sucks make better ####
@@ -737,7 +740,8 @@ class Untangler():
                     f"loopEnd{self.loop}-{i+1}",
                     model_path=model,
                     unrestrained=False,
-                    refine_water_occupancies=True
+                    refine_water_occupancies=True,
+                    trials=20,
                 )
             param_set.append(refine_params)
         return self.batch_refine(f"loopEnd{self.loop}",param_set,**kwargs)
