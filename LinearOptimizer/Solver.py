@@ -44,9 +44,12 @@ import gc;
 
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[MTSP_Solver.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True,
-          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=2,mins_extra_per_loop=0): # 
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=2,mins_extra_per_loop=0,gapRel=0.001): # 
     # protein_sites, water_sites: Whether these can be swapped.
-    
+    # gaprel : relative gap tolerance for the solver to stop (fraction) # https://coin-or.github.io/pulp/technical/solvers.html
+    if gapRel == 0:
+        gapRel = None
+
     print("Initialising solver")
 
     num_forbidden_connections=0
@@ -598,7 +601,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         warmStart=True
         #gapRel=0.0003
         #gapRel=0.001
-        gapRel=0.001
+        
         #gapRel=None
 
         with open(f"{out_dir}/xLO-Initial{out_handle}.txt",'w') as f:
@@ -758,7 +761,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     gc.collect()
         ##################
 
-    assert swaps_file==swaps_file_path(out_handle) # XXX
+    assert swaps_file==swaps_file_path(out_dir,out_handle) # XXX
     return swaps_file
 
 def swaps_file_path(out_dir,out_handle):

@@ -33,8 +33,8 @@ class Untangler():
     # Skip stages. Requires files to already have been generated (up to the point you are debugging).
     debug_skip_refine = False
     debug_skip_initial_refine=True
-    debug_skip_first_unrestrained_refine=True
-    debug_skip_first_swaps=True
+    debug_skip_first_unrestrained_refine=False
+    debug_skip_first_swaps=False
     debug_skip_unrestrained_refine=False
     debug_skip_holton_data_generation=False
     debug_skip_initial_holton_data_generation=debug_skip_initial_refine
@@ -699,7 +699,7 @@ class Untangler():
         for n in range(self.num_unrestrained_macro_cycles):
             if self.refinement==self.PHENIX:
                 refine_params = self.get_refine_params_phenix(
-                    f"unrestrained-mc{n}",
+                    f"unrestrained-mc{self.loop}-{n}",
                     model_path=next_model,
                     num_macro_cycles=1,
                     wc=0,
@@ -707,7 +707,7 @@ class Untangler():
                 )
             elif self.refinement == self.REFMAC:
                 refine_params=self.get_refine_params_refmac(
-                    f"unrestrained-mc{n}",
+                    f"unrestrained-mc{self.loop}-{n}",
                     model_path=next_model,
                     unrestrained=True,
                     dampA=0.004,
