@@ -92,7 +92,7 @@ def create_score_file(pdb_file_path,log_out_folder_path,phenixgeometry_only=Fals
         rel_path = os.path.relpath(pdb_file_path,start=holton_folder_path)
         #with open(log_out_folder_path+f"{handle}_log.txt","w") as log:
         args = ["bash", f"{generate_holton_data_shell_file}",f"{rel_path}"]
-        print(f"Running {args}")
+        print (f"|+ Running: {' '.join(args)}")
         subprocess.run(args)
     if os.path.exists(score_file):
         print("finished")
@@ -103,8 +103,15 @@ def create_score_file(pdb_file_path,log_out_folder_path,phenixgeometry_only=Fals
 
     return score_file
 
+def clear_geo():
+    holton_folder_path = os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration","")
+    geo_path = os.path.join(holton_folder_path,"HoltonOutputs")
+    for filename in os.listdir(geo_path):
+        if filename[-4:]==".geo":
+            os.remove(os.path.join(geo_path,filename))
+
 def score_file_name(pdb_file_path):
-    holton_folder_path = UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/"
+    holton_folder_path = os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration","")
     assert pdb_file_path[-4:]==".pdb"
     handle = os.path.basename(pdb_file_path)[:-4]
     return holton_folder_path+f'HoltonOutputs/{handle}_score.txt'
@@ -128,7 +135,7 @@ def get_R(pdb_file_path,reflections_path):
     #rel_path = os.path.relpath(pdb_file_path,start=holton_script_path)
     get_R_data_shell_file = f"{UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/GetRData.sh"
     args=["bash", f"{get_R_data_shell_file}",f"{pdb_file_path}",f"{reflections_path}"]
-    print (f"$Running {args}")
+    print (f"|+ Running: {' '.join(args)}")
     subprocess.run(args)#,stdout=log)
     print("finished")
     print("--==--")
