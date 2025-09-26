@@ -44,7 +44,7 @@ import gc;
 
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[MTSP_Solver.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True,
-          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=2,mins_extra_per_loop=0,gapRel=0.001): # 
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=5,mins_extra_per_loop=0,gapRel=0.001): # 
     # protein_sites, water_sites: Whether these can be swapped.
     # gaprel : relative gap tolerance for the solver to stop (fraction) # https://coin-or.github.io/pulp/technical/solvers.html
     if gapRel == 0:
@@ -257,73 +257,143 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
 
         altlocs = None
-        all_perms=True
-        #TODO This check is not complete. Doesn't work if just have one ordered connection for example. Assuming False for safety for all clashes for now. 
-        # Actually this check is almost useless.
-        if disordered_connection[0].connection_type==VariableKind.Clash.value:
-            all_perms=False
+        all_combos=True
+
+        site_altlocs_same=True
         for ch in disordered_connection[0].atom_chunks:
             site = VariableID.Atom(ch)
             if not site_being_considered(site):
                     return
             if altlocs is None:
-                altlocs = site_var_dict[site].keys()
+                altlocs = set(site_var_dict[site].keys())
             else:
-                if set(altlocs) != set(site_var_dict[site].keys()):
-                    all_perms=False
+                if altlocs != set(site_var_dict[site].keys()):
+                    site_altlocs_same=False
+                    #all_combos=False
                     #assert False, "Missing altloc option for site"
                     #print(f"Warning: altlocs don't match, skipping {disordered_connection[0].get_disordered_connection_id()}")
                     #return
-        altlocs = set(altlocs)
-        #disordered_connection_vars = []
+
+        # dicts indexed by code corresponding to from altlocs (e.g. "ACB" means connecting up site 1 altloc A, site 2 altloc C, site 3 altloc B)
+        connection_dict={}  
+        connection_var_dict={} # indexed by from_altloc
+        if site_altlocs_same:
+            n=len(altlocs) 
+            m=len(disordered_connection[0].atom_chunks)
+
+            for ordered_connection_option in disordered_connection:
+                altlocs_key = ''.join(ordered_connection_option.from_altlocs)
+                connection_dict[altlocs_key]=ordered_connection_option
+
+            all_combos = (len(connection_dict)==n**m)
+        else:
+            all_combos=False
+
+        assert all_combos, (disordered_connection[0].connection_type, len(connection_dict),n**m,n,m)
 
 
-        #if disordered_connection[0].connection_type==VariableKind.Bond.value and len(altlocs)==2:
-        #if len(altlocs)==2:
+        for ordered_connection_option in disordered_connection:
+            from_ordered_atoms = "|".join([f"{ch.resnum}.{ch.name}_{ch.altloc}" for ch in ordered_connection_option.atom_chunks])
+            tag=from_ordered_atoms
+            extra_tag=""
+            if ordered_connection_option.hydrogen_tag!="":
+                extra_tag = "Htag["+ordered_connection_option.hydrogen_tag+"]_"
+            tag+=extra_tag
+            ########
+
+            # if not allowed: 
+            #     for to_altloc in all_altlocs:
+            #         assignment_vars = [site_var_dict[VariableID.Atom(ch)][ch.get_altloc()][to_altloc] for ch in ordered_connection_option.atom_chunks]
+            #         lp_problem += (
+            #             lpSum(assignment_vars) <=  len(assignment_vars)-1,   
+            #             f"FORBID{constraint_type.value}_{tag}>>{to_altloc}"
+            #             )
+            #else:
+
+            var_active = pl.LpVariable(f"{constraint_type.value}_{tag}",  #TODO cat=pl.LpBinary
+                                lowBound=0,upBound=1,cat=pl.LpBinary)
+            
+            var_active.setInitialValue(0) 
+            if len(set([ch.get_altloc() for ch in ordered_connection_option.atom_chunks])) == 1:
+                var_active.setInitialValue(1)
+            constraint_var_dict[VariableID(from_ordered_atoms+extra_tag,constraint_type.value)]=var_active
+            #group_vars.append(var_active)
+            altlocs_key = ''.join(ordered_connection_option.from_altlocs)
+            connection_var_dict[altlocs_key]=var_active
+
 
 
         # Get pairs corresponding to swap vs not swap.
-        num_sites = len(disordered_connection[0].atom_chunks)
         allowed_connections = []
-        permutations = None
+        group_choices = None
         tolerable_score=np.inf
-        debugging_more_than_2=False
+        debugging_more_than_2=True
         all_allowed=False
         #if (len(altlocs)==2 or debugging_more_than_2) and (disordered_connection[0].connection_type in [VariableKind.Bond.value,VariableKind.Angle.value]):
         #if not all_allowed and (len(altlocs)==2 or debugging_more_than_2) and (disordered_connection[0].connection_type!=VariableKind.Clash.value):
-        if not all_allowed and (len(altlocs)==2 or debugging_more_than_2) and all_perms:
-            # Skip clashes since may not exist for all possible permutations.
+        
+        # Find all possible groups of ordered connections that can be chosen as a choice for this disorderd connection 
+        # (e.g. 3 conformers, there will be three ordered connections). Forbid really bad choices
+        # TODO should still run if all_combos==False. Just forbid groups that are incomplete.
+        if all_combos and site_altlocs_same and not all_allowed and (len(altlocs)==2 or debugging_more_than_2):
+            # Skip clashes since may not exist for all possible group_choices.
 
             #TODO test with more than 2 altlocs!
-            permutations:List[List[MTSP_Solver.AtomChunkConnection]] = []
+            combos:List[List[MTSP_Solver.AtomChunkConnection]] = []
             connections_assigned_to_permut=[]
-            for combo in itertools.combinations(disordered_connection,len(altlocs)):
-                ########TEMPORARY 'FIX' FOR MORE THAN TWO #######################
-                if debugging_more_than_2:
-                    combo = list(combo)
-                    broke=False
-                    for c in combo:
-                        if c in connections_assigned_to_permut:
-                            broke=True
-                            break
-                    if broke:
-                        continue
-                ##################################
-                # TODO this seems wrong
-                for from_altlocs_per_site in zip(*[c.from_altlocs for c in combo]):
-                    if len(set(from_altlocs_per_site)) != len(altlocs):
-                        break
-                else:
-                    connections_assigned_to_permut+=combo
-                    permutations.append(combo)
 
-                # probably only true for two altlocs
-            assert len(permutations)==len(altlocs)**(num_sites-1), (disordered_connection[0].connection_type, len(permutations), '\n'.join([str([c.from_altlocs for c in p]) for p in permutations]),disordered_connection[0].get_disordered_connection_id())
+
+            # Construct a code that corresponds to recipe for a possible choice for this connection.
+            # For example, ACB_BCA would corespond to ordered connections A-B,C-C,B-A. (This would mean swapping the altlocs of one of the two A and B atoms, but leving the C altlocs unchanged)  
+            # TODO Set this once per solve(), not each time constraint added
+            possible_site_altlocs=[""]
+            for j in range(m): # for each site
+                new_possible_site_altlocs=[]
+                for label in possible_site_altlocs: 
+                    if label!="":
+                        label+="_"
+
+                    # Break symmetry by making group 1 correspond to first position having first altloc, group 2 having second altloc at first position, and so on.
+                    if j == 0:
+                        permutations = itertools.combinations(altlocs,len(altlocs)) # == [altlocs]
+                    else:
+                        permutations = itertools.permutations(altlocs,len(altlocs)) 
+                    for permutation in permutations:
+                        disordered_site=''.join(permutation) # The order the from altlocs are taken from by each group. 
+                        disordered_sequence = label+disordered_site 
+                        new_possible_site_altlocs.append(disordered_sequence)
+                possible_site_altlocs=new_possible_site_altlocs
+
+            group_choices:list[list[MTSP_Solver.AtomChunkConnection]]=[]
+            group_choice_codes=[]
+            group_choice_var_sets=[]
+            for code in possible_site_altlocs:
+                group=[]
+                var_group=[]
+                disordered_site_codes = code.split("_") # "ACB_BCA"=>["ACB", "BCA"]
+                for k in range(n): # for each to_altloc (i.e. each ordered connection in this group) 
+                    site_altlocs=''.join([site_codes[k] for site_codes in disordered_site_codes]) # ["ACB", "BCA"]  k=0:  => site_altlocs=AB
+                    group.append(connection_dict[site_altlocs])
+                    var_group.append(connection_var_dict[site_altlocs])
+                group_choices.append(group)
+                group_choice_var_sets.append(var_group)
+                group_choice_codes.append(code)
+
+            # Number of groups we expect
+            num_groups=1
+            k=n
+            while k >0:
+                num_groups*=k**m
+                k-=1
+            num_groups/=math.factorial(n) # Group order doesn't matter
+            num_groups=int(num_groups)
+            assert len(group_choices)==num_groups, (disordered_connection[0].connection_type, len(group_choices),num_groups, '\n'.join([str([c.from_altlocs for c in p]) for p in group_choices]),disordered_connection[0].get_disordered_connection_id())
+
 
             best_score = np.inf
             perm_scores=[]
-            for perm in permutations:
-                score = sum(p.ts_distance for p in perm )
+            for group in group_choices:
+                score = sum(conn.ts_distance for conn in group )
                 perm_scores.append(score)
                 best_score = min(best_score,score)
 
@@ -349,48 +419,54 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             speedy=True
             if speedy:
                 tolerable_score=(best_score*1.5+50)  # BEST FROM VERY BRIEF TESTS SO FAR            
+                #tolerable_score=(best_score*1.1+10)       
 
 
             allowed_connections = []
         else:
-            permutations = [disordered_connection]
+            group_choices = [disordered_connection]
             perm_scores = [0]
 
         nonlocal num_allowed_connections
         nonlocal num_forbidden_connections
-        for p, (perm, score) in enumerate(zip(permutations,perm_scores)):
-            is_no_swap_perm = len(set([ch.altloc for ch in perm[0].atom_chunks]))==1
+
+
+        site_names = "|".join([f"{ch.resnum}.{ch.name}" for ch in disordered_connection[0].atom_chunks])
+
+
+        if ordered_connection_option.hydrogen_tag!="":
+            extra_tag = "Htag["+ordered_connection_option.hydrogen_tag+"]_"
+        site_names+=extra_tag
+
+
+        for p, (group,group_vars, score,code) in enumerate(zip(group_choices,group_choice_var_sets,perm_scores,group_choice_codes)):
+            is_no_swap_perm = len(set([ch.altloc for ch in group[0].atom_chunks]))==1
             allowed = (score <= tolerable_score) or  is_no_swap_perm
-            permutation_vars = []
+            #group_vars = []
 
             num_allowed_connections+=allowed 
             num_forbidden_connections+= not allowed
-            for ordered_connection_option in perm:
-                from_ordered_atoms = "|".join([f"{ch.resnum}.{ch.name}_{ch.altloc}" for ch in ordered_connection_option.atom_chunks])
-                tag=from_ordered_atoms
-                extra_tag=""
-                if ordered_connection_option.hydrogen_tag!="":
-                    extra_tag = "Htag["+ordered_connection_option.hydrogen_tag+"]_"
-                tag+=extra_tag
-                ########
 
-                if not allowed: 
-                    for to_altloc in all_altlocs:
-                        assignment_vars = [site_var_dict[VariableID.Atom(ch)][ch.get_altloc()][to_altloc] for ch in ordered_connection_option.atom_chunks]
-                        lp_problem += (
-                            lpSum(assignment_vars) <=  len(assignment_vars)-1,   
-                            f"FORBID{constraint_type.value}_{tag}>>{to_altloc}"
-                            )
-                else:
-                    var_active = pl.LpVariable(f"{constraint_type.value}_{tag}",  #TODO cat=pl.LpBinary
-                                        lowBound=0,upBound=1,cat=pl.LpBinary)
-                    
-                    var_active.setInitialValue(0) 
-                    if len(set([ch.get_altloc() for ch in ordered_connection_option.atom_chunks])) == 1:
-                        var_active.setInitialValue(1)
-                    constraint_var_dict[VariableID(from_ordered_atoms+extra_tag,constraint_type.value)]=var_active
-                    allowed_connections.append((ordered_connection_option,var_active))
-                    permutation_vars.append(var_active)
+
+
+            tag=code
+            if not allowed: 
+                # Constraint that somehow elegantly forbids this group.
+                lp_problem += (
+                    lpSum(group_vars)<=len(group_vars),
+                    f"FORBID{constraint_type.value}_{site_names}_{code}"
+                )
+            else:
+                for ordered_connection_option,var_active in zip(group,group_vars):
+                    if ordered_connection_option not in allowed_connections:
+                        allowed_connections.append((ordered_connection_option,var_active))
+
+
+            # TODO if len altlocs is 2, then remove both connection options from allowed_connections.
+
+
+
+
 
             # This makes things slower...
             '''
@@ -403,11 +479,22 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             '''
                     
             #TODO CRITICAL Variables for when hydrogen is involved can be simplified, especially for angles involving hydrogen.
-        for ordered_connection_option,var_active in allowed_connections:
-            #continue
-            # Variable
-            #tag = "_".join([ch.unique_id() for ch in ordered_connection_option.atom_chunks])
-            #tag = "|".join([ch.unique_id() for ch in ordered_connection_option.atom_chunks])
+
+        # TODO!!!! if connection options don't appear in any non-forbidden group, can just write:
+        # for to_altloc in all_altlocs:
+        #     assignment_vars = [site_var_dict[VariableID.Atom(ch)][ch.get_altloc()][to_altloc] for ch in ordered_connection_option.atom_chunks]
+        #     lp_problem += (
+        #         lpSum(assignment_vars) <=  len(assignment_vars)-1,   
+        #         f"FORBID{constraint_type.value}_{tag}>>{to_altloc}"
+        #         )
+        # And also remove corresponding var_active ordered connection variable.
+        # This will make things clearer, if not faster. 
+        
+        for altlocs_key in connection_var_dict:
+            #for ordered_connection_option,var_active in disordered_connection:
+            ordered_connection_option,var_active = connection_dict[altlocs_key], connection_var_dict[altlocs_key]
+            # if ordered_connection_option in allowed_connections...
+
             from_ordered_atoms = "|".join([f"{ch.resnum}.{ch.name}_{ch.altloc}" for ch in ordered_connection_option.atom_chunks])
             tag=from_ordered_atoms
             extra_tag=""

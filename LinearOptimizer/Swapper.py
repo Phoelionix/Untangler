@@ -32,7 +32,7 @@ import gc
 class Swapper():
     class Swap():
         def __init__(self,res_num:int,atom_name:str,from_altloc:str,to_altloc:str):
-            self.res_num = res_num
+            self.res_num = int(res_num)
             self.atom_name = atom_name 
             self.from_altloc = from_altloc
             self.to_altloc = to_altloc
@@ -40,6 +40,7 @@ class Swapper():
             return (self.res_num,self.atom_name,self.from_altloc)
         def matches_id(self,res_num,atom_name:str,from_altloc:str):
             return self.atom_id() == (int(res_num),atom_name,from_altloc)
+            #return (self.res_num,self.atom_name,self.from_altloc) == (int(res_num),atom_name,from_altloc)
     class SwapGroup:
         def __init__(self,badness):
             self.badness =badness

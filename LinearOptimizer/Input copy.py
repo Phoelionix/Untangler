@@ -84,8 +84,6 @@ class OrderedAtomLookup: #TODO pandas?
                 tmp.set_parent(disorderedAtom.get_parent())
                 tmp.disordered_add(disorderedAtom)
                 disorderedAtom=tmp
-                print("Checking can get res num")
-                print(disorderedAtom.get_parent().get_id()[1])
             res_num=OrderedAtomLookup.atom_res_seq_num(disorderedAtom)
             if allowed_resnums is not None and res_num not in allowed_resnums:
                 continue
@@ -146,13 +144,7 @@ class OrderedAtomLookup: #TODO pandas?
 
     @staticmethod
     def atom_res_seq_num(atom:Atom)->int:
-        try:
-            return atom.get_parent().get_id()[1]
-        except:
-            print(atom)
-            print(atom.get_parent())
-            print(atom.get_parent().get_id())
-            raise Exception("AAAA")
+        return atom.get_parent().get_id()[1]
     @staticmethod
     def atom_res_name(atom:Atom)->str:
         return atom.get_parent().get_resname()
@@ -355,7 +347,7 @@ class ConstraintsHandler:
             if ordered_atoms is None:
                 return None
             a,b,c = ordered_atoms
-            sqr_deviation = (self.ideal-self.angle(a,b,c))**2   # TODO divide by sigma
+            sqr_deviation = (self.ideal-self.angle(a,b,c))**2
 
             return sqr_deviation*self.weight
         
@@ -749,33 +741,6 @@ class MTSP_Solver:
                 tag = f"_subset-{''.join(altloc_subset)}"
         assert pdb_file_path[-4:]==".pdb",pdb_file_path
         return os.path.join(UntangleFunctions.separated_conformer_pdb_dir(), os.path.basename(pdb_file_path)[:-4]+tag+".pdb")
-    @staticmethod
-    def prepare_geom_files(base_model_path,all_altloc_subsets,num_threads=10,water_swaps=True):
-        if all_altloc_subsets==[None]:
-            print("Considering full set of altlocs")
-
-        original_structure = PDBParser().get_structure("struct",base_model_path)
-        subset_model_paths=[]
-        for altloc_subset in all_altloc_subsets:
-            ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),
-                                                     protein=True,waters=True,
-                                                     altloc_subset=altloc_subset)
-                    
-            subset_model = MTSP_Solver.subset_model_path(base_model_path,altloc_subset)
-            assert subset_model not in subset_model_paths
-            subset_model_paths.append(subset_model)
-            ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=base_model_path,out_path=subset_model)
-
-
-        global pooled_method # not sure if this is a good idea. Did this because it tries to pickle but fails if local. Try replacing with line: multiprocessing.set_start_method(‘fork’)
-        def pooled_method(i):
-            MTSP_Solver.prepare_geom_files_for_one_subset(subset_model_paths[i],water_swaps=water_swaps)
-
-        with Pool(num_threads) as p:
-            p.map(pooled_method,range(len(subset_model_paths)))
-            
-
-    '''
     def geo_model_paths(pdb_file_path,altloc_subset:list[str]):
         assert pdb_file_path[-4:]==".pdb",pdb_file_path
         assert altloc_subset is not None
@@ -786,6 +751,29 @@ class MTSP_Solver:
                 UntangleFunctions.separated_conformer_pdb_dir(), os.path.basename(pdb_file_path)[:-4]+tag+".pdb"
             ))
         return files
+
+    # @staticmethod
+    # def prepare_geom_files(base_model_path,all_altloc_subsets,num_threads=10,water_swaps=True):
+
+    #     original_structure = PDBParser().get_structure("struct",base_model_path)
+    #     subset_model_paths=[]
+    #     for altloc_subset in all_altloc_subsets:
+    #         ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),
+    #                                                  protein=True,waters=True,
+    #                                                  altloc_subset=altloc_subset)
+                    
+    #         subset_model = MTSP_Solver.subset_model_path(base_model_path,altloc_subset)
+    #         assert subset_model not in subset_model_paths
+    #         subset_model_paths.append(subset_model)
+    #         ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=base_model_path,out_path=subset_model)
+
+
+    #     global pooled_method # not sure if this is a good idea. Did this because it tries to pickle but fails if local. Try replacing with line: multiprocessing.set_start_method(‘fork’)
+    #     def pooled_method(i):
+    #         MTSP_Solver.prepare_geom_files_for_one_subset(subset_model_paths[i],water_swaps=water_swaps)
+
+    #     with Pool(num_threads) as p:
+    #         p.map(pooled_method,range(len(subset_model_paths)))
             
 
     @staticmethod
@@ -829,7 +817,6 @@ class MTSP_Solver:
 
         with Pool(num_threads) as p:
             p.map(pooled_method,range(len(subset_model_paths)))
-    '''
 
 
     @staticmethod
@@ -959,7 +946,7 @@ class MTSP_Solver:
             water_clashes =  get_water_clashes(model_handle,unflipped_water_dict) 
             
             more_water_swaps=True
-            if water_water_nonbond and more_water_swaps and len(self.ordered_atom_lookup.get_altlocs())==2:
+            if more_water_swaps and len(self.ordered_atom_lookup.get_altlocs())==2:
                 flipped_water_dict = {}
                 altlocs = self.ordered_atom_lookup.get_altlocs()
                 for i in range(2):
