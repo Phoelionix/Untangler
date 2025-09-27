@@ -403,27 +403,20 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             # Could track which sites have been constrained in this manner and skip when they have.
 
             assert best_score>=0
-            
-            # Initial: 42906.504224237106
-
-            #tolerable_score=(best_score+50)  # 42402.3747
-            #tolerable_score=(best_score*3+50)  #42402.37474123579
-            #tolerable_score=np.inf  #42402.37474123579
-
-            #tolerable_score=(best_score*5+10) #42681.7407661614
-
-            #tolerable_score = 2*(best_score*5+50)*len(altlocs)
-            #tolerable_score = np.inf
 
             tolerable_score=np.inf 
             speedy=True
             if speedy:
-                tolerable_score=(best_score*1.5+50)  # BEST FROM VERY BRIEF TESTS SO FAR            
-                #tolerable_score=(best_score*1.1+10)       
+                #tolerable_score=(best_score*1.5+50)  # Best when sigma is 1 from brief tests       
+                tolerable_score=(best_score*20+1e3)     
+                #tolerable_score=np.inf
+                #tolerable_score=best_score 
+            debug_force_no_change=False
+            if debug_force_no_change:
+                tolerable_score=0
 
-
-            allowed_connections = []
         else:
+            assert False
             group_choices = [disordered_connection]
             perm_scores = [0]
 
@@ -438,11 +431,19 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             extra_tag = "Htag["+ordered_connection_option.hydrogen_tag+"]_"
         site_names+=extra_tag
 
-
+        allowed_connections = []
         for p, (group,group_vars, score,code) in enumerate(zip(group_choices,group_choice_var_sets,perm_scores,group_choice_codes)):
-            is_no_swap_perm = len(set([ch.altloc for ch in group[0].atom_chunks]))==1
+            
+
+            # So possible solution is guaranteed, always allow connections of original structure.  
+            connection_altlocs = [
+                {ch.altloc for ch in connection.atom_chunks} for connection in group
+            ]
+            is_no_swap_perm = all(len(altlocs_present) == 1 for altlocs_present in connection_altlocs)
+
             allowed = (score <= tolerable_score) or  is_no_swap_perm
-            #group_vars = []
+
+
 
             num_allowed_connections+=allowed 
             num_forbidden_connections+= not allowed
@@ -451,16 +452,16 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
             tag=code
             if not allowed: 
-                # Constraint that somehow elegantly forbids this group.
-                lp_problem += (
-                    lpSum(group_vars)<=len(group_vars),
-                    f"FORBID{constraint_type.value}_{site_names}_{code}"
-                )
+                pass
+                # lp_problem += (
+                #     lpSum(group_vars)<=len(group_vars)-2,   # If all but one of the group vars is active, then the other must be active too. Hence we can do -2 not -1.
+                #     f"FORBID{constraint_type.value}_{site_names}_{code}"
+                # )
             else:
                 for ordered_connection_option,var_active in zip(group,group_vars):
                     if ordered_connection_option not in allowed_connections:
-                        allowed_connections.append((ordered_connection_option,var_active))
-
+                        allowed_connections.append(ordered_connection_option)
+                        #allowed_connections.append((ordered_connection_option,var_active))
 
             # TODO if len altlocs is 2, then remove both connection options from allowed_connections.
 
@@ -493,7 +494,6 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         for altlocs_key in connection_var_dict:
             #for ordered_connection_option,var_active in disordered_connection:
             ordered_connection_option,var_active = connection_dict[altlocs_key], connection_var_dict[altlocs_key]
-            # if ordered_connection_option in allowed_connections...
 
             from_ordered_atoms = "|".join([f"{ch.resnum}.{ch.name}_{ch.altloc}" for ch in ordered_connection_option.atom_chunks])
             tag=from_ordered_atoms
@@ -526,40 +526,25 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             # Constraint will be handled by parent atom of hydrogen
 
             #disordered_connection_vars.append(var_active)
-            try:
-                for to_altloc, assignment_vars in assignment_options.items():
-                    #swaps = '|'.join([f"{''.join(assignment.name.split('_')[1:])}" for assignment in assignment_vars])
-                    num_assignments = len(ordered_connection_option.atom_chunks)
-                    assert len(assignment_vars) == num_assignments
-                    # lp_problem += (
-                    #     lpSum(assignment_vars) <=  num_assignments*var_active,   
-                    #     f"1{constraint_type.value}_{from_ordered_atoms}>>{to_altloc}"
-                    # )
+
+            for to_altloc, assignment_vars in assignment_options.items():
+                #swaps = '|'.join([f"{''.join(assignment.name.split('_')[1:])}" for assignment in assignment_vars])
+                num_assignments = len(ordered_connection_option.atom_chunks)
+                assert len(assignment_vars) == num_assignments
+                # lp_problem += (
+                #     lpSum(assignment_vars) <=  num_assignments*var_active,   
+                #     f"1{constraint_type.value}_{from_ordered_atoms}>>{to_altloc}"
+                # )
+                if ordered_connection_option in allowed_connections:
                     lp_problem += (
                         lpSum(assignment_vars) <=  num_assignments-1+var_active,   # Active if all assignment vars active.
-                        f"{constraint_type.value}_{tag}>>{to_altloc}"
+                        f"ALLOW{constraint_type.value}_{tag}>>{to_altloc}"
                     )
-            except:
-                for to_altloc, assignment_vars in assignment_options.items():
-                    print(to_altloc)
-                    print(assignment_vars)
-                    print('|'.join([f"{assignment.name}" for assignment in assignment_vars]))
-                    print()
-                for other in disordered_connection:
-                    if ordered_connection_option == other:
-                        print("!!!!")
-                    if ordered_connection_option.atom_chunks == other.atom_chunks and ordered_connection_option.hydrogen_tag==other.hydrogen_tag:
-                        print("!",ordered_connection_option)
-                raise(Exception(""))
-
-        # Above not sufficient constraint?
-            
-        # if len(disordered_connection_vars)>0:
-        #     sites = '|'.join([VariableID.Atom(ch).name for ch in disordered_connection[0].atom_chunks])
-        #     lp_problem += (
-        #         lpSum(disordered_connection_vars) == len(altlocs),
-        #         f"{constraint_type.value}_{sites}{extra_tag}"
-        #     )
+                else:
+                    lp_problem += (
+                        lpSum(assignment_vars) <=  num_assignments-1, 
+                        f"FORBID{constraint_type.value}_{tag}>>{to_altloc}"
+                    )
                 
     
     for i, (connection_id, ordered_connection_choices) in enumerate(disordered_connections.items()):
@@ -667,7 +652,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         print(f"-----------------------------------------------------")
         print()
 
-        lp_problem.writeLP(f"{out_dir}/xLO-{out_handle}.lp")
+        lp_problem.writeLP(f"{out_dir}/xLO-LP_{out_handle}.lp")
 
 
         class Solver(Enum):
@@ -777,15 +762,20 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             f.write(f"Total distance = {value(lp_problem.objective)}")
 
 
+        if lp_problem.sol_status==LpStatusInfeasible:
+            assert l>0, "Solution was infeasible!"
+
+            print()
+            print(f"WARNING: Finding solution {l} was infeasible! Ending solution search")
+            break
 
         
         site_assignments:dict[VariableID,dict[str,dict[str,int]]] = {}
         site_assignment_arrays.append(site_assignments)
 
+
+
         # Determine which atom has been assigned where.
-        if lp_problem.sol_status==LpStatusInfeasible:
-            assert False, "Solution was infeasible!"
-            print("Solution was infeasible! Skipping")
         for site in site_var_dict:
             site_assignments[site]={}
             for from_altloc in site_var_dict[site]:

@@ -40,6 +40,7 @@ class Untangler():
     debug_skip_initial_holton_data_generation=debug_skip_initial_refine
     debug_always_accept_proposed_model=True
     auto_group_waters=False
+    refine_water_occupancies_initial=False
     PHENIX = 1
     REFMAC = 2
     refinement=REFMAC
@@ -354,7 +355,7 @@ class Untangler():
         self.refinement_loop()
 
 
-    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=2,num_combinations=30,cycles=3,conformer_stats=False):
+    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=3,num_combinations=30,cycles=3,conformer_stats=False):
         #TODO try strategy of making one altloc as good as possible, while other can be terrible.
         
         #TODO try strategy of focusing on worst conformers
@@ -391,13 +392,15 @@ class Untangler():
                 #altloc_subset_combinations = random.sample(altloc_subset_combinations,num_combinations)
 
             # ITerate over unique sets, since we are creating geom files for all altloc subsets in the below loop
-            altloc_subsets = []
-            altlocs_tmp = [altloc for altloc in self.model_protein_altlocs]
-            random.shuffle(altlocs_tmp)
-            assert ' ' not in self.model_protein_altlocs
-            while len(altlocs_tmp) >= altloc_subset_size and len(altloc_subsets) < num_combinations:  
-                altloc_subsets.append(altlocs_tmp[:altloc_subset_size])
-                del altlocs_tmp[:altloc_subset_size]
+            altloc_subsets = [None]
+            if len(self.model_protein_altlocs)>altloc_subset_size:
+                altloc_subsets = []
+                altlocs_tmp = [altloc for altloc in self.model_protein_altlocs]
+                random.shuffle(altlocs_tmp)
+                assert ' ' not in self.model_protein_altlocs
+                while len(altlocs_tmp) >= altloc_subset_size and len(altloc_subsets) < num_combinations:  
+                    altloc_subsets.append(altlocs_tmp[:altloc_subset_size])
+                    del altlocs_tmp[:altloc_subset_size]
 
             debug_skip_geom_file_prep=False
             if debug_prev_subset is not None:
@@ -412,7 +415,10 @@ class Untangler():
             for n, altloc_subset in enumerate(altloc_subsets): 
                 header=f"=========Altloc Allotment {n+1}/{len(altloc_subsets)}, Cycle {r+1}/{cycles}=========="
                 print(f"\n{header}\n{'-'*len(header)}")
-                print(f"Optimizing connections across altlocs {', '.join(altloc_subset)}")
+                if altloc_subset is None:
+                    print("Optimizing connections")
+                else:
+                    print(f"Optimizing connections across altlocs {', '.join(altloc_subset)}")
                 process = psutil.Process()
                 print(process.memory_info().rss) 
                 print("Memory usage (MB):",psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2)
@@ -585,7 +591,7 @@ class Untangler():
         # TODO if stuck (tried all candidate swap sets for the loop), do random flips or engage Metr.Hastings or track all the new model scores and choose the best.
         
         if strategy is None:
-            if len(self.model_protein_altlocs) == 2:
+            if len(self.model_protein_altlocs) <= 3:
                 strategy=Untangler.Strategy.Batch
             else:
                 strategy=Untangler.Strategy.SwapManyPairs
@@ -705,6 +711,7 @@ class Untangler():
                     model_path=model_path,
                     unrestrained=False,
                     trials=100,
+                    refine_water_occupancies=self.refine_water_occupancies_initial
                 )
             model_path = self.refine(
                 refine_params,
@@ -745,7 +752,7 @@ class Untangler():
         param_set = []
         for i, model in enumerate(model_paths):
             if self.refinement==self.PHENIX:
-                refine_parms = self.get_refine_params_phenix(
+                refine_params = self.get_refine_params_phenix(
                     f"loopEnd{self.loop}-{i+1}",
                     model_path=model,
                     num_macro_cycles=self.num_end_loop_refine_cycles,
@@ -761,6 +768,8 @@ class Untangler():
                     unrestrained=False,
                     refine_water_occupancies=True,
                     trials=20,
+                    dampA=0.01,
+                    dampB=0.03
                 )
             param_set.append(refine_params)
         return self.batch_refine(f"loopEnd{self.loop}",param_set,**kwargs)
@@ -787,7 +796,9 @@ class Untangler():
                 f"loopEnd{self.loop}",
                 model_path=model_path,
                 unrestrained=False,
-                refine_water_occupancies=True
+                refine_water_occupancies=True,
+                dampA=0.01,
+                dampB=0.03
             )
         return self.refine(
             refine_params,
@@ -960,7 +971,7 @@ class Untangler():
             max_attempts=3
             attempt=0
             while True:
-                sleep(2*i) # Desperate attempt to reduce phenix seg faults.
+                sleep(0.2*i) # Desperate attempt to reduce phenix seg faults.
                 print(f"Refining {i+1}/{len(refine_arg_sets)}")
                 out_path = self.refine(refine_arg_sets[i])
                 out_directory = f"{self.output_dir}/{self.model_handle}_{batch_tag}/"

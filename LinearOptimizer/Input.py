@@ -284,10 +284,12 @@ class OrderedResidue(Chunk):
     
 class ConstraintsHandler:
     class Constraint():
-        def __init__(self,atom_ids:list[str],ideal:float,weight:float):
+        def __init__(self,atom_ids:list[str],ideal:float,weight:float,sigma:float):
             self.site_tags = [DisorderedTag(pdb.strip().split()[-1], pdb[:4].strip()) for pdb in atom_ids]
             self.ideal = ideal
             self.weight = weight
+            self.sigma=sigma
+            #self.sigma=1
             self.kind=None # Why do this when can just check type??
         def num_atoms(self):
             return len(self.site_tags)
@@ -320,9 +322,9 @@ class ConstraintsHandler:
 
         
     class BondConstraint(Constraint):
-        def __init__(self,atom_ids,ideal,weight):
+        def __init__(self,atom_ids,ideal,weight,sigma):
             assert len (atom_ids)==2
-            super().__init__(atom_ids,ideal,weight)
+            super().__init__(atom_ids,ideal,weight,sigma)
             self.kind="Bond"
         @staticmethod
         def separation(a:Atom,b:Atom):
@@ -332,13 +334,13 @@ class ConstraintsHandler:
             if ordered_atoms is None:
                 return None
             a,b = ordered_atoms            
-            sqr_deviation = (self.ideal-self.separation(a,b))**2
-            return sqr_deviation *self.weight
+            stat_energy = ((self.ideal-self.separation(a,b))/self.sigma)**2 
+            return stat_energy * self.weight
         
     class AngleConstraint(Constraint):
-        def __init__(self,atom_ids,ideal,weight):
+        def __init__(self,atom_ids,ideal,weight,sigma):
             assert len (atom_ids)==3
-            super().__init__(atom_ids,ideal,weight)
+            super().__init__(atom_ids,ideal,weight,sigma)
             self.kind="Angle"
         @staticmethod
         def angle(a:Atom,b:Atom,c:Atom):
@@ -355,18 +357,18 @@ class ConstraintsHandler:
             if ordered_atoms is None:
                 return None
             a,b,c = ordered_atoms
-            sqr_deviation = (self.ideal-self.angle(a,b,c))**2   # TODO divide by sigma
+            stat_energy = ((self.ideal-self.angle(a,b,c))/self.sigma)**2 
 
-            return sqr_deviation*self.weight
+            return stat_energy * self.weight
         
     class ClashConstraint(Constraint):
         default_weight=1
-        def __init__(self,atom_ids,altlocs,badness,weight=None):
+        def __init__(self,atom_ids,altlocs,badness,weight=None,sigma=None):
             self.altlocs = altlocs
             self.badness = badness
             if weight is None:
-                weight = ConstraintsHandler.NonbondConstraint.default_weight
-            super().__init__(atom_ids,None,weight)
+                weight = ConstraintsHandler.ClashConstraint.default_weight
+            super().__init__(atom_ids,None,weight,None)
             self.kind="Clash" 
         def get_distance(self,atoms:list[Atom]):
             ordered_atoms = self.get_ordered_atoms(atoms)
@@ -374,7 +376,7 @@ class ConstraintsHandler:
                 return None
             a,b = ordered_atoms
             if a.get_altloc() == self.altlocs[0] and b.get_altloc() == self.altlocs[1]:
-                return self.badness
+                return self.badness*self.weight
             return None 
 
 
@@ -384,7 +386,7 @@ class ConstraintsHandler:
         def __init__(self,atom_ids,ideal_separation,symmetries,weight=None):
             if weight is None:
                 weight = ConstraintsHandler.NonbondConstraint.default_weight
-            super().__init__(atom_ids,ideal_separation,weight)
+            super().__init__(atom_ids,ideal_separation,weight,None)
             self.kind="Nonbond"
             self.symmetries=symmetries
         @staticmethod
@@ -471,13 +473,12 @@ class ConstraintsHandler:
                     constraint = lines[i:i+4]
                     pdb1=constraint[0].strip().split("\"")[1]
                     pdb2=constraint[1].strip().split("\"")[1]
-                    ideal,  _,  _, _,  weight, _ = constraint[3].strip().split()
+                    ideal,  _,  _, sigma,  weight, _ = [float(v) for v in constraint[3].strip().split()]
                     altloc = pdb1.strip()[3]
                     if altloc!=ordered_atom_lookup.altlocs[0]: # just look at one altloc to get constraint. TODO check constraint isn't in self.constraints instead.
                         continue
-                    ideal,weight = float(ideal), float(weight)
                     #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
-                    self.add(ConstraintsHandler.BondConstraint((pdb1,pdb2),ideal,weight))
+                    self.add(ConstraintsHandler.BondConstraint((pdb1,pdb2),ideal,weight,sigma))
                 if line.startswith("angle"):
                     constraint = lines[i:i+5]
                     pdb1=constraint[0].strip().split("\"")[1]
@@ -489,7 +490,7 @@ class ConstraintsHandler:
                         continue
                     ideal,weight = float(ideal), float(weight)
                     #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
-                    self.add(ConstraintsHandler.AngleConstraint((pdb1,pdb2,pdb3),ideal,weight))
+                    self.add(ConstraintsHandler.AngleConstraint((pdb1,pdb2,pdb3),ideal,weight,sigma))
        
         # Add nonbonds that are flagged as issues for current structure AND when waters are swapped
         print("WARNING: assuming residue numbers are all unique")
