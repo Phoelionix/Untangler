@@ -26,7 +26,7 @@
 # - Change to proper chi-squared (missing denominator presently). 
 # - implement all the other wonderful measures we have available. -- Noth Input and Solver
 # - Clean up chunk ID system. -- Both Input and Solver
-# 
+# - Forbid sigmas above some tolerance.
 
 from Bio.PDB import PDBParser,Structure
 from Bio.PDB.Atom import Atom,DisorderedAtom

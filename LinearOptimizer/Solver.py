@@ -163,6 +163,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
         from_altloc = get(chunk.unique_id(),"altloc")
         
+        #TODO!!!!!!! if forbidden due to being absent from any disordered connections that involve the site, exclude! 
         if site not in site_var_dict:
             site_var_dict[site] = {}
         if from_altloc not in site_var_dict[site]:
@@ -172,6 +173,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     # TODO make these variables binaries that correspond to every permutation (for more than 2 altlocs). E.g. 6 variables for 3 altlocs (could try 3)    
     dummy_one = pl.LpVariable("One",1,1,cat=const.LpBinary)
     dummy_one.setInitialValue(1)
+
+    
     for site in disordered_atom_sites:
         if not site_being_considered(site) :
             continue
@@ -380,6 +383,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                 group_choice_codes.append(code)
 
             # Number of groups we expect
+            '''
             num_groups=1
             k=n
             while k >0:
@@ -388,14 +392,19 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             num_groups/=math.factorial(n) # Group order doesn't matter
             num_groups=int(num_groups)
             assert len(group_choices)==num_groups, (disordered_connection[0].connection_type, len(group_choices),num_groups, '\n'.join([str([c.from_altlocs for c in p]) for p in group_choices]),disordered_connection[0].get_disordered_connection_id())
+            '''
 
 
-            best_score = np.inf
             perm_scores=[]
+            sorted_perm_scores=[] #XXX
             for group in group_choices:
                 score = sum(conn.ts_distance for conn in group )
                 perm_scores.append(score)
-                best_score = min(best_score,score)
+                sorted_perm_scores.append(score)
+            sorted_perm_scores.sort()
+            best_score,second_best_score = sorted_perm_scores[:2] # XXX
+
+            # TODO base criteria on stdv of scores? 
 
             # Cut out obviously terrible options
             
@@ -404,11 +413,23 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
             assert best_score>=0
 
+            always_allow_second_best_score=True
             tolerable_score=np.inf 
             speedy=True
             if speedy:
-                #tolerable_score=(best_score*1.5+50)  # Best when sigma is 1 from brief tests       
-                tolerable_score=(best_score*20+1e3)     
+                #tolerable_score=(best_score*1.5+50)  # Best when sigma is 1 from brief tests    
+                # 
+                # 
+                #    
+                use_second_best_score=False
+                if use_second_best_score:
+                    tolerable_score=second_best_score*2  # TODO try taking max of this value based off second best and one based off best
+                else:
+                    #tolerable_score=(best_score*20+1e3/3*n)
+                    tolerable_score=(best_score*12+1e3/3*n)
+                if always_allow_second_best_score:
+                    tolerable_score=max(second_best_score,tolerable_score)
+
                 #tolerable_score=np.inf
                 #tolerable_score=best_score 
             debug_force_no_change=False
@@ -452,11 +473,11 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
             tag=code
             if not allowed: 
-                pass
-                # lp_problem += (
-                #     lpSum(group_vars)<=len(group_vars)-2,   # If all but one of the group vars is active, then the other must be active too. Hence we can do -2 not -1.
-                #     f"FORBID{constraint_type.value}_{site_names}_{code}"
-                # )
+                #pass
+                lp_problem += (
+                    lpSum(group_vars)<=len(group_vars)-2,   # If all but one of the group vars is active, then the other must be active too. Hence we can do -2 not -1.
+                    f"FORBID{constraint_type.value}_{site_names}_{code}"
+                )
             else:
                 for ordered_connection_option,var_active in zip(group,group_vars):
                     if ordered_connection_option not in allowed_connections:
@@ -540,9 +561,9 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                         lpSum(assignment_vars) <=  num_assignments-1+var_active,   # Active if all assignment vars active.
                         f"ALLOW{constraint_type.value}_{tag}>>{to_altloc}"
                     )
-                else:
+                else: # Not sure if bothering with this makes things faster
                     lp_problem += (
-                        lpSum(assignment_vars) <=  num_assignments-1, 
+                        lpSum(assignment_vars) <=  num_assignments-1,   
                         f"FORBID{constraint_type.value}_{tag}>>{to_altloc}"
                     )
                 
@@ -552,7 +573,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             print(f"Adding constraints {i}/{len(disordered_connections)}")
         constraint_type = VariableKind[connection_id.split('_')[0]] 
         add_constraints_from_disordered_connection(constraint_type,ordered_connection_choices)
-    print(f"Num allowed connections: {num_allowed_connections} | num forbidden connections: {num_forbidden_connections}")
+    print(f"Num allowed connection groups: {num_allowed_connections} | num forbidden connections groups: {num_forbidden_connections}")
 
     # if  force_sulfur_bridge_swap_solutions \
     #     and [ch.element for ch in connection.atom_chunks]==["S","S"]:
