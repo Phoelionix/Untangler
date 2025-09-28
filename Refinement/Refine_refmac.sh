@@ -11,6 +11,7 @@ xyz_file=${xyz_path##*/}
 xyz_handle=${xyz_file%.*}
 
 trials=0
+min_trials=0
 
 dampA=0.02
 dampB=0.05
@@ -22,10 +23,12 @@ unrestrained='false'
 calc_wE='false'
 refine_water_occupancy='false'
 
-while getopts ":o:n:A:B:uwW" flag; do
+while getopts ":o:m:n:A:B:uwW" flag; do
  case $flag in
     o) out_handle=$OPTARG
        out_handle_override='true'
+    ;;
+    m) min_trials=$OPTARG
     ;;
     n) trials=$OPTARG
     ;;
@@ -84,6 +87,9 @@ cat >> refmac_opts.txt << EOF
 damp $dampA $dampA $dampB
 EOF
 
+
+#wc=0.5
+wc=0.5
 if $unrestrained; then
 cat << EOF >> refmac_opts.txt
 weight matrix 99
@@ -91,9 +97,10 @@ REFI TYPE UNREstrained
 EOF
 else
 cat >> refmac_opts.txt << EOF 
-weight matrix 0.5
+weight matrix $wc
 EOF
 fi
+
 
 # cat > refmac_opts.txt  << EOF 
 # damp 0.02 0.02 0.05
@@ -110,17 +117,29 @@ fi
 ##############################
 
 #########
-refmacout=refmacout_minRfree.pdb
+#TODO I want last_last_Refmac.pdb this to be the one we use. However, at the moment the algorithm seems to keep diverging 
+# if diverigng after min_trials without stopping. Not sure why.
+refmacout=last_last_refmac.pdb  
+#refmacout=last_refmac.pdb
+#refmacout=refmacout_minRfree.pdb
 
 if [ -f $refmacout ]; then
   mv $refmacout ${refmacout}#
 fi
 
-if [ "$trials" -eq "0" ]; then 
-  converge_refmac.com "initial_model.pdb xray.mtz" > $logs_path/${out_handle}.log
-else
-  converge_refmac.com "initial_model.pdb xray.mtz trials=$trials" > $logs_path/${out_handle}.log
+args=""
+
+if [ ! "$trials" -eq "0" ]; then 
+ args="${args} trials=$trials"
 fi
+if [ ! "$min_trials" -eq "0" ]; then 
+ args="${args} min_trials=$min_trials"
+fi
+ 
+echo  "initial_model.pdb xray.mtz $args"
+
+converge_refmac.com "initial_model.pdb xray.mtz $args" > $logs_path/${out_handle}.log
+
 
 if [ ! -f $refmacout ]; then
   echo Could not find output file $refmacout

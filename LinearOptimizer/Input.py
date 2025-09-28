@@ -40,6 +40,9 @@ import random
 import numpy as np
 import itertools
 from multiprocessing import Pool
+import scipy.stats as st
+from statistics import NormalDist
+
 
 class OrderedAtomLookup: #TODO pandas?
     def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False,altloc_subset=None,allowed_resnums=None): # TODO type hint for sequence?
@@ -290,17 +293,24 @@ class ConstraintsHandler:
             self.weight = weight
             self.sigma=sigma
             #self.sigma=1
-            self.kind=None # Why do this when can just check type??
         def num_atoms(self):
             return len(self.site_tags)
         def atom_names(self):
             return [site.atom_name() for site in self.site_tags]
         def residues(self):
             return [site.resnum() for site in self.site_tags]
-        def get_distance(self,atoms:list[Atom]):
+        def get_distance(self,atoms:list[Atom])->tuple[float,float]:
             raise Exception("abstract method")
         def __repr__(self):
-            return f"({self.kind} : {self.site_tags})"
+            return f"({ConstraintsHandler.Constraint.kind(type(self))} : {self.site_tags})"
+        @staticmethod
+        def kind(constraint_type:Type):
+            return {
+                ConstraintsHandler.BondConstraint:"Bond",
+                ConstraintsHandler.AngleConstraint:"Angle",
+                ConstraintsHandler.NonbondConstraint:"Nonbond",
+                ConstraintsHandler.ClashConstraint:"Clash",
+                }[constraint_type]
 
         DEBUG=False
         def get_ordered_atoms(self,candidate_atoms:list[Atom])->list[Atom]:
@@ -325,23 +335,27 @@ class ConstraintsHandler:
         def __init__(self,atom_ids,ideal,weight,sigma):
             assert len (atom_ids)==2
             super().__init__(atom_ids,ideal,weight,sigma)
-            self.kind="Bond"
         @staticmethod
         def separation(a:Atom,b:Atom):
             return np.sqrt(np.sum((a.get_coord()-b.get_coord())**2))
-        def get_distance(self,atoms:list[Atom]):
+        def get_distance(self,atoms:list[Atom])->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
             a,b = ordered_atoms            
-            stat_energy = ((self.ideal-self.separation(a,b))/self.sigma)**2 
-            return stat_energy * self.weight
+            z_score = abs((self.ideal-self.separation(a,b))/self.sigma)
+            stat_energy=z_score**2
+            #return stat_energy * self.weight
+            #prob = st.norm.cdf(z_score)*2-1
+            prob = NormalDist().cdf(z_score)*2-1 # probability not noise
+            assert 0<=prob <= 1,(z_score,NormalDist().cdf(z_score))
+            return z_score, prob*stat_energy * self.weight
+
         
     class AngleConstraint(Constraint):
         def __init__(self,atom_ids,ideal,weight,sigma):
             assert len (atom_ids)==3
             super().__init__(atom_ids,ideal,weight,sigma)
-            self.kind="Angle"
         @staticmethod
         def angle(a:Atom,b:Atom,c:Atom):
             v1 = a.get_coord() - b.get_coord()
@@ -352,14 +366,19 @@ class ConstraintsHandler:
             v2_u = unit_vector(v2)
             return np.arccos(np.dot(v1_u, v2_u))*180/np.pi
             #return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
-        def get_distance(self,atoms:list[Atom]):
+        def get_distance(self,atoms:list[Atom])->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
             a,b,c = ordered_atoms
-            stat_energy = ((self.ideal-self.angle(a,b,c))/self.sigma)**2 
+            z_score = abs((self.ideal-self.angle(a,b,c))/self.sigma) 
 
-            return stat_energy * self.weight
+            stat_energy=z_score**2
+            #return stat_energy * self.weight
+            #prob = st.norm.cdf(z_score)*2-1
+            prob = NormalDist().cdf(z_score)*2-1 # probability not noise
+            assert 0<=prob <= 1,(z_score,NormalDist().cdf(z_score))
+            return z_score, prob*stat_energy * self.weight
         
     class ClashConstraint(Constraint):
         default_weight=1
@@ -369,14 +388,13 @@ class ConstraintsHandler:
             if weight is None:
                 weight = ConstraintsHandler.ClashConstraint.default_weight
             super().__init__(atom_ids,None,weight,None)
-            self.kind="Clash" 
-        def get_distance(self,atoms:list[Atom]):
+        def get_distance(self,atoms:list[Atom],sigma=10)->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
             a,b = ordered_atoms
             if a.get_altloc() == self.altlocs[0] and b.get_altloc() == self.altlocs[1]:
-                return self.badness*self.weight
+                return 0, self.badness*self.weight
             return None 
 
 
@@ -387,7 +405,7 @@ class ConstraintsHandler:
             if weight is None:
                 weight = ConstraintsHandler.NonbondConstraint.default_weight
             super().__init__(atom_ids,ideal_separation,weight,None)
-            self.kind="Nonbond"
+            # if (DisorderedTag(17,"H") in self.site_tags) and (DisorderedTag(81,"O") in self.site_tags):
             self.symmetries=symmetries
         @staticmethod
         def symm_min_separation(a:Atom,b:Atom,symmetries):
@@ -424,7 +442,7 @@ class ConstraintsHandler:
             # negative when separation is greater than ideal.
             assert neg_badness_limit < 0 
             return abs(max(neg_badness_limit,ConstraintsHandler.NonbondConstraint.lennard_jones(r,r0)))
-        def get_distance(self,atoms:list[Atom]):
+        def get_distance(self,atoms:list[Atom],sigma=10)->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
@@ -432,7 +450,7 @@ class ConstraintsHandler:
             r = ConstraintsHandler.NonbondConstraint.symm_min_separation(a,b,self.symmetries)
             r0 = self.ideal
             energy = ConstraintsHandler.NonbondConstraint.badness(r,r0)
-            return energy * self.weight
+            return 0, energy * self.weight
         
 
     def __init__(self,constraints:list[Constraint]=[]):
@@ -461,6 +479,8 @@ class ConstraintsHandler:
             if site not in self.atom_constraints:
                 self.atom_constraints[site]=[]
             self.atom_constraints[site].append(constraint)
+            # if site == DisorderedTag(17,"N"):
+            #     print(self.atom_constraints[site])
 
     def load_all_constraints(self,constraints_file,nonbond_scores_files,water_clashes,ordered_atom_lookup:OrderedAtomLookup,symmetries, water_water_nonbond:bool):
         print(f"Parsing constraints in {constraints_file}")
@@ -624,6 +644,7 @@ class DisorderedTag():
 
 
 class MTSP_Solver:
+
     ### This commented out code computes wE for combinations of larger groups of atoms.  
     # Could be useful in future as a quick coarse step... but would probably be better 
     # to build up from the atom-site approach, coding the wE measure directly.   
@@ -687,7 +708,8 @@ class MTSP_Solver:
     #         _,self.ts_distance,_ = UntangleFunctions.assess_geometry_wE(connection_structure_save_path,tmp_out_folder_path,phenixgeometry_only=quick_wE) 
 
     class AtomChunkConnection():
-        def __init__(self, atom_chunks:list[AtomChunk],ts_distance,connection_type,hydrogen_names):
+        max_sigmas={ConstraintsHandler.BondConstraint:5,ConstraintsHandler.AngleConstraint:10} 
+        def __init__(self, atom_chunks:list[AtomChunk],ts_distance,connection_type,hydrogen_names,z_score):
             assert hydrogen_names==None or len(hydrogen_names)==len(atom_chunks)
             self.atom_chunks = atom_chunks
             self.from_altlocs=[a.get_altloc() for a in atom_chunks]
@@ -696,11 +718,14 @@ class MTSP_Solver:
             self.ts_distance=ts_distance  # NOTE As in the travelling salesman problem sense
             self.hydrogen_tag=""
             self.hydrogen_name_set=set([])
+            self.z_score=z_score
+            self.forbidden= (connection_type in self.max_sigmas) and (self.z_score > self.max_sigmas[connection_type]) 
             if hydrogen_names is not None:
                 self.hydrogen_tag = "_"+''.join(hydrogen_names)
                 self.hydrogen_name_set = set(hydrogen_names)
         def get_disordered_connection_id(self):
-            return f"{self.connection_type}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
+            kind = ConstraintsHandler.Constraint.kind(self.connection_type)
+            return f"{kind}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
 
 
     def __init__(self,pdb_file_path:str,symmetries, align_uncertainty=False,ignore_waters=False,altloc_subset=None): 
@@ -855,9 +880,18 @@ class MTSP_Solver:
         
     def calculate_paths(self,quick_wE=False, dry_run=False,atoms_only=True,
                         clash_punish_thing=False,nonbonds=True,water_water_nonbond=None,
+                        constraint_weights:dict[Type,float]=None
                         )->tuple[list[Chunk],dict[str,list[AtomChunkConnection]]]: #disorderedResidues:list[Residue]
         print("Calculating geometric costs for all possible connections between chunks of atoms (pairs for bonds, triplets for angles, etc.)")
         
+        if constraint_weights is None:
+            constraint_weights = {
+                ConstraintsHandler.BondConstraint: 1,
+                ConstraintsHandler.AngleConstraint: 1,
+                ConstraintsHandler.NonbondConstraint: 1,
+                ConstraintsHandler.ClashConstraint: 1,
+            }
+
         if water_water_nonbond is None:
             water_water_nonbond = self.ordered_atom_lookup.has_water()
         if not self.ordered_atom_lookup.waters_allowed and (water_water_nonbond):
@@ -1046,12 +1080,11 @@ class MTSP_Solver:
         for c, constraint in enumerate(constraints_handler.constraints):
             if c%1000 == 0: 
                 print(f"Calculating constraint {c} / {len(constraints_handler.constraints)} ({constraint}) ")
-            assert constraint.kind is not None
-            constraints_that_include_H = ["Angle","non"]
+            constraints_that_include_H = [ConstraintsHandler.AngleConstraint,ConstraintsHandler.NonbondConstraint]
             # atoms_for_constraint = self.ordered_atom_lookup.select_atoms_by(
             #     names=constraint.atom_names(),
             #     res_nums=constraint.residues(),
-            #     exclude_H=constraint.kind not in constraints_that_include_H
+            #     exclude_H=type(constraint) not in constraints_that_include_H
             # )
             
             # contains_H = False
@@ -1062,7 +1095,7 @@ class MTSP_Solver:
             #     continue
             atoms_for_constraint = self.ordered_atom_lookup.select_atoms_for_sites(
                 constraint.site_tags,
-                exclude_H=constraint.kind not in constraints_that_include_H
+                exclude_H=type(constraint) not in constraints_that_include_H
             )
             res_name_num_dict={}
             for a in atoms_for_constraint:
@@ -1082,8 +1115,11 @@ class MTSP_Solver:
                 # Don't have two alt locs of same atom in group
                 if len(set([res_name_num_dict[a] for a in atoms]))!= len(atoms):                     
                     continue
-                distance = constraint.get_distance(atoms)
-                if distance is not None:
+                output = constraint.get_distance(atoms)
+                if output is not None:
+                    z_score,distance = output
+                    distance*=constraint_weights[type(constraint)]
+
                     # print(constraint.atom_id)
                     # print(constraint.atom_names(),constraint.residues())
                     
@@ -1093,7 +1129,7 @@ class MTSP_Solver:
                             atom_chunks_selection.append(atom_chunks[atom_id(a)])
                         else:
                             # Convert restraints on riding hydrogens to restraints on parent atoms
-                            assert constraint.kind in constraints_that_include_H, (constraint.kind,[a.get_name() for a in atoms])
+                            assert type(constraint) in constraints_that_include_H, (type(constraint),[a.get_name() for a in atoms])
                             res_num, altloc = OrderedAtomLookup.atom_res_seq_num(a), a.get_altloc()
                             
                             res_atoms = []
@@ -1112,6 +1148,7 @@ class MTSP_Solver:
 
                             #assert len(parent_atom) == 1, (parent_atom,parent_name,res_num,altloc)
                             #parent_atom = parent_atom[0]
+                            atom_chunks[atom_id(parent_atom)].constraints_holder.add(constraint) # NOTE XXX
                             atom_chunks_selection.append(atom_chunks[atom_id(parent_atom)])
 
                     num_hydrogens = len([a.get_name() for a in atoms if a.element=="H"])
@@ -1119,12 +1156,10 @@ class MTSP_Solver:
                     if num_hydrogens > 0:
                         hydrogens:list[str] = [a.get_name() if a.element=="H" else "x" for a in atoms]
                     
-                    #atom_chunks_selection:list[AtomChunk]= [atom_chunks[atom_id(a)] for a in atoms]
                     for ach in atom_chunks_selection:
                         assert constraint in ach.constraints_holder.constraints, (constraint, ach.get_disordered_tag(), [c for c in ach.constraints_holder.constraints])
-                    #print([ch.name for ch in atom_chunks_selection])
 
-                    connection = self.AtomChunkConnection(atom_chunks_selection,distance,constraint.kind,hydrogens)
+                    connection = self.AtomChunkConnection(atom_chunks_selection,distance,type(constraint),hydrogens,z_score)
                     possible_connections.append(connection)
             if debug_print:
                 print("added:",len(list(possible_connections))-old_num_connections)

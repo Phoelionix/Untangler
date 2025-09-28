@@ -132,7 +132,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     #bond_choices = {} # Each must sum to 1
     distance_vars = [] 
     # NOTE When assigning LP variable names, the "class" of variable should follow format of variableName_other_stuff   (class of variable is variable_type.split("_")[0]) 
-    constraint_var_dict:dict[VariableID,dict[str,pl.LpVariable]] = {} 
+    constraint_var_dict:dict[VariableID,tuple[MTSP_Solver.AtomChunkConnection,pl.LpVariable]] = {} 
     site_var_dict:dict[VariableID,dict[str,dict[str,pl.LpVariable]]] ={}
     var_dictionaries = dict(
         constraints = constraint_var_dict,
@@ -252,7 +252,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     # A "connection" just refers to a group of atoms with a constraint assigned by LinearOptimizer.Input.
     # A disordered connection refers to all the *possible* groupings of these atoms.
 
-    def add_constraints_from_disordered_connection(constraint_type:VariableKind,disordered_connection: list[MTSP_Solver.AtomChunkConnection]):
+    def add_constraints_from_disordered_connection(constraint_type:VariableKind,disordered_connection: list[MTSP_Solver.AtomChunkConnection],global_score_tolerate_threshold=0):
         # Rule: If all atom assignments corresponding to a connection are active,
         # then all those atoms must be swapped to the same assignment.
         nonlocal lp_problem  
@@ -278,7 +278,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                     #return
 
         # dicts indexed by code corresponding to from altlocs (e.g. "ACB" means connecting up site 1 altloc A, site 2 altloc C, site 3 altloc B)
-        connection_dict={}  
+        connection_dict:dict[str,MTSP_Solver.AtomChunkConnection]={}  
         connection_var_dict={} # indexed by from_altloc
         if site_altlocs_same:
             n=len(altlocs) 
@@ -292,7 +292,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         else:
             all_combos=False
 
-        assert all_combos, (disordered_connection[0].connection_type, len(connection_dict),n**m,n,m)
+        #assert all_combos, (disordered_connection[0].connection_type, len(connection_dict),n**m,n,m)
 
 
         for ordered_connection_option in disordered_connection:
@@ -319,7 +319,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             var_active.setInitialValue(0) 
             if len(set([ch.get_altloc() for ch in ordered_connection_option.atom_chunks])) == 1:
                 var_active.setInitialValue(1)
-            constraint_var_dict[VariableID(from_ordered_atoms+extra_tag,constraint_type.value)]=var_active
+            constraint_var_dict[VariableID(from_ordered_atoms+extra_tag,constraint_type.value)]=(ordered_connection_option,var_active)
             #group_vars.append(var_active)
             altlocs_key = ''.join(ordered_connection_option.from_altlocs)
             connection_var_dict[altlocs_key]=var_active
@@ -329,8 +329,6 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         # Get pairs corresponding to swap vs not swap.
         allowed_connections = []
         group_choices = None
-        tolerable_score=np.inf
-        debugging_more_than_2=True
         all_allowed=False
         #if (len(altlocs)==2 or debugging_more_than_2) and (disordered_connection[0].connection_type in [VariableKind.Bond.value,VariableKind.Angle.value]):
         #if not all_allowed and (len(altlocs)==2 or debugging_more_than_2) and (disordered_connection[0].connection_type!=VariableKind.Clash.value):
@@ -338,7 +336,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         # Find all possible groups of ordered connections that can be chosen as a choice for this disorderd connection 
         # (e.g. 3 conformers, there will be three ordered connections). Forbid really bad choices
         # TODO should still run if all_combos==False. Just forbid groups that are incomplete.
-        if all_combos and site_altlocs_same and not all_allowed and (len(altlocs)==2 or debugging_more_than_2):
+        """
+        if all_combos and site_altlocs_same and not all_allowed:
             # Skip clashes since may not exist for all possible group_choices.
 
             #TODO test with more than 2 altlocs!
@@ -394,7 +393,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             assert len(group_choices)==num_groups, (disordered_connection[0].connection_type, len(group_choices),num_groups, '\n'.join([str([c.from_altlocs for c in p]) for p in group_choices]),disordered_connection[0].get_disordered_connection_id())
             '''
 
-
+            '''
             perm_scores=[]
             sorted_perm_scores=[] #XXX
             for group in group_choices:
@@ -435,11 +434,13 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             debug_force_no_change=False
             if debug_force_no_change:
                 tolerable_score=0
-
+            '''
         else:
             assert False
             group_choices = [disordered_connection]
             perm_scores = [0]
+
+        """
 
         nonlocal num_allowed_connections
         nonlocal num_forbidden_connections
@@ -452,53 +453,54 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             extra_tag = "Htag["+ordered_connection_option.hydrogen_tag+"]_"
         site_names+=extra_tag
 
-        allowed_connections = []
-        for p, (group,group_vars, score,code) in enumerate(zip(group_choices,group_choice_var_sets,perm_scores,group_choice_codes)):
+        
+        # allowed_connections = []
+        # for p, (group,group_vars, score,code) in enumerate(zip(group_choices,group_choice_var_sets,perm_scores,group_choice_codes)):
             
 
-            # So possible solution is guaranteed, always allow connections of original structure.  
-            connection_altlocs = [
-                {ch.altloc for ch in connection.atom_chunks} for connection in group
-            ]
-            is_no_swap_perm = all(len(altlocs_present) == 1 for altlocs_present in connection_altlocs)
+        #     # So possible solution is guaranteed, always allow connections of original structure.  
+        #     connection_altlocs = [
+        #         {ch.altloc for ch in connection.atom_chunks} for connection in group
+        #     ]
+        #     is_no_swap_perm = all(len(altlocs_present) == 1 for altlocs_present in connection_altlocs)
 
-            allowed = (score <= tolerable_score) or  is_no_swap_perm
-
-
-
-            num_allowed_connections+=allowed 
-            num_forbidden_connections+= not allowed
+        #     allowed = (score <= tolerable_score) or  is_no_swap_perm
 
 
 
-            tag=code
-            if not allowed: 
-                #pass
-                lp_problem += (
-                    lpSum(group_vars)<=len(group_vars)-2,   # If all but one of the group vars is active, then the other must be active too. Hence we can do -2 not -1.
-                    f"FORBID{constraint_type.value}_{site_names}_{code}"
-                )
-            else:
-                for ordered_connection_option,var_active in zip(group,group_vars):
-                    if ordered_connection_option not in allowed_connections:
-                        allowed_connections.append(ordered_connection_option)
-                        #allowed_connections.append((ordered_connection_option,var_active))
-
-            # TODO if len altlocs is 2, then remove both connection options from allowed_connections.
+        #     num_allowed_connections+=allowed 
+        #     num_forbidden_connections+= not allowed
 
 
 
+        #     tag=code
+        #     if not allowed: 
+        #         #pass
+        #         lp_problem += (
+        #             lpSum(group_vars)<=len(group_vars)-2,   # If all but one of the group vars is active, then the other must be active too. Hence we can do -2 not -1.
+        #             f"FORBID{constraint_type.value}_{site_names}_{code}"
+        #         )
+        #     else:
+        #         for ordered_connection_option,var_active in zip(group,group_vars):
+        #             if ordered_connection_option not in allowed_connections:
+        #                 allowed_connections.append(ordered_connection_option)
+        #                 #allowed_connections.append((ordered_connection_option,var_active))
+
+        #     # TODO if len altlocs is 2, then remove both connection options from allowed_connections.
 
 
-            # This makes things slower...
-            '''
-            if allowed:
-                assert len(permutation_vars)==len(altlocs)
-                lp_problem += (
-                    lpSum(permutation_vars) <= len(permutation_vars)*permutation_vars[0],   # all or none are active.
-                    f"Permutation{constraint_type.value}{p}_{tag}"
-                    )
-            '''
+
+
+
+        #     # This makes things slower...
+        #     '''
+        #     if allowed:
+        #         assert len(permutation_vars)==len(altlocs)
+        #         lp_problem += (
+        #             lpSum(permutation_vars) <= len(permutation_vars)*permutation_vars[0],   # all or none are active.
+        #             f"Permutation{constraint_type.value}{p}_{tag}"
+        #             )
+        #     '''
                     
             #TODO CRITICAL Variables for when hydrogen is involved can be simplified, especially for angles involving hydrogen.
 
@@ -512,10 +514,31 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         # And also remove corresponding var_active ordered connection variable.
         # This will make things clearer, if not faster. 
         
+        worst_no_change_score=0
+        for altlocs_key in connection_var_dict:
+            ordered_connection_option= connection_dict[altlocs_key]
+            no_change_connection = len({ch.altloc for ch in ordered_connection_option.atom_chunks})==1
+            if no_change_connection:
+                worst_no_change_score=max(worst_no_change_score,ordered_connection_option.ts_distance)
+        
+        local_score_tolerate_threshold=10*worst_no_change_score
+        always_tolerate_score_threshold = max(local_score_tolerate_threshold,global_score_tolerate_threshold) #worst_no_change_score*10+1e4
+
         for altlocs_key in connection_var_dict:
             #for ordered_connection_option,var_active in disordered_connection:
             ordered_connection_option,var_active = connection_dict[altlocs_key], connection_var_dict[altlocs_key]
 
+
+
+            no_change_connection = len({ch.altloc for ch in ordered_connection_option.atom_chunks})==1
+            allowed =  (not ordered_connection_option.forbidden) \
+                or ordered_connection_option.ts_distance<=always_tolerate_score_threshold
+            
+            chance_allow_anyway=0
+            if not allowed and chance_allow_anyway>0:
+                if np.random.rand()<chance_allow_anyway:
+                    allowed=True
+                
             from_ordered_atoms = "|".join([f"{ch.resnum}.{ch.name}_{ch.altloc}" for ch in ordered_connection_option.atom_chunks])
             tag=from_ordered_atoms
             extra_tag=""
@@ -542,7 +565,11 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             # if variable is inactive, cannot have all atoms assigned to the same altloc.
             # Note that since every connection option is looped through, this also means 
             # that if variable is active, all atoms will be assigned to the same altloc.
-            distance_vars.append(ordered_connection_option.ts_distance*var_active)
+            
+            if allowed:
+                distance_vars.append(ordered_connection_option.ts_distance*var_active)
+            num_allowed_connections+=allowed 
+            num_forbidden_connections+=not allowed 
             
             # Constraint will be handled by parent atom of hydrogen
 
@@ -552,28 +579,39 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                 #swaps = '|'.join([f"{''.join(assignment.name.split('_')[1:])}" for assignment in assignment_vars])
                 num_assignments = len(ordered_connection_option.atom_chunks)
                 assert len(assignment_vars) == num_assignments
-                # lp_problem += (
-                #     lpSum(assignment_vars) <=  num_assignments*var_active,   
-                #     f"1{constraint_type.value}_{from_ordered_atoms}>>{to_altloc}"
-                # )
-                if ordered_connection_option in allowed_connections:
+                
+                if allowed:
                     lp_problem += (
                         lpSum(assignment_vars) <=  num_assignments-1+var_active,   # Active if all assignment vars active.
                         f"ALLOW{constraint_type.value}_{tag}>>{to_altloc}"
                     )
-                else: # Not sure if bothering with this makes things faster
+                else: 
                     lp_problem += (
                         lpSum(assignment_vars) <=  num_assignments-1,   
                         f"FORBID{constraint_type.value}_{tag}>>{to_altloc}"
                     )
-                
+    
+    worst_connection_before_swap=None
+    worst_global_no_change_score=0
+    for connection_id, ordered_connection_choices in disordered_connections.items():
+        for c in ordered_connection_choices:
+            preswap_connection=False
+            if len({ch.altloc for ch in c.atom_chunks})==1:
+                preswap_connection=True
+            if preswap_connection and c.ts_distance> worst_global_no_change_score:
+                worst_global_no_change_score = c.ts_distance
+                worst_connection_before_swap = c
+
+        
+    # TODO make it the 25th percentile or something.
+    global_score_tolerate_threshold=worst_global_no_change_score/100
     
     for i, (connection_id, ordered_connection_choices) in enumerate(disordered_connections.items()):
         if i % 250 == 0:
             print(f"Adding constraints {i}/{len(disordered_connections)}")
-        constraint_type = VariableKind[connection_id.split('_')[0]] 
-        add_constraints_from_disordered_connection(constraint_type,ordered_connection_choices)
-    print(f"Num allowed connection groups: {num_allowed_connections} | num forbidden connections groups: {num_forbidden_connections}")
+        constraint_type = VariableKind[connection_id.split('_')[0]]  #XXX ?????
+        add_constraints_from_disordered_connection(constraint_type,ordered_connection_choices,global_score_tolerate_threshold=global_score_tolerate_threshold)
+    print(f"Num allowed connections: {num_allowed_connections} | num forbidden connections: {num_forbidden_connections}")
 
     # if  force_sulfur_bridge_swap_solutions \
     #     and [ch.element for ch in connection.atom_chunks]==["S","S"]:
@@ -790,6 +828,13 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             print(f"WARNING: Finding solution {l} was infeasible! Ending solution search")
             break
 
+        with open(f"{out_dir}/xLO-ActiveConnections{out_handle}.txt",'w') as f:
+            f.write("name, sigma, cost\n")
+            vals = [(constraint,var) for constraint,var in constraint_var_dict.values() if var.value()>0]
+            vals.sort(key=lambda x: x[0].z_score,reverse=True)
+            #vals.sort(key=lambda x: x[0].ts_distance)
+            for constraint, var in vals:
+                f.write(f"{var.name} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n")
         
         site_assignments:dict[VariableID,dict[str,dict[str,int]]] = {}
         site_assignment_arrays.append(site_assignments)
@@ -851,6 +896,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                 val = var.value()
                 flip_variables.append(var)
                 if val == 1:
+                    #if (1-var) not in flipped_flip_variables:
                     flipped_flip_variables.append(1-var)
         if len(flipped_flip_variables) == 0:
             # Require one variable to be flipped

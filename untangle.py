@@ -21,8 +21,8 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.neighbors import KNeighborsClassifier
 import psutil
 
-DISABLE_WATER_ALTLOC_OPTIM=True
-
+DISABLE_WATER_ALTLOC_OPTIM=False
+TURN_OFF_BULK_SOLVENT=False
 
 class Untangler():
     working_dir = os.path.abspath(os.getcwd())
@@ -40,10 +40,11 @@ class Untangler():
     debug_skip_initial_holton_data_generation=debug_skip_initial_refine
     debug_always_accept_proposed_model=True
     auto_group_waters=False
+    debug_skip_to_loop=0
     refine_water_occupancies_initial=False
     PHENIX = 1
     REFMAC = 2
-    refinement=REFMAC
+    refinement=PHENIX
     ####
     num_threads=10
     class Score():
@@ -249,28 +250,28 @@ class Untangler():
                     start_lines.append(modified_line)
 
 
-        # Make sure waters don't share residue numbers with protein
-        for line in solvent_lines:
-            max_resnum+=1
-            modified_line = replace_res_num(line,max_resnum)
-            start_lines.append(modified_line)
-
         # # Make sure waters don't share residue numbers with protein
-        # min_solvent_resnum=99999999
         # for line in solvent_lines:
-        #     solvent_resnum=int(line[22:26])
-        #     min_solvent_resnum = min(solvent_resnum,min_solvent_resnum)
-        # shift = max_resnum-min_solvent_resnum + 1
-        # for line in solvent_lines:
-        #     solvent_resnum=int(line[22:26])
-        #     # in case of gaps...
-        #     assert (solvent_resnum+shift) - max_resnum >=0, (max_resnum,solvent_resnum,shift)
-        #     if (solvent_resnum+shift)-max_resnum > 1:
-        #         shift = max_resnum-solvent_resnum + 1 
-        #     max_resnum = shift+solvent_resnum
-            
+        #     max_resnum+=1
         #     modified_line = replace_res_num(line,max_resnum)
         #     start_lines.append(modified_line)
+
+        # Make sure waters don't share residue numbers with protein
+        min_solvent_resnum=99999999
+        for line in solvent_lines:
+            solvent_resnum=int(line[22:26])
+            min_solvent_resnum = min(solvent_resnum,min_solvent_resnum)
+        shift = max_resnum-min_solvent_resnum + 1
+        for line in solvent_lines:
+            solvent_resnum=int(line[22:26])
+            # in case of gaps...
+            assert (solvent_resnum+shift) - max_resnum >=0, (max_resnum,solvent_resnum,shift)
+            if (solvent_resnum+shift)-max_resnum > 1:
+                shift = max_resnum-solvent_resnum + 1 
+            max_resnum = shift+solvent_resnum
+            
+            modified_line = replace_res_num(line,max_resnum)
+            start_lines.append(modified_line)
 
         with open(out_path,'w') as O:
             O.writelines(start_lines+end_lines)
@@ -317,7 +318,9 @@ class Untangler():
         self.swapper = Swapper()
 
 
-        self.loop=0
+        self.first_loop=self.loop=0
+        if self.debug_skip_to_loop is not None:
+            self.first_loop=self.loop = self.debug_skip_to_loop
         skip_init = (self.debug_skip_refine or self.debug_skip_initial_refine)
         initial_model=self.initial_refine(self.current_model,debug_skip=skip_init) 
         if skip_init and not os.path.exists(initial_model):
@@ -363,7 +366,7 @@ class Untangler():
         working_model = f"{self.output_dir}/{self.model_handle}_manySwaps{self.loop}.pdb"
         
         all_swaps=[]
-        if self.debug_skip_first_swaps and self.loop == 0:
+        if self.debug_skip_first_swaps and self.loop == self.first_loop:
             return working_model, ["Unknown"]
 
 
@@ -375,6 +378,8 @@ class Untangler():
         #debug_prev_subset=[ "E", "C"]
         #debug_prev_subset=[ "D", "H"]
         #debug_prev_subset=[ "V", "B"]
+        #debug_prev_subset=[ "t", "e","O"]
+        #debug_prev_subset=["p", "C", "t", "J"]
         if debug_prev_subset is None or not os.path.exists(working_model):
             self.delete_zero_occupancy_waters(model_to_swap,working_model) 
             #shutil.copy(model_to_swap,working_model)
@@ -403,6 +408,8 @@ class Untangler():
                     del altlocs_tmp[:altloc_subset_size]
 
             debug_skip_geom_file_prep=False
+            #altloc_subsets=["teO"]
+            #altloc_subsets=["tsO"]
             if debug_prev_subset is not None:
                 measure_wE_after=True
                 altloc_subsets=[debug_prev_subset]
@@ -469,6 +476,7 @@ class Untangler():
                 clash_punish_thing=False,
                 nonbonds=True,   # Note this won't look at nonbonds with water if ignore_waters=True. 
                 water_water_nonbond = not DISABLE_WATER_ALTLOC_OPTIM, 
+                constraint_weights=self.weight_factors,
             )
             swaps_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
                                             out_handle=self.model_handle,
@@ -505,7 +513,8 @@ class Untangler():
                 ## Swap waters with protein altlocs fixed
                 atoms, connections = Solver.MTSP_Solver(working_model,self.symmetries,ignore_waters=False).calculate_paths(
                 clash_punish_thing=False,
-                nonbonds=True 
+                nonbonds=True,
+                constraint_weights=self.weight_factors,
                 )
                 print("Allotting waters")
                 waters_swapped_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
@@ -596,7 +605,7 @@ class Untangler():
             else:
                 strategy=Untangler.Strategy.SwapManyPairs
                 
-        skip_unrestrained = self.debug_skip_refine or self.debug_skip_unrestrained_refine or (self.loop==0 and self.debug_skip_first_unrestrained_refine)
+        skip_unrestrained = self.debug_skip_refine or self.debug_skip_unrestrained_refine or (self.loop==self.first_loop and self.debug_skip_first_unrestrained_refine)
         working_model = self.refine_for_positions(self.current_model,debug_skip=skip_unrestrained) 
         if skip_unrestrained and not os.path.exists(working_model):
             working_model = self.current_model
@@ -609,24 +618,26 @@ class Untangler():
         self.prepare_pdb_and_read_altlocs(old_working_model,working_model)
 
         measure_preswap_postswap = False
+        score_file_needs_generation=True
         if measure_preswap_postswap:
             preswap_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
         if strategy == Untangler.Strategy.Batch:
-            skip_swaps = self.debug_skip_first_swaps and self.loop==0
+            skip_swaps = self.debug_skip_first_swaps and self.loop==self.first_loop
             cand_models,cand_swaps = self.candidate_models_from_swapper(self.swapper,num_best_solutions,working_model,allot_protein_independent_of_waters,
                                     need_to_prepare_geom_files=not skip_swaps,read_prior_run=skip_swaps)
             refined_model_dir = self.regular_batch_refine(cand_models,debug_skip=self.debug_skip_refine)
             working_model = self.determine_best_model(refined_model_dir)
+            score_file_needs_generation=False
             #### TODO Sucks make better ####
             best_model_that_was_refined = os.path.basename(working_model).split("_")[-1]
             candidate_model_dir = f"{self.output_dir}/{self.model_handle}_swapOptions_{self.loop}/"
             best_model_that_was_refined = candidate_model_dir+best_model_that_was_refined
+            swaps = cand_swaps[cand_models.index(best_model_that_was_refined)]
             ################################
             if measure_preswap_postswap:
                 postswap_score = Untangler.Score(*assess_geometry_wE(best_model_that_was_refined,self.output_dir))
                 print("Score preswap:",preswap_score) 
                 print("Score postswap:",postswap_score) 
-            swaps = cand_swaps[cand_models.index(best_model_that_was_refined)]
         elif strategy == Untangler.Strategy.SwapManyPairs:
             working_model,swaps = self.many_swapped(self.swapper,working_model,allot_protein_independent_of_waters)
             if measure_preswap_postswap:
@@ -637,7 +648,7 @@ class Untangler():
         else:
             raise Exception(f"Invalid strategy {strategy}")
         
-        new_model_was_accepted = self.propose_model(working_model)
+        new_model_was_accepted = self.propose_model(working_model,score_file_needs_generation=score_file_needs_generation)
         
         '''
         if not new_model_was_accepted and two_swaps:
@@ -663,9 +674,12 @@ class Untangler():
         with open(f"{self.output_dir}refine_logs/swapHistory_{self.model_handle}.txt","w") as f:
             f.writelines('\n'.join([str(swap) for swap in self.swaps_history]))
 
-    def propose_model(self,working_model):
+    def propose_model(self,working_model,score_file_needs_generation=True):
         
-        new_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
+        if score_file_needs_generation:
+            create_score_file(working_model,log_out_folder_path=self.output_dir)
+        new_score = Untangler.Score(*get_score(score_file_name(working_model)))
+        
         #deltaE = new_wE-self.current_score.wE # geometry only
         deltaE = new_score.combined-self.current_score.combined  # include R factor
         max_wE_increase = self.max_wE_frac_increase*self.current_score.wE
@@ -710,7 +724,7 @@ class Untangler():
                     "initial",
                     model_path=model_path,
                     unrestrained=False,
-                    trials=100,
+                    max_trials=100,
                     refine_water_occupancies=self.refine_water_occupancies_initial
                 )
             model_path = self.refine(
@@ -767,9 +781,16 @@ class Untangler():
                     model_path=model,
                     unrestrained=False,
                     refine_water_occupancies=True,
-                    trials=20,
-                    dampA=0.01,
-                    dampB=0.03
+                    min_trials=3,
+                    max_trials=20,
+                    #dampA=0.05,
+                    #dampB=0.12,
+                    # dampA=0.1,
+                    # dampB=0.25,
+                    # dampA=0.2,
+                    # dampB=0.5,
+                    # dampA=0.01,
+                    # dampB=0.03,
                 )
             param_set.append(refine_params)
         return self.batch_refine(f"loopEnd{self.loop}",param_set,**kwargs)
@@ -797,8 +818,16 @@ class Untangler():
                 model_path=model_path,
                 unrestrained=False,
                 refine_water_occupancies=True,
-                dampA=0.01,
-                dampB=0.03
+                min_trials=3,
+                max_trials=20,
+                #dampA=0.05,
+                #dampB=0.12,
+                # dampA=0.1,
+                # dampB=0.25,
+                # dampA=0.2,
+                # dampB=0.5,
+                # dampA=0.01,
+                # dampB=0.03
             )
         return self.refine(
             refine_params,
@@ -879,7 +908,7 @@ class Untangler():
         self.model_solvent_altlocs=self.model_protein_altlocs
 
 
-    def get_refine_params_refmac(self,out_tag,model_path,unrestrained=False,refine_water_occupancies=False,trials=None,dampA=0.02,dampB=0.05):
+    def get_refine_params_refmac(self,out_tag,model_path,unrestrained=False,refine_water_occupancies=False,min_trials=0,max_trials=None,dampA=0.02,dampB=0.05):
         reflections_path = self.hkl_path
 
         param_dict = locals()
@@ -890,8 +919,10 @@ class Untangler():
             f"{self.working_dir}/{self.refine_refmac_shell_file}",f"{P.model_path}",f"{P.reflections_path}",
             "-o",f"{self.model_handle}_{P.out_tag}",
         ]
-        if P.trials is not None:
-            args.extend(["-n",f"{P.trials}"])
+        if P.min_trials > 0:
+            args.extend(["-m",f"{P.min_trials}"])
+        if P.max_trials is not None:
+            args.extend(["-n",f"{P.max_trials}"])
         args.extend([
             "-A",f"{P.dampA}",
             "-B",f"{P.dampB}",
@@ -906,7 +937,7 @@ class Untangler():
     def get_refine_params_phenix(self, out_tag=None, model_path=None,num_macro_cycles=None, # mandatory
                           wc=1,wu=1, shake=0, optimize_R=False,
                           hold_water_positions=False,hold_protein_positions=False,
-                          refine_occupancies=False,turn_off_bulk_solvent=True,ordered_solvent=False,
+                          refine_occupancies=False,turn_off_bulk_solvent=TURN_OFF_BULK_SOLVENT,ordered_solvent=False,
                           no_reference_coords=False):
         ### Override next_model with formatted one.
         #next_model = model_path[:-4]+"_fmtd.pdb"
@@ -934,7 +965,7 @@ class Untangler():
         P_defaults = dict(out_tag=None,model_path=None,num_macro_cycles=None, # mandatory
                           wc=1,wu=1, shake=0, optimize_R=False,
                           hold_water_positions=False,hold_protein_positions=False,
-                          refine_occupancies=False,turn_off_bulk_solvent=True,ordered_solvent=False,
+                          refine_occupancies=False,turn_off_bulk_solvent=TURN_OFF_BULK_SOLVENT,ordered_solvent=False,
                           no_reference_coords=False)
         
         if type(param_dict) is SimpleNamespace:
