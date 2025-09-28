@@ -45,6 +45,7 @@ from statistics import NormalDist
 
 
 
+
 class OrderedAtomLookup: #TODO pandas?
     def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False,altloc_subset=None,allowed_resnums=None): # TODO type hint for sequence?
         assert allowed_resnums is None, "Not working"
@@ -288,10 +289,13 @@ class OrderedResidue(Chunk):
     
 class ConstraintsHandler:
     class Constraint():
+        NO_INDIV_WEIGHTS=True  # Idea being that when we do unrestrained refinement, all geometry is ignored, and all atoms are treated "equally" in fitting to xray data. So it makes little sense to weight connections of the same type differently.
         def __init__(self,atom_ids:list[str],ideal:float,weight:float,sigma:float):
             self.site_tags = [DisorderedTag(pdb.strip().split()[-1], pdb[:4].strip()) for pdb in atom_ids]
             self.ideal = ideal
             self.weight = weight
+            if self.NO_INDIV_WEIGHTS:
+                self.weight = 1
             self.sigma=sigma
             #self.sigma=1
         def num_atoms(self):
@@ -719,7 +723,7 @@ class MTSP_Solver:
     class AtomChunkConnection():
         #max_sigmas={ConstraintsHandler.BondConstraint:5,ConstraintsHandler.AngleConstraint:10} 
         #max_sigmas={ConstraintsHandler.BondConstraint:5} 
-        max_sigmas={ConstraintsHandler.BondConstraint:5,ConstraintsHandler.AngleConstraint:6} 
+        max_sigmas={ConstraintsHandler.BondConstraint:3,ConstraintsHandler.AngleConstraint:3} 
         def __init__(self, atom_chunks:list[AtomChunk],ts_distance,connection_type,hydrogen_names,z_score):
             assert hydrogen_names==None or len(hydrogen_names)==len(atom_chunks)
             self.atom_chunks = atom_chunks

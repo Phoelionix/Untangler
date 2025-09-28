@@ -521,7 +521,9 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             if no_change_connection:
                 worst_no_change_score=max(worst_no_change_score,ordered_connection_option.ts_distance)
         
-        local_score_tolerate_threshold=2*worst_no_change_score
+        #local_score_tolerate_threshold=2*worst_no_change_score
+        #local_score_tolerate_threshold=2*worst_no_change_score
+        local_score_tolerate_threshold=10*worst_no_change_score
         always_tolerate_score_threshold = max(local_score_tolerate_threshold,global_score_tolerate_threshold) #worst_no_change_score*10+1e4
 
         for altlocs_key in connection_var_dict:
@@ -605,6 +607,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         
     # TODO make it the 25th percentile or something.
     global_score_tolerate_threshold=worst_global_no_change_score/100
+    #global_score_tolerate_threshold=0
     
     for i, (connection_id, ordered_connection_choices) in enumerate(disordered_connections.items()):
         if i % 250 == 0:
