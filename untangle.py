@@ -40,7 +40,7 @@ class Untangler():
     debug_skip_initial_holton_data_generation=debug_skip_initial_refine
     debug_always_accept_proposed_model=True
     auto_group_waters=False
-    debug_skip_to_loop=0
+    debug_skip_to_loop=5
     refine_water_occupancies_initial=False
     PHENIX = 1
     REFMAC = 2

@@ -44,6 +44,7 @@ import scipy.stats as st
 from statistics import NormalDist
 
 
+
 class OrderedAtomLookup: #TODO pandas?
     def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False,altloc_subset=None,allowed_resnums=None): # TODO type hint for sequence?
         assert allowed_resnums is None, "Not working"
@@ -482,14 +483,17 @@ class ConstraintsHandler:
             # if site == DisorderedTag(17,"N"):
             #     print(self.atom_constraints[site])
 
-    def load_all_constraints(self,constraints_file,nonbond_scores_files,water_clashes,ordered_atom_lookup:OrderedAtomLookup,symmetries, water_water_nonbond:bool):
+    def load_all_constraints(self,constraints_file,nonbond_scores_files,water_clashes,ordered_atom_lookup:OrderedAtomLookup,symmetries, water_water_nonbond:bool,constraints_to_skip=[]):
         print(f"Parsing constraints in {constraints_file}")
 
         self.constraints: list[ConstraintsHandler.Constraint]=[]
         with open(constraints_file,"r") as f:
             lines = f.readlines()
             for i, line in enumerate(lines):
+                ideal= _= sigma=  weight = None
                 if line.startswith("bond"):
+                    if ConstraintsHandler.BondConstraint in constraints_to_skip:
+                        continue
                     constraint = lines[i:i+4]
                     pdb1=constraint[0].strip().split("\"")[1]
                     pdb2=constraint[1].strip().split("\"")[1]
@@ -500,23 +504,28 @@ class ConstraintsHandler:
                     #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
                     self.add(ConstraintsHandler.BondConstraint((pdb1,pdb2),ideal,weight,sigma))
                 if line.startswith("angle"):
+                    if ConstraintsHandler.AngleConstraint in constraints_to_skip:
+                        continue
                     constraint = lines[i:i+5]
                     pdb1=constraint[0].strip().split("\"")[1]
                     pdb2=constraint[1].strip().split("\"")[1]
                     pdb3=constraint[2].strip().split("\"")[1]
-                    ideal,  _,  _, _,  weight, _ = constraint[4].strip().split()
+                    ideal,  _,  _, sigma,  weight, _ = [float(v) for v in constraint[4].strip().split()]
                     altloc = pdb1.strip()[3]
                     if altloc!=ordered_atom_lookup.altlocs[0]:
                         continue
-                    ideal,weight = float(ideal), float(weight)
                     #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
                     self.add(ConstraintsHandler.AngleConstraint((pdb1,pdb2,pdb3),ideal,weight,sigma))
+                
        
         # Add nonbonds that are flagged as issues for current structure AND when waters are swapped
+
         print("WARNING: assuming residue numbers are all unique")
         NB_pdb_ids_added = []
         for file in (nonbond_scores_files):
-        
+            if ConstraintsHandler.BondConstraint in constraints_to_skip:
+                break
+
             with open(file) as f:
 
                 lines = f.readlines()
@@ -589,7 +598,7 @@ class ConstraintsHandler:
 
         print(f"Nonbonded from geo: {num_nonbonded_from_geo}, extra: {num_nonbonded_extra}")
 
-        if ordered_atom_lookup.waters_allowed:
+        if ordered_atom_lookup.waters_allowed and ConstraintsHandler.ClashConstraint not in constraints_to_skip:
             for name, res_num, badness, altloc in water_clashes:
                 for n, r, a in zip(name,res_num,altloc):
                     if r not in ordered_atom_lookup.better_dict or n not in ordered_atom_lookup.better_dict[r]: 
@@ -708,7 +717,9 @@ class MTSP_Solver:
     #         _,self.ts_distance,_ = UntangleFunctions.assess_geometry_wE(connection_structure_save_path,tmp_out_folder_path,phenixgeometry_only=quick_wE) 
 
     class AtomChunkConnection():
-        max_sigmas={ConstraintsHandler.BondConstraint:5,ConstraintsHandler.AngleConstraint:10} 
+        #max_sigmas={ConstraintsHandler.BondConstraint:5,ConstraintsHandler.AngleConstraint:10} 
+        #max_sigmas={ConstraintsHandler.BondConstraint:5} 
+        max_sigmas={ConstraintsHandler.BondConstraint:5,ConstraintsHandler.AngleConstraint:6} 
         def __init__(self, atom_chunks:list[AtomChunk],ts_distance,connection_type,hydrogen_names,z_score):
             assert hydrogen_names==None or len(hydrogen_names)==len(atom_chunks)
             self.atom_chunks = atom_chunks
@@ -1009,7 +1020,9 @@ class MTSP_Solver:
 
         constraints_file = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}.geo" # NOTE we only read ideal and weights.
         constraints_handler=ConstraintsHandler()
-        constraints_handler.load_all_constraints(constraints_file,nonbond_scores_files,water_clashes,self.ordered_atom_lookup,symmetries=self.symmetries,water_water_nonbond=water_water_nonbond)
+        constraints_to_skip=[]
+        constraints_to_skip = [kind for kind,value in constraint_weights.items() if value <= 0]
+        constraints_handler.load_all_constraints(constraints_file,nonbond_scores_files,water_clashes,self.ordered_atom_lookup,symmetries=self.symmetries,water_water_nonbond=water_water_nonbond,constraints_to_skip=constraints_to_skip)
         print("Nonordered constraint properties loaded.")
         #for n,atom in enumerate(self.ordered_atom_lookup.select_atoms_by(names=["CA","C","N"])):
 
