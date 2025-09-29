@@ -361,13 +361,13 @@ class Untangler():
         self.refinement_loop()
 
 
-    def swap_cysteines(self,swapper,model_to_swap:str,altloc_subset_size=8):
+    def swap_cysteines(self,swapper,model_to_swap:str,altloc_subset_size=15):
         print("Optimizing cysteine connections")
         return self.many_swapped(swapper,model_to_swap,True,altloc_subset_size=altloc_subset_size,allowed_resnames=["CYS"],cycles=3,file_tag="CysSwaps",
-                                 forbidden_atom_bond_changes=["C","N"]) # Because otherwise could ruin angle with not considered atoms. TODO need to automate this sort of decision-making! If only some atoms are allowed, need to include all restraints that involve the atoms even those that do not involve allowed atoms
+                                 forbidden_atom_bond_changes=["C","N"],forbid_altloc_changes=["C","N"]) # Because otherwise could ruin angle with not considered atoms. TODO need to automate this sort of decision-making! If only some atoms are allowed, need to include all restraints that involve the atoms even those that do not involve allowed atoms
 
     def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=4,num_combinations=30,cycles=3,conformer_stats=False,
-                     file_tag="manySwaps", allowed_resnums=None,allowed_resnames=None,forbidden_atom_bond_changes=[],forbidden_atom_any_connection_changes=[]):
+                     file_tag="manySwaps", allowed_resnums=None,allowed_resnames=None,forbidden_atom_bond_changes=[],forbidden_atom_any_connection_changes=[],forbid_altloc_changes=[]):
         # forbidden_atom_bond_changes:  atom names for which  bonds involving them should not be changed.
         
         #TODO try strategy of making one altloc as good as possible, while other can be terrible.
@@ -444,7 +444,8 @@ class Untangler():
                 cand_models, cand_swaps = self.candidate_models_from_swapper(swapper,1,working_model,allot_protein_independent_of_waters,
                                                                    altloc_subset=altloc_subset,need_to_prepare_geom_files=False,
                                                                    resnums=allowed_resnums,resnames=allowed_resnames,forbidden_atom_bond_changes=forbidden_atom_bond_changes,
-                                                                   forbidden_atom_any_connection_changes=forbidden_atom_any_connection_changes)
+                                                                   forbidden_atom_any_connection_changes=forbidden_atom_any_connection_changes,
+                                                                   forbid_altloc_changes=forbid_altloc_changes)
                 assert len(cand_models)==len(cand_swaps)==1
                 if not debug_prev_subset:
                     shutil.move(cand_models[0],working_model)
@@ -471,7 +472,7 @@ class Untangler():
         print("=======End Altloc Allotment=============\n")
         return working_model, all_swaps
     def candidate_models_from_swapper(self,swapper:Swapper,num_solutions,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset=None,need_to_prepare_geom_files=True,read_prior_run=False,
-                                      resnums=None,resnames=None,forbidden_atom_bond_changes=[],forbidden_atom_any_connection_changes=[]): #TODO refactor as method of Swapper class
+                                      resnums=None,resnames=None,forbidden_atom_bond_changes=[],forbidden_atom_any_connection_changes=[],forbid_altloc_changes=[]): #TODO refactor as method of Swapper class
         # TODO should be running solver for altloc set partitioned into subsets, not a single subset. 
             
 
@@ -498,6 +499,7 @@ class Untangler():
                                             force_sulfur_bridge_swap_solutions=False, #True
                                             protein_sites=True, 
                                             water_sites= not allot_protein_independent_of_waters,
+                                            forbid_altloc_changes=dict(name=forbid_altloc_changes),
                                             forbidden_atom_bond_changes=dict(name=forbidden_atom_bond_changes),
                                             forbidden_atom_any_connection_changes=dict(name=forbidden_atom_any_connection_changes)
                                             #water_sites=False,
@@ -540,6 +542,7 @@ class Untangler():
                                                         protein_sites=True,
                                                         water_sites=True,
                                                         inert_protein_sites=True, # NOTE
+                                                        forbid_altloc_changes=dict(name=forbid_altloc_changes),
                                                         forbidden_atom_bond_changes=dict(name=forbidden_atom_bond_changes),
                                                         forbidden_atom_any_connection_changes=dict(name=forbidden_atom_any_connection_changes)
                                                         )
