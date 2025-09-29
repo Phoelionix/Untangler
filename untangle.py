@@ -36,15 +36,16 @@ class Untangler():
     # Skip stages. Requires files to already have been generated (up to the point you are debugging).
     debug_skip_refine = False
     debug_skip_initial_refine=True
-    debug_skip_first_unrestrained_refine=True
+    debug_skip_first_unrestrained_refine=False
+    never_do_unrestrained=True
     debug_skip_first_swaps=False
     debug_skip_unrestrained_refine=False
     debug_skip_holton_data_generation=False
     debug_skip_initial_holton_data_generation=debug_skip_initial_refine
     debug_always_accept_proposed_model=True
     auto_group_waters=False
-    debug_skip_to_loop=13
-    refine_water_occupancies_initial=False
+    debug_skip_to_loop=1
+    refine_water_occupancies_initial=True
     PHENIX = 1
     REFMAC = 2
     refinement=REFMAC
@@ -361,8 +362,11 @@ class Untangler():
         self.refinement_loop()
 
 
+    def skip_swaps(self):
+        return self.debug_skip_first_swaps and self.loop == self.first_loop
     def swap_cysteines(self,swapper,model_to_swap:str,altloc_subset_size=15):
-        print("Optimizing cysteine connections")
+        if not self.skip_swaps():
+            print("Optimizing cysteine connections")
         return self.many_swapped(swapper,model_to_swap,True,altloc_subset_size=altloc_subset_size,allowed_resnames=["CYS"],cycles=3,file_tag="CysSwaps",
                                  forbidden_atom_bond_changes=["C","N"],forbid_altloc_changes=["C","N"]) # Because otherwise could ruin angle with not considered atoms. TODO need to automate this sort of decision-making! If only some atoms are allowed, need to include all restraints that involve the atoms even those that do not involve allowed atoms
 
@@ -377,7 +381,7 @@ class Untangler():
         working_model = f"{self.output_dir}/{self.model_handle}_{file_tag}{self.loop}.pdb"
         
         all_swaps=[]
-        if self.debug_skip_first_swaps and self.loop == self.first_loop:
+        if self.skip_swaps():
             return working_model, ["Unknown"]
 
 
@@ -625,11 +629,15 @@ class Untangler():
                 strategy=Untangler.Strategy.Batch
             else:
                 strategy=Untangler.Strategy.SwapManyPairs
-                
-        skip_unrestrained = self.debug_skip_refine or self.debug_skip_unrestrained_refine or (self.loop==self.first_loop and self.debug_skip_first_unrestrained_refine)
-        working_model = self.refine_for_positions(self.current_model,debug_skip=skip_unrestrained) 
-        if skip_unrestrained and not os.path.exists(working_model):
+
+        if not self.never_do_unrestrained:        
+            skip_unrestrained = self.debug_skip_refine or self.debug_skip_unrestrained_refine or (self.loop==self.first_loop and self.debug_skip_first_unrestrained_refine)
+            working_model = self.refine_for_positions(self.current_model,debug_skip=skip_unrestrained) 
+            if skip_unrestrained and not os.path.exists(working_model):
+                working_model = self.current_model
+        else: 
             working_model = self.current_model
+
             
         num_best_solutions=min(self.loop+self.n_best_swap_start,self.n_best_swap_max) # increase num solutions we search over time...
         
@@ -753,6 +761,7 @@ class Untangler():
                     model_path=model_path,
                     unrestrained=False,
                     max_trials=100,
+                    #min_trials=3,
                     refine_water_occupancies=self.refine_water_occupancies_initial
                 )
             model_path = self.refine(
@@ -809,12 +818,12 @@ class Untangler():
                     model_path=model,
                     unrestrained=False,
                     refine_water_occupancies=True,
-                    min_trials=3,
+                    min_trials=5,
                     max_trials=20,
                     #dampA=0.05,
                     #dampB=0.12,
-                    # dampA=0.1,
-                    # dampB=0.25,
+                    dampA=0.1,
+                    dampB=0.25,
                     # dampA=0.2,
                     # dampB=0.5,
                     # dampA=0.01,
@@ -846,12 +855,12 @@ class Untangler():
                 model_path=model_path,
                 unrestrained=False,
                 refine_water_occupancies=True,
-                min_trials=3,
-                max_trials=20,
+                min_trials=5,
+                max_trials=150,
                 #dampA=0.05,
                 #dampB=0.12,
-                # dampA=0.1,
-                # dampB=0.25,
+                dampA=0.1,
+                dampB=0.25,
                 # dampA=0.2,
                 # dampB=0.5,
                 # dampA=0.01,

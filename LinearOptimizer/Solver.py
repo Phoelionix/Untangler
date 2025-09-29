@@ -262,6 +262,23 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         # then all those atoms must be swapped to the same assignment.
         nonlocal lp_problem  
 
+
+        def forbid_conditions():
+            # Forbid changes that are costly to consider and don't seem to tangle
+            for ch in disordered_connection[0].atom_chunks:
+                if constraint_type==VariableKind.Bond:
+                    #if ch.name in ["O","OH"]:
+                    #if ch.name in ["O","OH","OG","OG1","OD1","NZ"]:
+                    if ch.name[0]=="O":
+                        return True
+                    
+                    if ch.name in forbidden_atom_bond_changes["name"]:
+                        return True
+                elif ch.name in forbidden_atom_any_connection_changes["name"]:
+                    return True
+            return False
+        
+        forbid_constraint_change=forbid_conditions()
         
         # If deviation is tiny, don't bother optimizing for it.
         required_cost_range_to_consider=1.5e-1
@@ -270,15 +287,22 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         #     num_small_fry_disordered_connections+=1
         #     return
         
-        min_score = min(scores)
-        small_fry = [conn for conn in disordered_connection if conn.ts_distance - min_score < required_cost_range_to_consider]
-        nonlocal num_small_fry_disordered_connections
-        num_small_fry_disordered_connections+=len(small_fry)
-        
-        if len(small_fry)==len(disordered_connection):
-            return
+        # If change is allowed and the difference is minor, don't bother optimizing for it
+        small_fry = []
+        if not forbid_constraint_change:  
+            min_score = min(scores)
+            small_fry = [conn for conn in disordered_connection if conn.ts_distance - min_score < required_cost_range_to_consider]
+            nonlocal num_small_fry_disordered_connections
+            num_small_fry_disordered_connections+=len(small_fry)
         
             
+
+        
+
+        if len(small_fry)==len(disordered_connection) and not forbid_constraint_change:
+            return
+        
+
 
 
         altlocs = None
@@ -539,22 +563,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         always_tolerate_score_threshold = max(local_score_tolerate_threshold,global_score_tolerate_threshold) #worst_no_change_score*10+1e4
 
 
-        def forbid_conditions():
-            # Forbid changes that are costly to consider and don't seem to tangle
-            for ch in disordered_connection[0].atom_chunks:
-                if constraint_type==VariableKind.Bond:
-                    #if ch.name in ["O","OH"]:
-                    #if ch.name in ["O","OH","OG","OG1","OD1","NZ"]:
-                    if ch.name[0]=="O":
-                        return True
-                    
-                    if ch.name in forbidden_atom_bond_changes["name"]:
-                        return True
-                elif ch.name in forbidden_atom_any_connection_changes["name"]:
-                    return True
-            return False
-        
-        forbid_constraint_change=forbid_conditions()
+
 
 
 
