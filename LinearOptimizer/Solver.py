@@ -252,11 +252,30 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     # A "connection" just refers to a group of atoms with a constraint assigned by LinearOptimizer.Input.
     # A disordered connection refers to all the *possible* groupings of these atoms.
 
+    num_small_fry_disordered_connections=0
+
     def add_constraints_from_disordered_connection(constraint_type:VariableKind,disordered_connection: list[MTSP_Solver.AtomChunkConnection],global_score_tolerate_threshold=0):
         # Rule: If all atom assignments corresponding to a connection are active,
         # then all those atoms must be swapped to the same assignment.
         nonlocal lp_problem  
 
+        
+        # If deviation is tiny, don't bother optimizing for it.
+        required_cost_range_to_consider=1.5e-1
+        scores = [conn.ts_distance for conn in disordered_connection]
+        # if max(scores)-min(scores) < required_cost_range_to_consider:
+        #     num_small_fry_disordered_connections+=1
+        #     return
+        
+        min_score = min(scores)
+        small_fry = [conn for conn in disordered_connection if conn.ts_distance - min_score < required_cost_range_to_consider]
+        nonlocal num_small_fry_disordered_connections
+        num_small_fry_disordered_connections+=len(small_fry)
+        
+        if len(small_fry)==len(disordered_connection):
+            return
+        
+            
 
 
         altlocs = None
@@ -278,24 +297,14 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                     #return
 
         # dicts indexed by code corresponding to from altlocs (e.g. "ACB" means connecting up site 1 altloc A, site 2 altloc C, site 3 altloc B)
-        connection_dict:dict[str,MTSP_Solver.AtomChunkConnection]={}  
-        connection_var_dict={} # indexed by from_altloc
-        if site_altlocs_same:
-            n=len(altlocs) 
-            m=len(disordered_connection[0].atom_chunks)
-
-            for ordered_connection_option in disordered_connection:
-                altlocs_key = ''.join(ordered_connection_option.from_altlocs)
-                connection_dict[altlocs_key]=ordered_connection_option
-
-            all_combos = (len(connection_dict)==n**m)
-        else:
-            all_combos=False
+        connection_var_dict:dict[str,tuple[MTSP_Solver.AtomChunkConnection,LpVariable]]={} # indexed by from_altloc
 
         #assert all_combos, (disordered_connection[0].connection_type, len(connection_dict),n**m,n,m)
 
 
         for ordered_connection_option in disordered_connection:
+            if ordered_connection_option in small_fry:
+                continue
             from_ordered_atoms = "|".join([f"{ch.resnum}.{ch.name}_{ch.altloc}" for ch in ordered_connection_option.atom_chunks])
             tag=from_ordered_atoms
             extra_tag=""
@@ -322,7 +331,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             constraint_var_dict[VariableID(from_ordered_atoms+extra_tag,constraint_type.value)]=(ordered_connection_option,var_active)
             #group_vars.append(var_active)
             altlocs_key = ''.join(ordered_connection_option.from_altlocs)
-            connection_var_dict[altlocs_key]=var_active
+            connection_var_dict[altlocs_key]=(ordered_connection_option,var_active)
 
 
 
@@ -515,26 +524,44 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         # This will make things clearer, if not faster. 
         
         worst_no_change_score=0
-        for altlocs_key in connection_var_dict:
-            ordered_connection_option= connection_dict[altlocs_key]
-            no_change_connection = len({ch.altloc for ch in ordered_connection_option.atom_chunks})==1
-            if no_change_connection:
+        # TODO Try if any are forbidden, allow any alternative connection.
+        for ordered_connection_option, _ in connection_var_dict.values():
+            if ordered_connection_option.single_altloc():
                 worst_no_change_score=max(worst_no_change_score,ordered_connection_option.ts_distance)
         
         #local_score_tolerate_threshold=2*worst_no_change_score
         #local_score_tolerate_threshold=2*worst_no_change_score
-        local_score_tolerate_threshold=10*worst_no_change_score
+        #local_score_tolerate_threshold=10*worst_no_change_score
+        local_score_tolerate_threshold=2*worst_no_change_score
         always_tolerate_score_threshold = max(local_score_tolerate_threshold,global_score_tolerate_threshold) #worst_no_change_score*10+1e4
 
-        for altlocs_key in connection_var_dict:
-            #for ordered_connection_option,var_active in disordered_connection:
-            ordered_connection_option,var_active = connection_dict[altlocs_key], connection_var_dict[altlocs_key]
+
+        def forbid_conditions():
+            # Forbid changes that are costly to consider and don't seem to tangle
+            if constraint_type==VariableKind.Bond:
+                for site in disordered_connection[0].atom_chunks:
+                    #if site.name in ["O","OH"]:
+                    #if site.name in ["O","OH","OG","OG1","OD1","NZ"]:
+                    if site.name[0]=="O":
+                        return True
+            return False
+        
+        forbid_constraint_change=forbid_conditions()
 
 
 
-            no_change_connection = len({ch.altloc for ch in ordered_connection_option.atom_chunks})==1
-            allowed =  (not ordered_connection_option.forbidden) \
-                or ordered_connection_option.ts_distance<=always_tolerate_score_threshold
+        for altlocs_key, (ordered_connection_option, var_active) in connection_var_dict.items():
+
+
+            if ordered_connection_option.single_altloc():
+                allowed=True
+            elif forbid_constraint_change:
+                allowed=False
+            else:
+                allowed =  (not ordered_connection_option.forbidden) \
+                    or (ordered_connection_option.ts_distance<=always_tolerate_score_threshold)
+            
+            #allowed = ordered_connection_option.ts_distance <= always_tolerate_score_threshold
             
             chance_allow_anyway=0
             if not allowed and chance_allow_anyway>0:
@@ -592,29 +619,35 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                         lpSum(assignment_vars) <=  num_assignments-1,   
                         f"FORBID{constraint_type.value}_{tag}>>{to_altloc}"
                     )
-    
+        return connection_var_dict
+        
     worst_connection_before_swap=None
     worst_global_no_change_score=0
     for connection_id, ordered_connection_choices in disordered_connections.items():
         for c in ordered_connection_choices:
-            preswap_connection=False
-            if len({ch.altloc for ch in c.atom_chunks})==1:
-                preswap_connection=True
-            if preswap_connection and c.ts_distance> worst_global_no_change_score:
+            if c.single_altloc() and c.ts_distance> worst_global_no_change_score:
                 worst_global_no_change_score = c.ts_distance
                 worst_connection_before_swap = c
 
         
     # TODO make it the 25th percentile or something.
+    # TODO make it adapt based on solver time.
     global_score_tolerate_threshold=worst_global_no_change_score/100
+    global_score_tolerate_threshold=0
+    print("global score tolerate threshold:",global_score_tolerate_threshold)
     #global_score_tolerate_threshold=0
     
+    #TODO this should replace 'constraint_var_dict'
+    mega_connection_var_dict:dict[str,dict[str,tuple[MTSP_Solver.AtomChunkConnection,LpVariable]]]={}
     for i, (connection_id, ordered_connection_choices) in enumerate(disordered_connections.items()):
         if i % 250 == 0:
             print(f"Adding constraints {i}/{len(disordered_connections)}")
         constraint_type = VariableKind[connection_id.split('_')[0]]  #XXX ?????
-        add_constraints_from_disordered_connection(constraint_type,ordered_connection_choices,global_score_tolerate_threshold=global_score_tolerate_threshold)
+        disordered_connection_var_dict = add_constraints_from_disordered_connection(constraint_type,ordered_connection_choices,global_score_tolerate_threshold=global_score_tolerate_threshold)
+        if disordered_connection_var_dict is not None:
+            mega_connection_var_dict[connection_id]=disordered_connection_var_dict
     print(f"Num allowed connections: {num_allowed_connections} | num forbidden connections: {num_forbidden_connections}")
+    print(f"Num small fry: {num_small_fry_disordered_connections}")
 
     # if  force_sulfur_bridge_swap_solutions \
     #     and [ch.element for ch in connection.atom_chunks]==["S","S"]:
@@ -694,6 +727,16 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
     site_assignment_arrays:list[dict[VariableID,dict[str,str]]]=[]
     distances=[]
+
+
+    with open(f"{out_dir}/xLO-OriginalConnections{out_handle}.txt",'w') as f:
+        f.write("name, sigma, cost\n")
+        vals = [(constraint,var) for constraint,var in constraint_var_dict.values() if var.value()>0]
+        #vals.sort(key=lambda x: x[0].z_score,reverse=True)
+        vals.sort(key=lambda x: x[0].ts_distance,reverse=True)
+        for constraint, var in vals:
+            f.write(f"{var.name} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n")
+
     for l in range(num_solutions):
         if l > 0 and l <= len(forced_swap_solutions):
             lp_problem.constraints.pop("forcedSwap")
@@ -832,12 +875,57 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             break
 
         with open(f"{out_dir}/xLO-ActiveConnections{out_handle}.txt",'w') as f:
-            f.write("name, sigma, cost\n")
+            out_str=""
+            out_str+="name, sigma, cost\n"
             vals = [(constraint,var) for constraint,var in constraint_var_dict.values() if var.value()>0]
             vals.sort(key=lambda x: x[0].z_score,reverse=True)
             #vals.sort(key=lambda x: x[0].ts_distance)
             for constraint, var in vals:
                 f.write(f"{var.name} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n")
+
+            vals=[]
+            changed_disordered_connections=[]
+            for disordered_connection_var_dict in mega_connection_var_dict.values():
+                active_constraints=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if var.value()>0]
+                no_change= all([constr.single_altloc() for constr,_ in active_constraints])
+                if no_change:
+                    continue
+
+                original_constraints=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if constraint.single_altloc()]
+                original_cost = np.sum([constraint.ts_distance for constraint,_ in original_constraints])
+                active_cost = np.sum([constraint.ts_distance for constraint,_ in active_constraints])
+
+                original_constraints.sort(key=lambda x: x[0].ts_distance,reverse=True)
+                active_constraints.sort(key=lambda x: x[0].ts_distance,reverse=True)
+                #original_constraints.sort(key=lambda x: x[0].z_score,reverse=True)
+                #active_constraints.sort(key=lambda x: x[0].z_score,reverse=True)
+
+                item=(original_constraints,active_constraints,original_cost,active_cost)
+                if changed_disordered_connections ==[]:
+                    changed_disordered_connections=[item]
+                else:
+                    changed_disordered_connections.append(item)
+            changed_disordered_connections.sort(key=lambda x: x[2]-x[3],reverse=True)              
+            for original_constraints,active_constraints,original_cost,active_cost in changed_disordered_connections:
+                out_str+=active_constraints[0][0].get_disordered_connection_id()+"\n"
+                altloc_str = ','.join(constraint.from_altlocs)
+                def add_disordered_block_to_str(constraints_vars:list[tuple[MTSP_Solver.AtomChunkConnection,LpVariable]]):
+                    nonlocal out_str
+                    for constraint, var  in constraints_vars:
+                        out_str+=f"{altloc_str} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n"
+                
+                cost_str = ""
+                if original_cost>0:
+                    cost_str = f" {(active_cost/original_cost-1)*100:.2f}% |"
+                out_str+=f"Change:{cost_str} {original_cost:.2e} --> {active_cost:.2e}\n"
+                out_str+="Original\n"
+                add_disordered_block_to_str(original_constraints)
+                out_str+="Active\n"
+                add_disordered_block_to_str(active_constraints)
+                out_str+="-----------------------\n"
+            with open(f"{out_dir}/xLO-ChangedConnections{out_handle}.txt",'w') as f:
+                f.write(out_str)
+            
         
         site_assignments:dict[VariableID,dict[str,dict[str,int]]] = {}
         site_assignment_arrays.append(site_assignments)

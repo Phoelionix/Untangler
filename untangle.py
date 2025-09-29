@@ -21,8 +21,8 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.neighbors import KNeighborsClassifier
 import psutil
 
-DISABLE_WATER_ALTLOC_OPTIM=False
-TURN_OFF_BULK_SOLVENT=False
+DISABLE_WATER_ALTLOC_OPTIM=True
+TURN_OFF_BULK_SOLVENT=True
 
 class Untangler():
     working_dir = os.path.abspath(os.getcwd())
@@ -40,11 +40,11 @@ class Untangler():
     debug_skip_initial_holton_data_generation=debug_skip_initial_refine
     debug_always_accept_proposed_model=True
     auto_group_waters=False
-    debug_skip_to_loop=5
+    debug_skip_to_loop=13
     refine_water_occupancies_initial=False
     PHENIX = 1
     REFMAC = 2
-    refinement=PHENIX
+    refinement=REFMAC
     ####
     num_threads=10
     class Score():
@@ -358,7 +358,7 @@ class Untangler():
         self.refinement_loop()
 
 
-    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=3,num_combinations=30,cycles=3,conformer_stats=False):
+    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=4,num_combinations=30,cycles=3,conformer_stats=False):
         #TODO try strategy of making one altloc as good as possible, while other can be terrible.
         
         #TODO try strategy of focusing on worst conformers

@@ -27,6 +27,7 @@
 # - implement all the other wonderful measures we have available. -- Noth Input and Solver
 # - Clean up chunk ID system. -- Both Input and Solver
 # - Forbid sigmas above some tolerance.
+# - Turn sigmas back off. Don't actually make much sense if following unrestrained refinement. Should divide by ideal instead.
 
 from Bio.PDB import PDBParser,Structure
 from Bio.PDB.Atom import Atom,DisorderedAtom
@@ -355,6 +356,9 @@ class ConstraintsHandler:
             prob = NormalDist().cdf(z_score)*2-1 # probability not noise
             assert 0<=prob <= 1,(z_score,NormalDist().cdf(z_score))
             return z_score, prob*stat_energy * self.weight
+            # badness = (self.ideal-self.separation(a,b))**2/self.ideal
+            # return 0, badness
+
 
         
     class AngleConstraint(Constraint):
@@ -384,6 +388,9 @@ class ConstraintsHandler:
             prob = NormalDist().cdf(z_score)*2-1 # probability not noise
             assert 0<=prob <= 1,(z_score,NormalDist().cdf(z_score))
             return z_score, prob*stat_energy * self.weight
+        
+            # badness = (self.ideal-self.angle(a,b,c))**2/self.ideal
+            # return 0, badness
         
     class ClashConstraint(Constraint):
         default_weight=1
@@ -738,6 +745,8 @@ class MTSP_Solver:
             if hydrogen_names is not None:
                 self.hydrogen_tag = "_"+''.join(hydrogen_names)
                 self.hydrogen_name_set = set(hydrogen_names)
+        def single_altloc(self):
+            return len({ch.altloc for ch in self.atom_chunks})==1
         def get_disordered_connection_id(self):
             kind = ConstraintsHandler.Constraint.kind(self.connection_type)
             return f"{kind}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
@@ -791,7 +800,7 @@ class MTSP_Solver:
         assert pdb_file_path[-4:]==".pdb",pdb_file_path
         return os.path.join(UntangleFunctions.separated_conformer_pdb_dir(), os.path.basename(pdb_file_path)[:-4]+tag+".pdb")
     @staticmethod
-    def prepare_geom_files(base_model_path,all_altloc_subsets,num_threads=10,water_swaps=True):
+    def prepare_geom_files(base_model_path,all_altloc_subsets,num_threads=10,water_swaps=True,allowed_resnums=None):
         if all_altloc_subsets==[None]:
             print("Considering full set of altlocs")
 
@@ -800,7 +809,7 @@ class MTSP_Solver:
         for altloc_subset in all_altloc_subsets:
             ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),
                                                      protein=True,waters=True,
-                                                     altloc_subset=altloc_subset)
+                                                     altloc_subset=altloc_subset,allowed_resnums=allowed_resnums)
                     
             subset_model = MTSP_Solver.subset_model_path(base_model_path,altloc_subset)
             assert subset_model not in subset_model_paths
