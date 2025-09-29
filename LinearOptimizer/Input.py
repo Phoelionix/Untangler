@@ -48,7 +48,7 @@ from statistics import NormalDist
 
 
 class OrderedAtomLookup: #TODO pandas?
-    def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False,altloc_subset=None,allowed_resnums=None): # TODO type hint for sequence?
+    def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False,altloc_subset=None,allowed_resnums=None,allowed_resnames=None): # TODO type hint for sequence?
         assert allowed_resnums is None, "Not working"
         
         self.disordered_waters=[]
@@ -71,6 +71,13 @@ class OrderedAtomLookup: #TODO pandas?
         last_skipped_res_num=None
         skip_zero_occ = False
         for disorderedAtom in atoms:
+            res_num=OrderedAtomLookup.atom_res_seq_num(disorderedAtom)
+            res_name=OrderedAtomLookup.atom_res_name(disorderedAtom)
+            if allowed_resnums is not None and res_num not in allowed_resnums:
+                continue
+            if allowed_resnames is not None and res_name not in allowed_resnames:
+                continue
+            
             if disorderedAtom.get_occupancy()==0:
                 if skip_zero_occ:
                     num_zero_occ_skip+=1
@@ -92,12 +99,10 @@ class OrderedAtomLookup: #TODO pandas?
                 disorderedAtom=tmp
                 print("Checking can get res num")
                 print(disorderedAtom.get_parent().get_id()[1])
-            res_num=OrderedAtomLookup.atom_res_seq_num(disorderedAtom)
-            if allowed_resnums is not None and res_num not in allowed_resnums:
-                continue
             if res_num not in self.better_dict:
                 self.better_dict[res_num] = {}
-                assert len(self.residue_nums)== 0 or res_num-1 in [self.residue_nums[-1],last_skipped_res_num], (res_num,self.residue_nums)
+                if allowed_resnums is not None and allowed_resnames is not None:
+                    assert len(self.residue_nums)== 0 or res_num-1 in [self.residue_nums[-1],last_skipped_res_num], (res_num,self.residue_nums)
                 self.residue_nums.append(res_num)
                 self.res_names[res_num]=disorderedAtom.get_parent().get_resname()
                 self.residue_sources.append(disorderedAtom.get_parent())
@@ -752,7 +757,7 @@ class MTSP_Solver:
             return f"{kind}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
 
 
-    def __init__(self,pdb_file_path:str,symmetries, align_uncertainty=False,ignore_waters=False,altloc_subset=None): 
+    def __init__(self,pdb_file_path:str,symmetries, align_uncertainty=False,ignore_waters=False,altloc_subset=None,resnums=None,resnames=None): 
         # TODO when subset size > 2, employ fragmentation/partitioning.
          
         # Note if we ignore waters then we aren't considering nonbond clashes between macromolecule and water.
@@ -760,7 +765,6 @@ class MTSP_Solver:
         # if align_uncertainty:
         #     self.align_uncertainty(original_structure)
         
-        resnums = None
         # debug_quick=False
         # if debug_quick:
         #     resnums = range(64)
@@ -775,7 +779,7 @@ class MTSP_Solver:
         self.ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),
                                                      protein=True,waters=not ignore_waters,
                                                      altloc_subset=altloc_subset,
-                                                     allowed_resnums=resnums)   
+                                                     allowed_resnums=resnums,allowed_resnames=resnames)   
         self.model_path=MTSP_Solver.subset_model_path(pdb_file_path,altloc_subset)
         
     def align_uncertainty(self,structure:Structure.Structure):
@@ -800,7 +804,7 @@ class MTSP_Solver:
         assert pdb_file_path[-4:]==".pdb",pdb_file_path
         return os.path.join(UntangleFunctions.separated_conformer_pdb_dir(), os.path.basename(pdb_file_path)[:-4]+tag+".pdb")
     @staticmethod
-    def prepare_geom_files(base_model_path,all_altloc_subsets,num_threads=10,water_swaps=True,allowed_resnums=None):
+    def prepare_geom_files(base_model_path,all_altloc_subsets,num_threads=10,water_swaps=True,allowed_resnums=None,allowed_resnames=None):
         if all_altloc_subsets==[None]:
             print("Considering full set of altlocs")
 
@@ -809,7 +813,8 @@ class MTSP_Solver:
         for altloc_subset in all_altloc_subsets:
             ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),
                                                      protein=True,waters=True,
-                                                     altloc_subset=altloc_subset,allowed_resnums=allowed_resnums)
+                                                     altloc_subset=altloc_subset,
+                                                     allowed_resnums=allowed_resnums,allowed_resnames=allowed_resnames)
                     
             subset_model = MTSP_Solver.subset_model_path(base_model_path,altloc_subset)
             assert subset_model not in subset_model_paths

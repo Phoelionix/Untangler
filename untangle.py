@@ -358,12 +358,16 @@ class Untangler():
         self.refinement_loop()
 
 
-    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=4,num_combinations=30,cycles=3,conformer_stats=False):
+    def swap_cysteines(self,swapper,model_to_swap:str,altloc_subset_size=8):
+        print("Optimizing cysteine connections")
+        return self.many_swapped(swapper,model_to_swap,True,altloc_subset_size=altloc_subset_size,allowed_resnames=["CYS"],cycles=3,file_tag="CysSwaps")
+
+    def many_swapped(self,swapper,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=4,num_combinations=30,cycles=3,conformer_stats=False,allowed_resnums=None,allowed_resnames=None,file_tag="manySwaps"):
         #TODO try strategy of making one altloc as good as possible, while other can be terrible.
         
         #TODO try strategy of focusing on worst conformers
 
-        working_model = f"{self.output_dir}/{self.model_handle}_manySwaps{self.loop}.pdb"
+        working_model = f"{self.output_dir}/{self.model_handle}_{file_tag}{self.loop}.pdb"
         
         all_swaps=[]
         if self.debug_skip_first_swaps and self.loop == self.first_loop:
@@ -415,7 +419,8 @@ class Untangler():
                 altloc_subsets=[debug_prev_subset]
             elif not debug_skip_geom_file_prep:
                 UntangleFunctions.clear_geo() # Mainly space concerns.
-                Solver.MTSP_Solver.prepare_geom_files(working_model,altloc_subsets,water_swaps=(altloc_subset_size==2))
+                Solver.MTSP_Solver.prepare_geom_files(working_model,altloc_subsets,allowed_resnames=allowed_resnames,
+                                                      water_swaps=(altloc_subset_size==2))
             else:
                 print("Warning: reusing old geom files")
 
@@ -427,11 +432,10 @@ class Untangler():
                 else:
                     print(f"Optimizing connections across altlocs {', '.join(altloc_subset)}")
                 process = psutil.Process()
-                print(process.memory_info().rss) 
                 print("Memory usage (MB):",psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2)
 
                 cand_models, cand_swaps = self.candidate_models_from_swapper(swapper,1,working_model,allot_protein_independent_of_waters,
-                                                                   altloc_subset=altloc_subset,need_to_prepare_geom_files=False)
+                                                                   altloc_subset=altloc_subset,need_to_prepare_geom_files=False,resnums=allowed_resnums,resnames=allowed_resnames)
                 assert len(cand_models)==len(cand_swaps)==1
                 if not debug_prev_subset:
                     shutil.move(cand_models[0],working_model)
@@ -457,7 +461,7 @@ class Untangler():
 
         print("=======End Altloc Allotment=============\n")
         return working_model, all_swaps
-    def candidate_models_from_swapper(self,swapper:Swapper,num_solutions,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset=None,need_to_prepare_geom_files=True,read_prior_run=False): #TODO refactor as method of Swapper class
+    def candidate_models_from_swapper(self,swapper:Swapper,num_solutions,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset=None,need_to_prepare_geom_files=True,read_prior_run=False,resnums=None,resnames=None): #TODO refactor as method of Swapper class
         # TODO should be running solver for altloc set partitioned into subsets, not a single subset. 
             
 
@@ -472,7 +476,7 @@ class Untangler():
 
         swapper.clear_candidates()
         if not read_prior_run:
-            atoms, connections = Solver.MTSP_Solver(model_to_swap, self.symmetries, ignore_waters=DISABLE_WATER_ALTLOC_OPTIM or allot_protein_independent_of_waters,altloc_subset=altloc_subset).calculate_paths(
+            atoms, connections = Solver.MTSP_Solver(model_to_swap, self.symmetries, ignore_waters=DISABLE_WATER_ALTLOC_OPTIM or allot_protein_independent_of_waters,altloc_subset=altloc_subset,resnums=resnums,resnames=resnames).calculate_paths(
                 clash_punish_thing=False,
                 nonbonds=True,   # Note this won't look at nonbonds with water if ignore_waters=True. 
                 water_water_nonbond = not DISABLE_WATER_ALTLOC_OPTIM, 
@@ -639,6 +643,7 @@ class Untangler():
                 print("Score preswap:",preswap_score) 
                 print("Score postswap:",postswap_score) 
         elif strategy == Untangler.Strategy.SwapManyPairs:
+            working_model,swaps = self.swap_cysteines(self.swapper,working_model)
             working_model,swaps = self.many_swapped(self.swapper,working_model,allot_protein_independent_of_waters)
             if measure_preswap_postswap:
                 postswap_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
