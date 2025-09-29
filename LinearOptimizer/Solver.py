@@ -41,10 +41,10 @@ import gc;
 #import pulp as pl
 # just for residues for now
 
-
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[MTSP_Solver.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True,
-          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=5,mins_extra_per_loop=0,gapRel=0.001): # 
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=5,mins_extra_per_loop=0,gapRel=0.001,
+          forbidden_atom_bond_changes={"name":[]},forbidden_atom_any_connection_changes={"name":[]}): # 
     # protein_sites, water_sites: Whether these can be swapped.
     # gaprel : relative gap tolerance for the solver to stop (fraction) # https://coin-or.github.io/pulp/technical/solvers.html
     if gapRel == 0:
@@ -538,12 +538,17 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
         def forbid_conditions():
             # Forbid changes that are costly to consider and don't seem to tangle
-            if constraint_type==VariableKind.Bond:
-                for site in disordered_connection[0].atom_chunks:
+            for site in disordered_connection[0].atom_chunks:
+                if constraint_type==VariableKind.Bond:
                     #if site.name in ["O","OH"]:
                     #if site.name in ["O","OH","OG","OG1","OD1","NZ"]:
                     if site.name[0]=="O":
                         return True
+                    
+                    if site.name in forbidden_atom_bond_changes["name"]:
+                        return True
+                elif site.name in forbidden_atom_any_connection_changes["name"]:
+                    return True
             return False
         
         forbid_constraint_change=forbid_conditions()
@@ -908,10 +913,10 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             changed_disordered_connections.sort(key=lambda x: x[2]-x[3],reverse=True)              
             for original_constraints,active_constraints,original_cost,active_cost in changed_disordered_connections:
                 out_str+=active_constraints[0][0].get_disordered_connection_id()+"\n"
-                altloc_str = ','.join(constraint.from_altlocs)
                 def add_disordered_block_to_str(constraints_vars:list[tuple[MTSP_Solver.AtomChunkConnection,LpVariable]]):
                     nonlocal out_str
                     for constraint, var  in constraints_vars:
+                        altloc_str = ','.join(constraint.from_altlocs)
                         out_str+=f"{altloc_str} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n"
                 
                 cost_str = ""
