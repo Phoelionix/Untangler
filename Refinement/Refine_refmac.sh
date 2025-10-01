@@ -22,8 +22,9 @@ out_handle_override='false'
 unrestrained='false'
 calc_wE='false'
 refine_water_occupancy='false'
+turn_off_bulk_solvent='false'
 
-while getopts ":o:m:n:A:B:uwW" flag; do
+while getopts ":o:m:n:A:B:tuwW" flag; do
  case $flag in
     o) out_handle=$OPTARG
        out_handle_override='true'
@@ -31,6 +32,8 @@ while getopts ":o:m:n:A:B:uwW" flag; do
     m) min_trials=$OPTARG
     ;;
     n) trials=$OPTARG
+    ;;
+    t) turn_off_bulk_solvent='true'
     ;;
     A) dampA=$OPTARG
     ;;
@@ -89,7 +92,7 @@ EOF
 
 
 #wc=0.5
-wc=0.5
+wc=1.0
 if $unrestrained; then
 cat << EOF >> refmac_opts.txt
 weight matrix 99
@@ -101,15 +104,19 @@ weight matrix $wc
 EOF
 fi
 
+if $turn_off_bulk_solvent; then
+cat << EOF >> refmac_opts.txt
+SOLVent NO
+EOF
+fi
+
+
 
 # cat > refmac_opts.txt  << EOF 
 # damp 0.02 0.02 0.05
 # make hydr Y
 # make hout Y
 # weight matrix 0.5
-# EOF
-
-
 
 if $refine_water_occupancy; then
 setup_occupancy_waters.com initial_model.pdb refmac_opts.txt
@@ -119,12 +126,17 @@ fi
 #########
 #TODO I want last_last_Refmac.pdb this to be the one we use. However, at the moment the algorithm seems to keep diverging 
 # if diverigng after min_trials without stopping. Not sure why.
-refmacout=last_last_refmac.pdb  
-#refmacout=last_refmac.pdb
+#refmacout=last_last_refmac.pdb  
+refmacout=last_refmac.pdb
 #refmacout=refmacout_minRfree.pdb
 
 if [ -f $refmacout ]; then
   mv $refmacout ${refmacout}#
+fi
+
+refmacplot=refmac_Rplot.txt
+if [ -f $refmacplot ]; then
+  mv $refmacplot ${refmacplot}#
 fi
 
 args=""

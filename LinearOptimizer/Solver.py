@@ -749,6 +749,9 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
         with open(f"{out_dir}/xLO-ActiveConnections{out_handle}.txt",'w') as f:
             out_str=""
+            total_distance = value(lp_problem.objective)
+            diff=total_distance/initial_badness-1
+            out_str+=f"Total distance = {total_distance} ({100*(diff):.3f}%)\n"
             out_str+="name, sigma, cost\n"
             vals = [(constraint,var) for constraint,var in constraint_var_dict.values() if var.value()>0]
             vals.sort(key=lambda x: x[0].z_score,reverse=True)

@@ -296,24 +296,23 @@ class OrderedResidue(Chunk):
     
 class ConstraintsHandler:
     @staticmethod
-    def scoring_function(dev,sigma,ideal):  # TODO how to put on same scale as nonbond and clashes?
+    def scoring_function(dev,sigma,ideal,num_bound_e):  # TODO how to put on same scale as nonbond and clashes?
         assert False, "not set" 
     @staticmethod
-    def prob_weighted_stat(dev,sigma,ideal):
+    def prob_weighted_stat(dev,sigma,ideal,num_bound_e):
         z_score=abs(dev/sigma)
         stat_energy=z_score**2
         prob = NormalDist().cdf(z_score)*2-1 # probability not noise
         assert 0<=prob <= 1,(z_score,NormalDist().cdf(z_score))
         return prob*stat_energy
     @staticmethod
-    def chi(dev,sigma,ideal):
+    def chi(dev,sigma,ideal,num_bound_e):
         return  dev**2/ideal
     @staticmethod
-    def scaled_dev(dev,sigma,ideal):
-        return abs(dev)/ideal
-    scoring_function=prob_weighted_stat
-    #scoring_function=chi
-    #scoring_function=scaled_dev
+    def scaled_dev(dev,sigma,ideal,num_bound_e):
+        return abs(dev)/ideal*10
+    def e_density_scaled_dev(dev,sigma,ideal,num_bound_e):
+        return abs(dev)/ideal*num_bound_e
     
 
 
@@ -327,13 +326,14 @@ class ConstraintsHandler:
                 self.weight = 1
             self.sigma=sigma
             #self.sigma=1
+            self.num_bound_e= sum([site.num_bound_e() for site in self.site_tags])
         def num_atoms(self):
             return len(self.site_tags)
         def atom_names(self):
             return [site.atom_name() for site in self.site_tags]
         def residues(self):
             return [site.resnum() for site in self.site_tags]
-        def get_distance(self,atoms:list[Atom])->tuple[float,float]:
+        def get_distance(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
             raise Exception("abstract method")
         def __repr__(self):
             return f"({ConstraintsHandler.Constraint.kind(type(self))} : {self.site_tags})"
@@ -372,14 +372,14 @@ class ConstraintsHandler:
         @staticmethod
         def separation(a:Atom,b:Atom):
             return np.sqrt(np.sum((a.get_coord()-b.get_coord())**2))
-        def get_distance(self,atoms:list[Atom])->tuple[float,float]:
+        def get_distance(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
             a,b = ordered_atoms      
             dev =  self.ideal-self.separation(a,b)     
             z_score=abs(dev/self.sigma) # XXX
-            return z_score, ConstraintsHandler.scoring_function(dev,self.sigma,self.ideal) * self.weight
+            return z_score, scoring_function(dev,self.sigma,self.ideal,self.num_bound_e) * self.weight
             # badness = (self.ideal-self.separation(a,b))**2/self.ideal
             # return 0, badness
 
@@ -399,14 +399,14 @@ class ConstraintsHandler:
             v2_u = unit_vector(v2)
             return np.arccos(np.dot(v1_u, v2_u))*180/np.pi
             #return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
-        def get_distance(self,atoms:list[Atom])->tuple[float,float]:
+        def get_distance(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
             a,b,c = ordered_atoms
             dev = (self.ideal-self.angle(a,b,c))
             z_score=abs(dev/self.sigma) # XXX
-            return z_score, ConstraintsHandler.scoring_function(dev,self.sigma,self.ideal) * self.weight
+            return z_score, scoring_function(dev,self.sigma,self.ideal,self.num_bound_e) * self.weight
         
             # badness = (self.ideal-self.angle(a,b,c))**2/self.ideal
             # return 0, badness
@@ -419,7 +419,7 @@ class ConstraintsHandler:
             if weight is None:
                 weight = ConstraintsHandler.ClashConstraint.default_weight
             super().__init__(atom_ids,None,weight,None)
-        def get_distance(self,atoms:list[Atom],sigma=10)->tuple[float,float]:
+        def get_distance(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
@@ -473,7 +473,7 @@ class ConstraintsHandler:
             # negative when separation is greater than ideal.
             assert neg_badness_limit < 0 
             return abs(max(neg_badness_limit,ConstraintsHandler.NonbondConstraint.lennard_jones(r,r0)))
-        def get_distance(self,atoms:list[Atom],sigma=10)->tuple[float,float]:
+        def get_distance(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
@@ -551,6 +551,7 @@ class ConstraintsHandler:
         # Add nonbonds that are flagged as issues for current structure AND when waters are swapped
 
         print("WARNING: assuming residue numbers are all unique")
+        print("WARNING: assuming elements all single character")
         NB_pdb_ids_added = []
         for file in (nonbond_scores_files):
             if ConstraintsHandler.BondConstraint in constraints_to_skip:
@@ -666,6 +667,10 @@ class DisorderedTag():
         return self._resnum
     def atom_name(self):
         return self._name 
+    def element(self):
+        return self.atom_name()[0]   # FIXME !!!!!!!!!!
+    def num_bound_e(self):
+        return UntangleFunctions.NUM_E[self.element()]
     def __repr__(self):
         return f"{self.resnum()}.{self.atom_name()}"
     # def __format__(self,format_spec):
@@ -926,9 +931,9 @@ class MTSP_Solver:
         assert model_path[-4:]==".pdb"
         return os.path.basename(model_path)[:-4]
         
-    def calculate_paths(self,quick_wE=False, dry_run=False,atoms_only=True,
+    def calculate_paths(self,scoring_function,quick_wE=False, dry_run=False,atoms_only=True,
                         clash_punish_thing=False,nonbonds=True,water_water_nonbond=None,
-                        constraint_weights:dict[Type,float]=None
+                        constraint_weights:dict[Type,float]=None,
                         )->tuple[list[Chunk],dict[str,list[AtomChunkConnection]]]: #disorderedResidues:list[Residue]
         print("Calculating geometric costs for all possible connections between chunks of atoms (pairs for bonds, triplets for angles, etc.)")
         
@@ -1165,7 +1170,7 @@ class MTSP_Solver:
                 # Don't have two alt locs of same atom in group
                 if len(set([res_name_num_dict[a] for a in atoms]))!= len(atoms):                     
                     continue
-                output = constraint.get_distance(atoms)
+                output = constraint.get_distance(atoms,scoring_function)
                 if output is not None:
                     z_score,distance = output
                     distance*=constraint_weights[type(constraint)]
