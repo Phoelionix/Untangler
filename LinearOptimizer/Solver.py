@@ -268,8 +268,9 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             for ch in disordered_connection[0].atom_chunks:
                 if constraint_type==VariableKind.Bond:
                     #if ch.name in ["O","OH"]:
+                    if ch.name in ["O"]:
                     #if ch.name in ["O","OH","OG","OG1","OD1","NZ"]:
-                    if ch.name[0]=="O":
+                    #if ch.name[0]=="O":
                         return True
                     
                     if ch.name in forbidden_atom_bond_changes["name"]:
@@ -286,12 +287,15 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         # if max(scores)-min(scores) < required_cost_range_to_consider:
         #     num_small_fry_disordered_connections+=1
         #     return
+        min_score = min(scores)
+        for conn in disordered_connection:
+            conn.ts_distance-=min_score+required_cost_range_to_consider
         
         # If change is allowed and the difference is minor, don't bother optimizing for it
         small_fry = []
         if not forbid_constraint_change:  
-            min_score = min(scores)
-            small_fry = [conn for conn in disordered_connection if conn.ts_distance - min_score < required_cost_range_to_consider]
+            #small_fry = [conn for conn in disordered_connection if conn.ts_distance - min_score < required_cost_range_to_consider]
+            small_fry = [conn for conn in disordered_connection if conn.ts_distance <= 0]
             nonlocal num_small_fry_disordered_connections
             num_small_fry_disordered_connections+=len(small_fry)
         
@@ -559,7 +563,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         #local_score_tolerate_threshold=2*worst_no_change_score
         #local_score_tolerate_threshold=2*worst_no_change_score
         #local_score_tolerate_threshold=10*worst_no_change_score
-        local_score_tolerate_threshold=2*worst_no_change_score
+        local_score_tolerate_threshold=3*worst_no_change_score  # * len(altlocs)?
         always_tolerate_score_threshold = max(local_score_tolerate_threshold,global_score_tolerate_threshold) #worst_no_change_score*10+1e4
 
 
@@ -754,6 +758,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         for constraint, var in vals:
             f.write(f"{var.name} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n")
 
+    create_initial_variable_files=False
     for l in range(num_solutions):
         if l > 0 and l <= len(forced_swap_solutions):
             lp_problem.constraints.pop("forcedSwap")
@@ -774,7 +779,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         print(f"-----------------------------------------------------")
         print()
 
-        lp_problem.writeLP(f"{out_dir}/xLO-LP_{out_handle}.lp")
+        if create_initial_variable_files:
+            lp_problem.writeLP(f"{out_dir}/xLO-LP_{out_handle}.lp")
 
 
         class Solver(Enum):
@@ -802,17 +808,17 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         #gapRel=0.001
         
         #gapRel=None
+        if create_initial_variable_files:
+            with open(f"{out_dir}/xLO-Initial{out_handle}.txt",'w') as f:
+                f.write(f"Status: {LpStatus[lp_problem.status]}\n")
 
-        with open(f"{out_dir}/xLO-Initial{out_handle}.txt",'w') as f:
-            f.write(f"Status: {LpStatus[lp_problem.status]}\n")
-
-            for v in lp_problem.variables():
-                try:
-                    if v.value() > 0:
-                        f.write(f"{v.name} = {v.value()}\n")
-                except:
-                    raise Exception(v,v.value())
-            f.write(f"Total distance = {value(lp_problem.objective)}")
+                for v in lp_problem.variables():
+                    try:
+                        if v.value() > 0:
+                            f.write(f"{v.name} = {v.value()}\n")
+                    except:
+                        raise Exception(v,v.value())
+                f.write(f"Total distance = {value(lp_problem.objective)}")
 
 
         solver_class=PULP_CBC_CMD
