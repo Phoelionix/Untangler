@@ -295,6 +295,28 @@ class OrderedResidue(Chunk):
 
     
 class ConstraintsHandler:
+    @staticmethod
+    def scoring_function(dev,sigma,ideal):  # TODO how to put on same scale as nonbond and clashes?
+        assert False, "not set" 
+    @staticmethod
+    def prob_weighted_stat(dev,sigma,ideal):
+        z_score=abs(dev/sigma)
+        stat_energy=z_score**2
+        prob = NormalDist().cdf(z_score)*2-1 # probability not noise
+        assert 0<=prob <= 1,(z_score,NormalDist().cdf(z_score))
+        return prob*stat_energy
+    @staticmethod
+    def chi(dev,sigma,ideal):
+        return  dev**2/ideal
+    @staticmethod
+    def scaled_dev(dev,sigma,ideal):
+        return abs(dev)/ideal
+    scoring_function=prob_weighted_stat
+    #scoring_function=chi
+    #scoring_function=scaled_dev
+    
+
+
     class Constraint():
         NO_INDIV_WEIGHTS=True  # Idea being that when we do unrestrained refinement, all geometry is ignored, and all atoms are treated "equally" in fitting to xray data. So it makes little sense to weight connections of the same type differently.
         def __init__(self,atom_ids:list[str],ideal:float,weight:float,sigma:float):
@@ -354,14 +376,10 @@ class ConstraintsHandler:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
-            a,b = ordered_atoms            
-            z_score = abs((self.ideal-self.separation(a,b))/self.sigma)
-            stat_energy=z_score**2
-            #return stat_energy * self.weight
-            #prob = st.norm.cdf(z_score)*2-1
-            prob = NormalDist().cdf(z_score)*2-1 # probability not noise
-            assert 0<=prob <= 1,(z_score,NormalDist().cdf(z_score))
-            return z_score, prob*stat_energy * self.weight
+            a,b = ordered_atoms      
+            dev =  self.ideal-self.separation(a,b)     
+            z_score=abs(dev/self.sigma) # XXX
+            return z_score, ConstraintsHandler.scoring_function(dev,self.sigma,self.ideal) * self.weight
             # badness = (self.ideal-self.separation(a,b))**2/self.ideal
             # return 0, badness
 
@@ -386,14 +404,9 @@ class ConstraintsHandler:
             if ordered_atoms is None:
                 return None
             a,b,c = ordered_atoms
-            z_score = abs((self.ideal-self.angle(a,b,c))/self.sigma) 
-
-            stat_energy=z_score**2
-            #return stat_energy * self.weight
-            #prob = st.norm.cdf(z_score)*2-1
-            prob = NormalDist().cdf(z_score)*2-1 # probability not noise
-            assert 0<=prob <= 1,(z_score,NormalDist().cdf(z_score))
-            return z_score, prob*stat_energy * self.weight
+            dev = (self.ideal-self.angle(a,b,c))
+            z_score=abs(dev/self.sigma) # XXX
+            return z_score, ConstraintsHandler.scoring_function(dev,self.sigma,self.ideal) * self.weight
         
             # badness = (self.ideal-self.angle(a,b,c))**2/self.ideal
             # return 0, badness
@@ -670,7 +683,14 @@ class DisorderedTag():
 
 
 class MTSP_Solver:
-
+    max_sigmas={
+        ConstraintsHandler.BondConstraint:4,
+        ConstraintsHandler.AngleConstraint:4,
+    } 
+    min_sigmas_where_anything_goes={
+        ConstraintsHandler.BondConstraint:2.5,
+        ConstraintsHandler.AngleConstraint:2.5,
+    } 
     ### This commented out code computes wE for combinations of larger groups of atoms.  
     # Could be useful in future as a quick coarse step... but would probably be better 
     # to build up from the atom-site approach, coding the wE measure directly.   
@@ -734,9 +754,7 @@ class MTSP_Solver:
     #         _,self.ts_distance,_ = UntangleFunctions.assess_geometry_wE(connection_structure_save_path,tmp_out_folder_path,phenixgeometry_only=quick_wE) 
 
     class AtomChunkConnection():
-        #max_sigmas={ConstraintsHandler.BondConstraint:5,ConstraintsHandler.AngleConstraint:10} 
-        #max_sigmas={ConstraintsHandler.BondConstraint:5} 
-        max_sigmas={ConstraintsHandler.BondConstraint:3,ConstraintsHandler.AngleConstraint:3} 
+
         def __init__(self, atom_chunks:list[AtomChunk],ts_distance,connection_type,hydrogen_names,z_score):
             assert hydrogen_names==None or len(hydrogen_names)==len(atom_chunks)
             self.atom_chunks = atom_chunks
@@ -747,7 +765,7 @@ class MTSP_Solver:
             self.hydrogen_tag=""
             self.hydrogen_name_set=set([])
             self.z_score=z_score
-            self.forbidden= (connection_type in self.max_sigmas) and (self.z_score > self.max_sigmas[connection_type]) 
+            self.forbidden= (connection_type in MTSP_Solver.max_sigmas) and (self.z_score > MTSP_Solver.max_sigmas[self.connection_type]) 
             if hydrogen_names is not None:
                 self.hydrogen_tag = "_"+''.join(hydrogen_names)
                 self.hydrogen_name_set = set(hydrogen_names)
@@ -1201,9 +1219,11 @@ class MTSP_Solver:
         #     print(connection.ts_distance)
         #     print("_".join(ch.unique_id() for ch in connection.atom_chunks))
 
-            
+        
 
         disordered_connections:dict[str,list[MTSP_Solver.AtomChunkConnection]] ={} # options for each alt connection
+        
+        
         for connection in possible_connections:
             connection_id = connection.get_disordered_connection_id()
             if connection_id not in disordered_connections:
@@ -1212,6 +1232,37 @@ class MTSP_Solver:
             for other in disordered_connections[connection_id]:
                 assert (connection.atom_chunks!=other.atom_chunks) or (connection.hydrogen_tag!=other.hydrogen_tag) or (connection.connection_type!=other.connection_type), f"duplicate connections of kind {connection.connection_type}, involving ordered atoms {[ch.unique_id() for ch in connection.atom_chunks]}, with badness {connection.ts_distance} and {other.ts_distance}!"
             disordered_connections[connection_id].append(connection)
+        
+        # If the current connections have a sigma above a certain value, let solver consider all alternatives.
+        print(f"Re-enabling connections that are alternatives to current connections with sigma > {MTSP_Solver.min_sigmas_where_anything_goes}")
+        num_connections_re_enabled={k:0 for k in MTSP_Solver.min_sigmas_where_anything_goes}
+        num_bad_current_disordered_connections={k:0 for k in MTSP_Solver.min_sigmas_where_anything_goes}
+        for disordered_connection_id, ordered_connections in disordered_connections.items():
+            if ordered_connections[0].connection_type not in MTSP_Solver.min_sigmas_where_anything_goes:
+                continue
+            for conn in ordered_connections:
+                if conn.single_altloc() and conn.z_score >= MTSP_Solver.min_sigmas_where_anything_goes[conn.connection_type]:
+                    num_bad_current_disordered_connections[conn.connection_type]+=1
+                    break
+            else: continue
+            for conn in ordered_connections:
+                if conn.forbidden:
+                    num_connections_re_enabled[conn.connection_type]+=1
+                conn.forbidden=False
+        print(f"Number of bad disordered connections detected: {num_bad_current_disordered_connections}") 
+        print(f"Ordered connections re-enabled: {num_connections_re_enabled}")
+
+        # for disordered_connection_id, ordered_connections in disordered_connections.items():     
+        #     anything_goes=False
+        #     for conn in ordered_connections:
+        #         if conn.single_altloc() and conn.z_score > MTSP_Solver.min_sigmas_where_anything_goes[conn.connection_type]:
+        #             anything_goes=True
+        #             break
+        #     if anything_goes:
+        #         for conn in ordered_connections:
+        #             conn.forbidden=False
+                
+
 
         #finest_depth_chunks=orderedResidues
         finest_depth_chunks=atom_chunks
