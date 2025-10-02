@@ -1,6 +1,6 @@
 
 pdbID=$1
-numConformations=2
+numConformations=12
 #pdbID="6QIY" # 9MIZ not workin?
 
 #TODO make directory data and data/tmp_refinement
@@ -27,7 +27,10 @@ cd $(dirname "$0")/data
     # python3.9 ../CombineStructuresToEnsemble.py ${pdbID}_ground_truth ${pdbID}_conf_1H.pdb ${pdbID}_conf_2H.pdb
     # bash ../GenerateScatteringData.sh $pdbID  
     #python3.9 ../CombineStructuresToEnsemble.py ${pdbID}_initial_model ${pdbID}_starting_1H.pdb ${pdbID}_starting_2H.pdb
-    python3.9 ../CombineStructuresToEnsemble.py ${pdbID}_initial_model ${pdbID}_starting_1.pdb ${pdbID}_starting_2.pdb
+    
+    structures=$(echo ${pdbID}_starting_{1..12}.pdb)
+
+    python3.9 ../CombineStructuresToEnsemble.py ${pdbID}_initial_model $structures
 
     # bash ../GenerateRefinement.sh $pdbID
     #python3.9 ../CreateStartingEnsemblePair.py $pdbID.pdb
