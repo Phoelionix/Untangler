@@ -13,8 +13,20 @@ import numpy as np
 matplotlib.use('AGG')
 
 
+ATOMS = ('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr'
+       +' Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe').split()
+NUM_E = {}
+i = 0
+for symbol in ATOMS:
+    #TODO ions
+    i+=1
+    NUM_E[symbol] = i
 
 UNTANGLER_WORKING_DIRECTORY= os.path.join(os.path.abspath(os.getcwd()),"")
+
+def model_handle(model_path):
+    assert model_path[-4:]==".pdb"
+    return os.path.basename(model_path)[:-4]
 
 def pdb_data_dir():
     return os.path.join(UNTANGLER_WORKING_DIRECTORY,"data","")
@@ -103,12 +115,16 @@ def create_score_file(pdb_file_path,log_out_folder_path,phenixgeometry_only=Fals
 
     return score_file
 
-def clear_geo():
+def clear_geo(excluded_suffixes=["_start.geo","_fmtd.geo"]):
     holton_folder_path = os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration","")
     geo_path = os.path.join(holton_folder_path,"HoltonOutputs")
     for filename in os.listdir(geo_path):
-        if filename[-4:]==".geo":
-            os.remove(os.path.join(geo_path,filename))
+        if filename.endswith(".geo"):
+            for suffix in excluded_suffixes:
+                 if filename.endswith(suffix):
+                     break
+            else: 
+                os.remove(os.path.join(geo_path,filename))
 
 def score_file_name(pdb_file_path):
     holton_folder_path = os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration","")
@@ -128,8 +144,7 @@ def res_is_water(res):
             
 
 def get_R(pdb_file_path,reflections_path):
-    assert pdb_file_path[-4:]==".pdb"
-    model_handle = os.path.basename(pdb_file_path)[:-4]
+   
 
     print("--==--")
     #rel_path = os.path.relpath(pdb_file_path,start=holton_script_path)
@@ -140,7 +155,7 @@ def get_R(pdb_file_path,reflections_path):
     print("finished")
     print("--==--")
 
-    log_file = f"{UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/output/SF_check_{model_handle}.log"
+    log_file = f"{UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/output/SF_check_{model_handle(pdb_file_path)}.log"
 
     Rwork=Rfree=None
     with open(log_file,'r') as f:

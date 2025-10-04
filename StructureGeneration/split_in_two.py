@@ -5,7 +5,7 @@ import sys, os
 
 
 
-def split(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False):
+def split(pdb_path,out_path,sep_chain_format=False,protein_altloc_from_chain_fix=False,missing_water_altloc_fix=True):
     new_altloc_options = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     
     
@@ -43,7 +43,7 @@ def split(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False):
         warned_collapse=False
 
         for line in I:
-            if line.startswith("TER"):
+            if line.startswith("TER") or line.startswith("ANISOU"):
                 continue
             start_strs_considered = ["ATOM","HETATM"]
             for s in start_strs_considered:
@@ -65,14 +65,13 @@ def split(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False):
             resnum = int(line[22:26])
             occupancy=float(line[54:60])
             line = replace_occupancy(line,occupancy/2)
-            if altloc == ' ' and altloc_from_chain_fix:
+            if resname in solvent_res_names:
+                solvent_lines.append(line)  # Modified further below
+                continue
+
+            if altloc == ' ' and protein_altloc_from_chain_fix:
                 altloc = chain
                 line = replace_altloc(line,altloc)
-            if resname in solvent_res_names:
-                solvent_lines.append(replace_chain(line,solvent_chain_id))
-                if altloc not in solvent_altlocs:
-                    solvent_altlocs.append(altloc) 
-                continue
             assert len(end_lines)==0
                 
             if not sep_chain_format and not warned_collapse and chain != last_chain and last_chain is not None:
@@ -93,6 +92,26 @@ def split(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False):
             max_resnum=max(resnum,max_resnum)
             last_chain = chain
             continue
+    new_solvent_lines=[]
+    for line in solvent_lines:
+        sublines= [line]
+        altloc = line[16]
+        if altloc == ' ' and missing_water_altloc_fix:
+            sublines= []
+            for a in protein_altlocs:
+                occupancy=float(line[54:60])
+                solv_line = replace_occupancy(line,occupancy/2)
+                sublines.append(replace_altloc(solv_line,a))
+        for solv_line in sublines:
+            a = solv_line[16]
+            #solv_line = replace_res_num(solv_line,max_resnum+1)
+            #print(solv_line)
+            #max_resnum+=1
+            new_solvent_lines.append(replace_chain(solv_line,solvent_chain_id))
+            if a not in solvent_altlocs:
+                assert (a != ' '), solv_line
+                solvent_altlocs.append(a) 
+    solvent_lines = new_solvent_lines
 
     assert len(set(protein_altlocs) & set(solvent_altlocs))==len(protein_altlocs)==len(solvent_altlocs), (protein_altlocs,solvent_altlocs)
     new_altlocs={}
@@ -127,7 +146,8 @@ def split(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False):
                     protein_chain_id = altloc
                     for line in altloc_atom_dict.values():
                         max_serial_num+=1
-                        modified_line = replace_serial_num(line,max_serial_num)
+                        modified_line=line
+                        modified_line = replace_serial_num(modified_line,max_serial_num)
                         modified_line = replace_chain(modified_line,protein_chain_id)
                         if d == 1:
                             altloc = split_altloc(line)
@@ -146,11 +166,14 @@ def split(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False):
         shift = max_resnum-min_solvent_resnum + 1
     for line in solvent_lines:
         solvent_resnum=int(line[22:26])
-        modified_line = replace_res_num(line,shift+solvent_resnum)
+        modified_line = line
+        modified_line = replace_res_num(modified_line,shift+solvent_resnum)
+        modified_line=replace_serial_num(modified_line,max_serial_num)
+        max_serial_num+=1
         start_lines.append(modified_line)
         splt = replace_altloc(modified_line,split_altloc(modified_line))
-        max_serial_num+=1
         splt = replace_serial_num(splt,max_serial_num)
+        max_serial_num+=1
         start_lines.append(splt)
 
     with open(out_path,'w') as O:

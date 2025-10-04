@@ -13,4 +13,4 @@ cp ${dir}refmacout.mtz .
 
 add_waters_for_altlocs.com 
 
-python3.9 delete_water_copies.py
+python3.9 delete_water_copies.py new.pdb new.pdb

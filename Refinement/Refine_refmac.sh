@@ -16,6 +16,10 @@ min_trials=0
 dampA=0.02
 dampB=0.05
 
+#wc=0.5
+#wc=1.0
+wc=0.75
+
 ####
 
 out_handle_override='false'
@@ -24,8 +28,10 @@ calc_wE='false'
 refine_water_occupancy='false'
 turn_off_bulk_solvent='false'
 
-while getopts ":o:m:n:A:B:tuwW" flag; do
+while getopts ":c:o:m:n:A:B:tuwW" flag; do
  case $flag in
+    c) wc=$OPTARG
+    ;;
     o) out_handle=$OPTARG
        out_handle_override='true'
     ;;
@@ -91,8 +97,7 @@ damp $dampA $dampA $dampB
 EOF
 
 
-#wc=0.5
-wc=1.0
+
 if $unrestrained; then
 cat << EOF >> refmac_opts.txt
 weight matrix 99

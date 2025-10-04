@@ -44,8 +44,11 @@ import itertools
 from multiprocessing import Pool
 import scipy.stats as st
 from statistics import NormalDist
+from LinearOptimizer.VariableID import *
 
 
+NO_INDIV_WEIGHTS=False  # Idea being that when we do unrestrained refinement, all geometry is ignored, and all atoms are treated "equally" in fitting to xray data. So it makes little sense to weight connections of the same type differently.
+TENSIONS=True
 
 
 class OrderedAtomLookup: #TODO pandas?
@@ -317,12 +320,11 @@ class ConstraintsHandler:
 
 
     class Constraint():
-        NO_INDIV_WEIGHTS=True  # Idea being that when we do unrestrained refinement, all geometry is ignored, and all atoms are treated "equally" in fitting to xray data. So it makes little sense to weight connections of the same type differently.
         def __init__(self,atom_ids:list[str],ideal:float,weight:float,sigma:float):
             self.site_tags = [DisorderedTag(pdb.strip().split()[-1], pdb[:4].strip()) for pdb in atom_ids]
             self.ideal = ideal
             self.weight = weight
-            if self.NO_INDIV_WEIGHTS:
+            if NO_INDIV_WEIGHTS:
                 self.weight = 1
             self.sigma=sigma
             #self.sigma=1
@@ -337,6 +339,8 @@ class ConstraintsHandler:
             raise Exception("abstract method")
         def __repr__(self):
             return f"({ConstraintsHandler.Constraint.kind(type(self))} : {self.site_tags})"
+        def __eq__(self, other:'ConstraintsHandler.Constraint'):
+            return (type(self),self.site_tags) == (type(other),other.site_tags)
         @staticmethod
         def kind(constraint_type:Type):
             return {
@@ -487,6 +491,7 @@ class ConstraintsHandler:
     def __init__(self,constraints:list[Constraint]=[]):
         self.constraints:list[ConstraintsHandler.Constraint]=constraints
         self.atom_constraints:dict[DisorderedTag,list[ConstraintsHandler.Constraint]]={}
+        self.atom_residuals:dict[DisorderedTag,float] = {}
 
     # def atom_in_constraints(self,atom_name,res_num):
     #     for constraint in self.constraints:
@@ -503,13 +508,20 @@ class ConstraintsHandler:
             raise Exception(f"No constraints found for {site}")
         return ConstraintsHandler(self.atom_constraints[site])
 
-    def add(self,constraint:Constraint):
-        self.constraints.append(constraint)
+    def add(self,constraint:Constraint,residual):
+        if constraint not in self.constraints:
+            self.constraints.append(constraint)
         # For each disordered atom site, track constraints it must use
-        for site in constraint.site_tags:
-            if site not in self.atom_constraints:
-                self.atom_constraints[site]=[]
-            self.atom_constraints[site].append(constraint)
+            for site in constraint.site_tags:
+                #site_id = VariableID(site,VariableKind.Atom)
+                if site not in self.atom_constraints:
+                    self.atom_constraints[site]=[]
+                    self.atom_residuals[site]=0
+                self.atom_constraints[site].append(constraint)
+        if residual is not None:
+            for site in constraint.site_tags:
+                #site_id = VariableID(site,VariableKind.Atom)
+                self.atom_residuals[site]+=residual
             # if site == DisorderedTag(17,"N"):
             #     print(self.atom_constraints[site])
 
@@ -527,12 +539,12 @@ class ConstraintsHandler:
                     constraint = lines[i:i+4]
                     pdb1=constraint[0].strip().split("\"")[1]
                     pdb2=constraint[1].strip().split("\"")[1]
-                    ideal,  _,  _, sigma,  weight, _ = [float(v) for v in constraint[3].strip().split()]
+                    ideal,  _,  _, sigma,  weight, residual = [float(v) for v in constraint[3].strip().split()]
                     altloc = pdb1.strip()[3]
-                    if altloc!=ordered_atom_lookup.altlocs[0]: # just look at one altloc to get constraint. TODO check constraint isn't in self.constraints instead.
-                        continue
+                    # if altloc!=ordered_atom_lookup.altlocs[0]: # just look at one altloc to get constraint. 
+                    #     continue
                     #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
-                    self.add(ConstraintsHandler.BondConstraint((pdb1,pdb2),ideal,weight,sigma))
+                    self.add(ConstraintsHandler.BondConstraint((pdb1,pdb2),ideal,weight,sigma),residual)
                 if line.startswith("angle"):
                     if ConstraintsHandler.AngleConstraint in constraints_to_skip:
                         continue
@@ -540,12 +552,12 @@ class ConstraintsHandler:
                     pdb1=constraint[0].strip().split("\"")[1]
                     pdb2=constraint[1].strip().split("\"")[1]
                     pdb3=constraint[2].strip().split("\"")[1]
-                    ideal,  _,  _, sigma,  weight, _ = [float(v) for v in constraint[4].strip().split()]
+                    ideal,  _,  _, sigma,  weight, residual = [float(v) for v in constraint[4].strip().split()]
                     altloc = pdb1.strip()[3]
-                    if altloc!=ordered_atom_lookup.altlocs[0]:
-                        continue
+                    # if altloc!=ordered_atom_lookup.altlocs[0]:
+                    #     continue
                     #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
-                    self.add(ConstraintsHandler.AngleConstraint((pdb1,pdb2,pdb3),ideal,weight,sigma))
+                    self.add(ConstraintsHandler.AngleConstraint((pdb1,pdb2,pdb3),ideal,weight,sigma),residual)
                 
        
         # Add nonbonds that are flagged as issues for current structure AND when waters are swapped
@@ -607,7 +619,7 @@ class ConstraintsHandler:
                         pdb_ids = (pdb1,pdb2)
                         pdb_ids_flipped = (pdb2,pdb1)
                         if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
-                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal,symmetries))  
+                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal,symmetries),None)  
                             NB_pdb_ids_added.append(pdb_ids)  
         num_nonbonded_from_geo = len(NB_pdb_ids_added)
         if water_water_nonbond:  # TODO Symmetry clashes
@@ -623,7 +635,7 @@ class ConstraintsHandler:
                         pdb_ids = (pdb1,pdb2)
                         pdb_ids_flipped = (pdb2,pdb1)
                         if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
-                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal_water_separation,symmetries))
+                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal_water_separation,symmetries),None)
                             NB_pdb_ids_added.append(pdb_ids)     
         num_nonbonded_extra = len(NB_pdb_ids_added)-num_nonbonded_from_geo
 
@@ -781,7 +793,7 @@ class MTSP_Solver:
             return f"{kind}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
 
 
-    def __init__(self,pdb_file_path:str,symmetries, align_uncertainty=False,ignore_waters=False,altloc_subset=None,resnums=None,resnames=None): 
+    def __init__(self,pdb_file_path:str,tensions:dict[DisorderedTag,float], symmetries, align_uncertainty=False,ignore_waters=False,altloc_subset=None,resnums=None,resnames=None): 
         # TODO when subset size > 2, employ fragmentation/partitioning.
          
         # Note if we ignore waters then we aren't considering nonbond clashes between macromolecule and water.
@@ -805,6 +817,7 @@ class MTSP_Solver:
                                                      altloc_subset=altloc_subset,
                                                      allowed_resnums=resnums,allowed_resnames=resnames)   
         self.model_path=MTSP_Solver.subset_model_path(pdb_file_path,altloc_subset)
+        self.tensions=tensions
         
     def align_uncertainty(self,structure:Structure.Structure):
         # in x-ray data and geom.
@@ -925,11 +938,7 @@ class MTSP_Solver:
 
     @staticmethod 
     def water_swapped_handle(model_path):
-        return MTSP_Solver.model_handle(model_path)+"_WaSw"
-    @staticmethod 
-    def model_handle(model_path):
-        assert model_path[-4:]==".pdb"
-        return os.path.basename(model_path)[:-4]
+        return UntangleFunctions.model_handle(model_path)+"_WaSw"
         
     def calculate_paths(self,scoring_function,quick_wE=False, dry_run=False,atoms_only=True,
                         clash_punish_thing=False,nonbonds=True,water_water_nonbond=None,
@@ -996,7 +1005,7 @@ class MTSP_Solver:
             return atom_id_from_params(atom.get_name(),atom.get_altloc(),OrderedAtomLookup.atom_res_seq_num(atom))
         
         nonbond_scores_path=nonbond_water_flipped_scores_path=None
-        model_handle = self.model_handle(self.model_path)
+        model_handle = UntangleFunctions.model_handle(self.model_path)
 
         needToFixWaterAltlocsDebugging=False
         if needToFixWaterAltlocsDebugging:
@@ -1012,7 +1021,7 @@ class MTSP_Solver:
             # Terrible code. XXX
             def get_water_clashes(handle,from_altloc_dict:bool)->list: # from_altloc_dict, with keys being the to_altlocs.
                 clashes = []
-                nonbond_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_scorednonbond.txt"
+                #nonbond_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_scorednonbond.txt"
                 clashes_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_clashes.txt"
                 with open(clashes_path) as clashes_file:
                     for line in clashes_file:
@@ -1061,6 +1070,10 @@ class MTSP_Solver:
                 nonbond_scores_files.append(nonbond_water_flipped_scores_path)
 
         constraints_file = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}.geo" # NOTE we only read ideal and weights.
+        #post_unrestrained_constraints_file = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}.geo" # NOTE we only read ideal and weights.
+        #pre_unrestrained_constraints_file = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}_init.geo" # NOTE we only read ideal and weights.
+        #constraints_file = create_delta_constraints_file.create_delta_constraints_file(pre_unrestrained_constraints_file,post_unrestrained_constraints_file) 
+        
         constraints_handler=ConstraintsHandler()
         constraints_to_skip=[]
         constraints_to_skip = [kind for kind,value in constraint_weights.items() if value <= 0]
@@ -1166,6 +1179,13 @@ class MTSP_Solver:
             # print(set([res_name_num_dict[a] for a in atoms]))
             # print(atoms)
             # assert False
+
+            if TENSIONS:
+                tension_mod = np.sum([self.tensions[tag] for tag in constraint.site_tags])/len(constraint.site_tags)+1
+                tension_mod*=tension_mod
+                assert tension_mod>=1
+
+
             for atoms in combinations_iterator:
                 # Don't have two alt locs of same atom in group
                 if len(set([res_name_num_dict[a] for a in atoms]))!= len(atoms):                     
@@ -1203,7 +1223,7 @@ class MTSP_Solver:
 
                             #assert len(parent_atom) == 1, (parent_atom,parent_name,res_num,altloc)
                             #parent_atom = parent_atom[0]
-                            atom_chunks[atom_id(parent_atom)].constraints_holder.add(constraint) # NOTE XXX
+                            atom_chunks[atom_id(parent_atom)].constraints_holder.add(constraint,None) # NOTE XXX
                             atom_chunks_selection.append(atom_chunks[atom_id(parent_atom)])
 
                     num_hydrogens = len([a.get_name() for a in atoms if a.element=="H"])
@@ -1213,6 +1233,9 @@ class MTSP_Solver:
                     
                     for ach in atom_chunks_selection:
                         assert constraint in ach.constraints_holder.constraints, (constraint, ach.get_disordered_tag(), [c for c in ach.constraints_holder.constraints])
+
+                    if TENSIONS:
+                        distance*=tension_mod
 
                     connection = self.AtomChunkConnection(atom_chunks_selection,distance,type(constraint),hydrogens,z_score)
                     possible_connections.append(connection)

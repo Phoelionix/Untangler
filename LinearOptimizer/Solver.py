@@ -33,6 +33,7 @@ import pulp as pl
 import numpy as np
 from enum import Enum
 from LinearOptimizer.Input import *
+from LinearOptimizer.VariableID import *
 import itertools
 import UntangleFunctions
 import json
@@ -40,6 +41,9 @@ from copy import deepcopy
 import gc; 
 #import pulp as pl
 # just for residues for now
+
+
+
 
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[MTSP_Solver.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True,
@@ -99,38 +103,9 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     ##### Constraints ####
 
 
-    class VariableKind(Enum):
-        Atom="Atom"
-        Bond = "Bond"
-        Nonbond="Nonbond"
-        Clash="Clash"
-        Angle = "Angle"
 
     #Disordered variable id
     # Messy...
-    class VariableID:
-        @staticmethod
-        def Atom(chunk:AtomChunk):
-            return VariableID(
-                chunk.get_disordered_tag(), #f"{chunk.resnum}.{chunk.name}",
-                VariableKind.Atom,
-                chunk.get_site_num(),
-                chunk.is_water,
-                chunk.name)
-        def __init__(self,name:str,kind:VariableKind,site_num=None,is_water=None,atom_name=None):
-            self.name=str(name)
-            self.atom_name=atom_name
-            self.kind = kind
-            self.site_num=site_num
-            self.is_water = is_water
-        def __repr__(self):
-            return self.name
-        def __hash__(self):
-            return hash((self.name, self.kind))
-        def __eq__(self,other):
-            return (self.name,self.kind) == (other.name,other.kind) 
-        def __ne__(self,other):
-            return not(self == other) 
     #bond_choices = {} # Each must sum to 1
     distance_vars = [] 
     # NOTE When assigning LP variable names, the "class" of variable should follow format of variableName_other_stuff   (class of variable is variable_type.split("_")[0]) 

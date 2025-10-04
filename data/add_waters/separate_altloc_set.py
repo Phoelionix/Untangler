@@ -8,7 +8,6 @@ fname_out=sys.argv[2]
 
 with open(fname) as f:
     lines_out = f.readlines()
-    water_processing.delete_water_copies(lines_out)
     water_processing.separate_altloc_set(lines_out)
 
 if fname_out == fname:
