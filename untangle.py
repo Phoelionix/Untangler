@@ -4,7 +4,7 @@ from LinearOptimizer import Solver
 from LinearOptimizer.Input import OrderedAtomLookup, ConstraintsHandler
 from LinearOptimizer.Swapper import Swapper
 import UntangleFunctions
-from UntangleFunctions import assess_geometry_wE, get_R,pdb_data_dir,create_score_file,get_score,score_file_name,res_is_water, parse_symmetries_from_pdb
+from UntangleFunctions import assess_geometry_wE, get_R,pdb_data_dir,create_score_file,get_score,score_file_name,geo_file_name,res_is_water, parse_symmetries_from_pdb
 import subprocess
 import os, sys
 import numpy as np
@@ -42,17 +42,19 @@ class Untangler():
     debug_skip_first_unrestrained_refine=True
     never_do_unrestrained=False
     debug_skip_first_focus_swaps=False
-    debug_skip_first_swaps=False
+    debug_skip_first_swaps=True
     debug_skip_unrestrained_refine=False
     debug_skip_holton_data_generation=False
     debug_skip_initial_holton_data_generation=debug_skip_initial_refine
-    debug_always_accept_proposed_model=False
+    debug_always_accept_proposed_model=True
     auto_group_waters=False
-    debug_skip_to_loop=0
+    debug_skip_to_loop=5
     refine_water_occupancies_initial=True
+    ##
     PHENIX = 1
     REFMAC = 2
     refinement=REFMAC
+    ##
     ####
     num_threads=10
     class Score():
@@ -384,8 +386,20 @@ class Untangler():
        return self.swap_specific_residues(["CYS"],swapper,tensions,model_to_swap,file_tag="CysSwaps",altloc_subset_size=altloc_subset_size)
 
 
+    def get_altloc_subsets(self,altloc_subset_size,num_combinations):
+        altloc_subsets = [None]
+        if len(self.model_protein_altlocs)>altloc_subset_size:
+            altloc_subsets = []
+            altlocs_tmp = [altloc for altloc in self.model_protein_altlocs]
+            random.shuffle(altlocs_tmp)
+            assert ' ' not in self.model_protein_altlocs
+            while len(altlocs_tmp) >= altloc_subset_size and len(altloc_subsets) < num_combinations:  
+                altloc_subsets.append(altlocs_tmp[:altloc_subset_size])
+                del altlocs_tmp[:altloc_subset_size]
+        return altloc_subsets
+
     #TODO resample if sample same subsets as last cycle
-    def many_swapped(self,swapper,tensions,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=4,num_combinations=30,cycles=3,conformer_stats=False,
+    def many_swapped(self,swapper,tensions,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=3,num_combinations=30,cycles=3,conformer_stats=False,
                      file_tag="manySwaps", allowed_resnums=None,allowed_resnames=None,forbidden_atom_bond_changes=[],forbidden_atom_any_connection_changes=[],forbid_altloc_changes=[]):
         
         # forbidden_atom_bond_changes:  atom names for which  bonds involving them should not be changed.
@@ -427,15 +441,7 @@ class Untangler():
                 #altloc_subset_combinations = random.sample(altloc_subset_combinations,num_combinations)
 
             # ITerate over unique sets, since we are creating geom files for all altloc subsets in the below loop
-            altloc_subsets = [None]
-            if len(self.model_protein_altlocs)>altloc_subset_size:
-                altloc_subsets = []
-                altlocs_tmp = [altloc for altloc in self.model_protein_altlocs]
-                random.shuffle(altlocs_tmp)
-                assert ' ' not in self.model_protein_altlocs
-                while len(altlocs_tmp) >= altloc_subset_size and len(altloc_subsets) < num_combinations:  
-                    altloc_subsets.append(altlocs_tmp[:altloc_subset_size])
-                    del altlocs_tmp[:altloc_subset_size]
+            altloc_subsets=self.get_altloc_subsets(altloc_subset_size,num_combinations)
 
             debug_skip_geom_file_prep=False
             #altloc_subsets=["teO"]
@@ -445,6 +451,8 @@ class Untangler():
                 altloc_subsets=[debug_prev_subset]
             elif not debug_skip_geom_file_prep:
                 UntangleFunctions.clear_geo() # Mainly space concerns.
+                # TODO should be preparing geo file for one conformation. Barring clashes (and maybe some nonbonds?) it is all calculated in LinearOptimizer.input 
+                # TODO swaps can create nonbond issues that are not recorded due to not being present in geo file?
                 Solver.MTSP_Solver.prepare_geom_files(working_model,altloc_subsets,allowed_resnames=allowed_resnames,
                                                       water_swaps=(altloc_subset_size==2))
             else:
@@ -507,7 +515,7 @@ class Untangler():
             
         if need_to_prepare_geom_files:
             self.prepare_pdb_and_read_altlocs(model_to_swap,model_to_swap,sep_chain_format=False) 
-            Solver.MTSP_Solver.prepare_geom_files(model_to_swap,[None],water_swaps=not DISABLE_WATER_ALTLOC_OPTIM)
+            Solver.MTSP_Solver.prepare_geom_files(model_to_swap,[altloc_subset],water_swaps=not DISABLE_WATER_ALTLOC_OPTIM)
             need_to_prepare_geom_files=False
 
         swapper.clear_candidates()
@@ -648,11 +656,12 @@ class Untangler():
         # TODO if stuck (tried all candidate swap sets for the loop), do random flips or engage Metr.Hastings or track all the new model scores and choose the best.
         
 
-        if strategy is None:
-            if len(self.model_protein_altlocs) <= 3:
-                strategy=Untangler.Strategy.Batch
-            else:
-                strategy=Untangler.Strategy.SwapManyPairs
+        # if strategy is None:
+        #     if len(self.model_protein_altlocs) <= 3:
+        #         strategy=Untangler.Strategy.Batch
+        #     else:
+        #         strategy=Untangler.Strategy.SwapManyPairs
+        strategy=Untangler.Strategy.Batch
 
         if not self.never_do_unrestrained:        
             skip_unrestrained = self.debug_skip_refine or self.debug_skip_unrestrained_refine or (self.loop==self.first_loop and self.debug_skip_first_unrestrained_refine)
@@ -671,20 +680,62 @@ class Untangler():
         working_model = old_working_model[:-4]+"_fmtd.pdb"
         self.prepare_pdb_and_read_altlocs(old_working_model,working_model)
 
-        if not (skip_unrestrained and os.path.exists(score_file_name(working_model))): # TODO should be checking if geo file exits...
-            create_score_file(working_model,log_out_folder_path=self.output_dir)
-        tensions = GeoXrayTension([self.current_model,working_model],self.symmetries,not DISABLE_WATER_ALTLOC_OPTIM).site_tensions
-        plt.hist(list(tensions.values()),bins=20)
-        plt.savefig("tmp.png")
+        def get_tensions(restrained_model,unrestrained_model):
+            if not (skip_unrestrained and os.path.exists(geo_file_name(unrestrained_model))): # XXX risky..
+                create_score_file(unrestrained_model,log_out_folder_path=self.output_dir)
+            if not os.path.exists(geo_file_name(restrained_model)): 
+                create_score_file(restrained_model,log_out_folder_path=self.output_dir)
+            tensions = GeoXrayTension([restrained_model,unrestrained_model],self.symmetries,water_water_nonbond=not DISABLE_WATER_ALTLOC_OPTIM).site_tensions
+
+            print("Highest tension sites:")
+            highest_sites = sorted(tensions, key=tensions.get, reverse=True)[:10]
+            for key in highest_sites:
+                print(key, tensions[key])
+
+            plt.hist(list(tensions.values()),bins=50)
+            plt.savefig("tmp.png")
+            plt.close()
+
+
+            # Negative tensions are set to 0
+            for key in tensions:
+                tensions[key]=max(0,tensions[key])
+            ###
+            return tensions
 
         measure_preswap_postswap = False
         score_file_needs_generation=True
         if measure_preswap_postswap:
             preswap_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
         if strategy == Untangler.Strategy.Batch:
-            skip_swaps = self.debug_skip_first_swaps and self.loop==self.first_loop
-            cand_models,cand_swaps = self.candidate_models_from_swapper(self.swapper,num_best_solutions,tensions,working_model, allot_protein_independent_of_waters,
-                                    need_to_prepare_geom_files=not skip_swaps,read_prior_run=skip_swaps)
+            subset_size=3
+            num_combinations=1
+            altloc_subsets=self.get_altloc_subsets(subset_size,num_combinations)
+            cand_models,cand_swaps = [],[]
+            for altloc_subset in altloc_subsets:
+                skip_swaps = self.debug_skip_first_swaps and self.loop==self.first_loop
+                ## TENSIONS ##
+                def get_subset_model(full_model):
+                    struct=PDBParser().get_structure("struct",full_model)
+                    ordered_atom_lookup = OrderedAtomLookup(struct.get_atoms(),
+                                                                protein=True,waters=True,
+                                                                altloc_subset=altloc_subset)   
+                    #temp_path=working_model[:-4]+"_subsetOut.pdb"
+                    out_path=Solver.MTSP_Solver.subset_model_path(full_model,altloc_subset)[:-4]+"Out.pdb"
+                    ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=full_model,out_path=out_path)
+                    return out_path
+                tensions=None
+                if not skip_swaps:
+                    unrestrained_subset_model = get_subset_model(self.current_model)
+                    restrained_subset_model = get_subset_model(working_model)
+                    tensions = get_tensions(unrestrained_subset_model,restrained_subset_model)
+                ###############
+
+                loop_cand_models,loop_cand_swaps = self.candidate_models_from_swapper(self.swapper,num_best_solutions,tensions,working_model, allot_protein_independent_of_waters,
+                                        need_to_prepare_geom_files=not skip_swaps,read_prior_run=skip_swaps,
+                                        altloc_subset=altloc_subset)
+                cand_models.extend(loop_cand_models)
+                cand_swaps.extend(loop_cand_swaps)
             refined_model_dir = self.regular_batch_refine(cand_models,debug_skip=self.debug_skip_refine)
             working_model = self.determine_best_model(refined_model_dir)
             shutil.copy(working_model,self.get_out_path(f"loopEnd{self.loop}"))
@@ -700,6 +751,7 @@ class Untangler():
                 print("Score preswap:",preswap_score) 
                 print("Score postswap:",postswap_score) 
         elif strategy == Untangler.Strategy.SwapManyPairs:
+            tensions = get_tensions(self.current_model,working_model)
             swaps_focused = None
             # FOCUS SWAPS (TODO better name)
             if (not self.debug_skip_first_focus_swaps) or self.loop!=self.first_loop:
@@ -883,7 +935,7 @@ class Untangler():
                     model_path=model,
                     unrestrained=False,
                     refine_water_occupancies=True,
-                    min_trials=4,
+                    min_trials=1,
                     max_trials=10,
                     # dampA=0.1,
                     # dampB=0.25,
@@ -1245,8 +1297,8 @@ def main():
     xray_data = sys.argv[2]
     Untangler(
         # max_num_best_swaps_considered=5,
-        max_num_best_swaps_considered=30,
-        starting_num_best_swaps_considered=20,
+        max_num_best_swaps_considered=10,
+        starting_num_best_swaps_considered=10,
         num_unrestrained_macro_cycles_phenix=1,
         weight_factors = {
             ConstraintsHandler.BondConstraint: 1,

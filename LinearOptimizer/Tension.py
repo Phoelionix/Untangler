@@ -65,12 +65,13 @@ class GeoXrayTension:
                 mean_separation/=len(positions[i])
                 displacements.append(mean_separation)
             self.site_tensions[key]=np.mean([GeoXrayTension.tension(g,d) for g,d in zip (deltas_geo, displacements)]) 
-        mean_tension = np.mean([t for t in self.site_tensions.values()])
+        mean_tension = np.mean([abs(t) for t in self.site_tensions.values()])
         for key in self.site_tensions:
             self.site_tensions[key]/=mean_tension
     @staticmethod
     def tension(delta_geo,delta_pos):
         if delta_pos == 0:
             return 1
-        return max(0,delta_geo/delta_pos)
+        #return max(0,delta_geo/delta_pos)
+        return delta_geo/delta_pos
 

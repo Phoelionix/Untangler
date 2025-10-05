@@ -5,6 +5,9 @@ modelPDBPath=$1
 cd $(dirname "$0")
 
 
+auto_ignore_geometries='true'
+
+
 if [ ! -f "$modelPDBPath" ]; then
     echo $modelPDBPath
     echo "filenotfound"
@@ -19,7 +22,12 @@ cd HoltonOutputs
 handle=$(basename "$modelPDBPath" .pdb) 
 #rm -f ${handle}_log.txt
 
-../../Measures/untangle_score.csh ../$modelPDBPath get_individual_residue_scores=True > "${handle}_log.txt"
+args=""
+if [ $auto_ignore_geometries ]; then
+    args="${args} overridefile=${handle}_potential_overrides.txt"
+fi
+
+../../Measures/untangle_score.csh ../$modelPDBPath $args > "${handle}_log.txt" 
 
 
 

@@ -474,7 +474,7 @@ if( 1 ) then
          target=obs}\
         /^NONBOND/ && obs>ideal {next}\
      {print key,"OVERRIDE",target,sigma,"|",atms}' |\
-   cat >! potential_overrides.txt
+   cat >! ${outprefix}_potential_overrides.txt
    # TYPE "OVERRIDE" newtarget sigma "|" atoms
 endif
 

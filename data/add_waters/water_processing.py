@@ -17,12 +17,13 @@ def separate_altloc_set(lines_out):
     # move to separate altloc set.
     original_altlocs=[]
     for line_out in lines_out:
-        if not ((line_out.startswith("ATOM") or line_out.startswith("HETATM"))):
+        ident=line_out[:6].strip()
+        if not ((ident in ["ATOM","HETATM"])):
             continue
         altloc = line_out[16]
         if altloc not in original_altlocs:
             original_altlocs.append(altloc)
-    allowed_altlocs = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    allowed_altlocs = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
     convert_dict={}
 
 
@@ -32,9 +33,13 @@ def separate_altloc_set(lines_out):
             if c not in original_altlocs and c not in convert_dict.values():
                 convert_dict[a]=c
                 break
+        else:
+            assert False, "No alternative altloc found"
     for i, line_out in enumerate(lines_out):
-        if not ((line_out.startswith("ATOM") or line_out.startswith("HETATM")) and line_out[17:20]=="HOH"):
+        ident=line_out[:6].strip()
+        if not ((ident in ["ATOM","HETATM"]) and line_out[17:20]=="HOH"):
             continue
+        print(line_out)
         altloc = line_out[16]
         lines_out[i] = line_out[:16]+convert_dict[altloc]+line_out[17:]
         print(lines_out[i])

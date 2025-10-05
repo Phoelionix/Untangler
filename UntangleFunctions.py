@@ -131,6 +131,11 @@ def score_file_name(pdb_file_path):
     assert pdb_file_path[-4:]==".pdb"
     handle = os.path.basename(pdb_file_path)[:-4]
     return holton_folder_path+f'HoltonOutputs/{handle}_score.txt'
+def geo_file_name(pdb_file_path):
+    holton_folder_path = os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration","")
+    assert pdb_file_path[-4:]==".pdb"
+    handle = os.path.basename(pdb_file_path)[:-4]
+    return holton_folder_path+f'HoltonOutputs/{handle}.geo'
 
 def assess_geometry_wE(pdb_file_path,log_out_folder_path,phenixgeometry_only=False):
     score_file = create_score_file(pdb_file_path,log_out_folder_path,phenixgeometry_only)

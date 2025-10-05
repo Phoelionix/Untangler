@@ -441,7 +441,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             # Note that since every connection option is looped through, this also means 
             # that if variable is active, all atoms will be assigned to the same altloc.
             
-            if allowed and ordered_connection_option not in small_fry:
+            if allowed and (ordered_connection_option not in small_fry):
+                assert ordered_connection_option.ts_distance>0
                 distance_vars.append(ordered_connection_option.ts_distance*var_active)
             num_allowed_connections+=allowed 
             num_forbidden_connections+=not allowed 
@@ -574,14 +575,15 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     site_assignment_arrays:list[dict[VariableID,dict[str,str]]]=[]
     distances=[]
 
-
+    og_connections_str = ""
+    og_connections_str+="name, sigma, cost\n"
+    vals = [(constraint,var) for constraint,var in constraint_var_dict.values() if var.value()>0]
+    #vals.sort(key=lambda x: x[0].z_score,reverse=True)
+    vals.sort(key=lambda x: x[0].ts_distance,reverse=True)
+    for constraint, var in vals:
+        og_connections_str+=f"{var.name} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n"
     with open(f"{out_dir}/xLO-OriginalConnections{out_handle}.txt",'w') as f:
-        f.write("name, sigma, cost\n")
-        vals = [(constraint,var) for constraint,var in constraint_var_dict.values() if var.value()>0]
-        #vals.sort(key=lambda x: x[0].z_score,reverse=True)
-        vals.sort(key=lambda x: x[0].ts_distance,reverse=True)
-        for constraint, var in vals:
-            f.write(f"{var.name} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n")
+        f.write(og_connections_str)
 
     create_initial_variable_files=False
     for l in range(num_solutions):
@@ -722,62 +724,66 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             print(f"WARNING: Finding solution {l} was infeasible! Ending solution search")
             break
 
+        ##Active Connections##
+        out_str_active_conn=""
+        vals = [(constraint,var) for constraint,var in constraint_var_dict.values() if var.value()>0]
+        vals.sort(key=lambda x: x[0].ts_distance,reverse=True)
+        #vals.sort(key=lambda x: x[0].z_score)
+        for constraint, var in vals:
+            out_str_active_conn+=f"{var.name} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n"
         with open(f"{out_dir}/xLO-ActiveConnections{out_handle}.txt",'w') as f:
-            out_str=""
-            total_distance = value(lp_problem.objective)
-            diff=total_distance/initial_badness-1
-            out_str+=f"Total distance = {total_distance} ({100*(diff):.3f}%)\n"
-            out_str+="name, sigma, cost\n"
-            vals = [(constraint,var) for constraint,var in constraint_var_dict.values() if var.value()>0]
-            vals.sort(key=lambda x: x[0].z_score,reverse=True)
-            #vals.sort(key=lambda x: x[0].ts_distance)
-            for constraint, var in vals:
-                f.write(f"{var.name} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n")
+            f.write(out_str_active_conn)
+        ####
 
-            vals=[]
-            changed_disordered_connections=[]
-            for disordered_connection_var_dict in mega_connection_var_dict.values():
-                active_constraints=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if var.value()>0]
-                no_change= all([constr.single_altloc() for constr,_ in active_constraints])
-                if no_change:
-                    continue
+        ### Changed Connections ###
+        changed_disordered_connections=[]
+        for disordered_connection_var_dict in mega_connection_var_dict.values():
+            active_constraints=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if var.value()>0]
+            no_change= all([constr.single_altloc() for constr,_ in active_constraints])
+            if no_change:
+                continue
 
-                original_constraints=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if constraint.single_altloc()]
-                original_cost = np.sum([constraint.ts_distance for constraint,_ in original_constraints])
-                active_cost = np.sum([constraint.ts_distance for constraint,_ in active_constraints])
+            original_constraints=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if constraint.single_altloc()]
+            original_cost = np.sum([constraint.ts_distance for constraint,_ in original_constraints])
+            active_cost = np.sum([constraint.ts_distance for constraint,_ in active_constraints])
 
-                original_constraints.sort(key=lambda x: x[0].ts_distance,reverse=True)
-                active_constraints.sort(key=lambda x: x[0].ts_distance,reverse=True)
-                #original_constraints.sort(key=lambda x: x[0].z_score,reverse=True)
-                #active_constraints.sort(key=lambda x: x[0].z_score,reverse=True)
+            original_constraints.sort(key=lambda x: x[0].ts_distance,reverse=True)
+            active_constraints.sort(key=lambda x: x[0].ts_distance,reverse=True)
+            #original_constraints.sort(key=lambda x: x[0].z_score,reverse=True)
+            #active_constraints.sort(key=lambda x: x[0].z_score,reverse=True)
 
-                item=(original_constraints,active_constraints,original_cost,active_cost)
-                if changed_disordered_connections ==[]:
-                    changed_disordered_connections=[item]
-                else:
-                    changed_disordered_connections.append(item)
-            changed_disordered_connections.sort(key=lambda x: x[2]-x[3],reverse=True)              
-            for original_constraints,active_constraints,original_cost,active_cost in changed_disordered_connections:
-                out_str+=active_constraints[0][0].get_disordered_connection_id()+"\n"
-                def add_disordered_block_to_str(constraints_vars:list[tuple[MTSP_Solver.AtomChunkConnection,LpVariable]]):
-                    nonlocal out_str
-                    for constraint, var  in constraints_vars:
-                        altloc_str = ','.join(constraint.from_altlocs)
-                        out_str+=f"{altloc_str} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n"
-                
-                cost_str = ""
-                if original_cost>0:
-                    cost_str = f" {(active_cost/original_cost-1)*100:.2f}% |"
-                out_str+=f"Change:{cost_str} {original_cost:.2e} --> {active_cost:.2e}\n"
-                out_str+="Original\n"
-                add_disordered_block_to_str(original_constraints)
-                out_str+="Active\n"
-                add_disordered_block_to_str(active_constraints)
-                out_str+="-----------------------\n"
-            with open(f"{out_dir}/xLO-ChangedConnections{out_handle}.txt",'w') as f:
-                f.write(out_str)
+            item=(original_constraints,active_constraints,original_cost,active_cost)
+            if changed_disordered_connections ==[]:
+                changed_disordered_connections=[item]
+            else:
+                changed_disordered_connections.append(item)
+        changed_disordered_connections.sort(key=lambda x: x[2]-x[3],reverse=True)              
+        out_str=""
+        total_distance = value(lp_problem.objective)
+        diff=total_distance/initial_badness-1
+        out_str+=f"Total distance = {total_distance} ({100*(diff):.3f}%)\n"
+        out_str+="name, sigma, cost\n"
+        for original_constraints,active_constraints,original_cost,active_cost in changed_disordered_connections:
+            out_str+=active_constraints[0][0].get_disordered_connection_id()+"\n"
+            def add_disordered_block_to_str(constraints_vars:list[tuple[MTSP_Solver.AtomChunkConnection,LpVariable]]):
+                nonlocal out_str
+                for constraint, var  in constraints_vars:
+                    altloc_str = ','.join(constraint.from_altlocs)
+                    out_str+=f"{altloc_str} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n"
             
-        
+            cost_str = ""
+            if original_cost>0:
+                cost_str = f" {(active_cost/original_cost-1)*100:.2f}% |"
+            out_str+=f"Change:{cost_str} {original_cost:.2e} --> {active_cost:.2e}\n"
+            out_str+="Original\n"
+            add_disordered_block_to_str(original_constraints)
+            out_str+="Active\n"
+            add_disordered_block_to_str(active_constraints)
+            out_str+="-----------------------\n"
+        with open(f"{out_dir}/xLO-ChangedConnections{out_handle}.txt",'w') as f:
+            f.write(out_str)
+        ##########
+
         site_assignments:dict[VariableID,dict[str,dict[str,int]]] = {}
         site_assignment_arrays.append(site_assignments)
 

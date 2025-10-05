@@ -28,6 +28,7 @@
 # - Clean up chunk ID system. -- Both Input and Solver
 # - Consider turning sigmas back off? Don't actually make much sense if following unrestrained refinement. Should divide by ideal instead.
 # - If only some atoms are allowed, need to include all restraints that involve the atoms, even those that do not involve allowed atoms
+# - # Swaps can create nonbond issues that are not recorded due to not being present in geo file?
  
 
 from Bio.PDB import PDBParser,Structure
@@ -49,7 +50,12 @@ from LinearOptimizer.VariableID import *
 
 NO_INDIV_WEIGHTS=False  # Idea being that when we do unrestrained refinement, all geometry is ignored, and all atoms are treated "equally" in fitting to xray data. So it makes little sense to weight connections of the same type differently.
 TENSIONS=True
+TURN_OFF_MIN_SIGMAS=False # Since there are genuine outliers this could be harming things.
+ALLOW_OUTLIERS_FROM_POTENTIAL_OVERRIDES=True # Will not do min sigmas with potential genuine outliers.
+#weight_mod_for_allowed_outliers=1e-1
+weight_mod_for_allowed_outliers=1
 
+#TODO could try reverting model back to preswap model.
 
 class OrderedAtomLookup: #TODO pandas?
     def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False,altloc_subset=None,allowed_resnums=None,allowed_resnames=None): # TODO type hint for sequence?
@@ -320,15 +326,26 @@ class ConstraintsHandler:
 
 
     class Constraint():
-        def __init__(self,atom_ids:list[str],ideal:float,weight:float,sigma:float):
+        def __init__(self,atom_ids:list[str],outlier_ok:bool,ideal:float,weight:float,sigma:float):
             self.site_tags = [DisorderedTag(pdb.strip().split()[-1], pdb[:4].strip()) for pdb in atom_ids]
             self.ideal = ideal
             self.weight = weight
             if NO_INDIV_WEIGHTS:
                 self.weight = 1
             self.sigma=sigma
+            self.outlier_ok=outlier_ok
             #self.sigma=1
             self.num_bound_e= sum([site.num_bound_e() for site in self.site_tags])
+            self.tension = None
+            self.max_site_tension = None
+        def get_tension(self):
+            return self.tension
+        def get_max_site_tension(self):
+            return self.max_site_tension
+        def set_tension(self,tension):
+            self.tension = tension
+        def set_max_site_tension(self,max_site_tension):
+            self.max_site_tension = max_site_tension
         def num_atoms(self):
             return len(self.site_tags)
         def atom_names(self):
@@ -370,9 +387,9 @@ class ConstraintsHandler:
 
         
     class BondConstraint(Constraint):
-        def __init__(self,atom_ids,ideal,weight,sigma):
+        def __init__(self,atom_ids,outlier_ok,ideal,weight,sigma):
             assert len (atom_ids)==2
-            super().__init__(atom_ids,ideal,weight,sigma)
+            super().__init__(atom_ids,outlier_ok,ideal,weight,sigma)
         @staticmethod
         def separation(a:Atom,b:Atom):
             return np.sqrt(np.sum((a.get_coord()-b.get_coord())**2))
@@ -390,9 +407,9 @@ class ConstraintsHandler:
 
         
     class AngleConstraint(Constraint):
-        def __init__(self,atom_ids,ideal,weight,sigma):
+        def __init__(self,atom_ids,outlier_ok,ideal,weight,sigma):
             assert len (atom_ids)==3
-            super().__init__(atom_ids,ideal,weight,sigma)
+            super().__init__(atom_ids,outlier_ok,ideal,weight,sigma)
         @staticmethod
         def angle(a:Atom,b:Atom,c:Atom):
             v1 = a.get_coord() - b.get_coord()
@@ -417,12 +434,12 @@ class ConstraintsHandler:
         
     class ClashConstraint(Constraint):
         default_weight=1
-        def __init__(self,atom_ids,altlocs,badness,weight=None,sigma=None):
+        def __init__(self,atom_ids,outlier_ok,altlocs,badness,weight=None,sigma=None):
             self.altlocs = altlocs
             self.badness = badness
             if weight is None:
                 weight = ConstraintsHandler.ClashConstraint.default_weight
-            super().__init__(atom_ids,None,weight,None)
+            super().__init__(atom_ids,outlier_ok,None,weight,None)
         def get_distance(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
@@ -436,10 +453,10 @@ class ConstraintsHandler:
     class NonbondConstraint(Constraint):
         # TODO currently just looks at the smallest separation of all symmetries.
         default_weight=1
-        def __init__(self,atom_ids,ideal_separation,symmetries,weight=None):
+        def __init__(self,atom_ids,outlier_ok,ideal_separation,symmetries,weight=None):
             if weight is None:
                 weight = ConstraintsHandler.NonbondConstraint.default_weight
-            super().__init__(atom_ids,ideal_separation,weight,None)
+            super().__init__(atom_ids,outlier_ok,ideal_separation,weight,None)
             # if (DisorderedTag(17,"H") in self.site_tags) and (DisorderedTag(81,"O") in self.site_tags):
             self.symmetries=symmetries
         @staticmethod
@@ -525,8 +542,26 @@ class ConstraintsHandler:
             # if site == DisorderedTag(17,"N"):
             #     print(self.atom_constraints[site])
 
-    def load_all_constraints(self,constraints_file,nonbond_scores_files,water_clashes,ordered_atom_lookup:OrderedAtomLookup,symmetries, water_water_nonbond:bool,constraints_to_skip=[]):
+    def load_all_constraints(self,constraints_file,nonbond_scores_files,water_clashes,ordered_atom_lookup:OrderedAtomLookup,symmetries, water_water_nonbond:bool,constraints_to_skip=[],potential_overrides_file=None):
         print(f"Parsing constraints in {constraints_file}")
+
+
+        outliers_to_ignore:list[tuple[str,list[str]]]=[]
+        def outlier_ok(kind:str,pdb_strings:list[str]):
+            return False
+        if ALLOW_OUTLIERS_FROM_POTENTIAL_OVERRIDES and potential_overrides_file is not None:
+            with open(potential_overrides_file) as f:
+                for line in f:
+                    kind = line.split()[0]
+                    atom_ids = line.split("|")[-1].strip().split()
+                    outliers_to_ignore.append((kind,atom_ids))
+            def outlier_ok(kind:str,pdb_strings:list[str]):
+                atom_strings = []
+                for p in pdb_strings:
+                    name = p[0:4].strip()
+                    resnum = p.strip().split()[-1]
+                    atom_strings.append(f"{name}_{resnum}")
+                return (kind,atom_strings) in outliers_to_ignore
 
         self.constraints: list[ConstraintsHandler.Constraint]=[]
         with open(constraints_file,"r") as f:
@@ -544,7 +579,8 @@ class ConstraintsHandler:
                     # if altloc!=ordered_atom_lookup.altlocs[0]: # just look at one altloc to get constraint. 
                     #     continue
                     #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
-                    self.add(ConstraintsHandler.BondConstraint((pdb1,pdb2),ideal,weight,sigma),residual)
+                    pdb_ids = (pdb1,pdb2)
+                    self.add(ConstraintsHandler.BondConstraint(pdb_ids,outlier_ok("BOND",pdb_ids),ideal,weight,sigma),residual)
                 if line.startswith("angle"):
                     if ConstraintsHandler.AngleConstraint in constraints_to_skip:
                         continue
@@ -557,7 +593,8 @@ class ConstraintsHandler:
                     # if altloc!=ordered_atom_lookup.altlocs[0]:
                     #     continue
                     #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
-                    self.add(ConstraintsHandler.AngleConstraint((pdb1,pdb2,pdb3),ideal,weight,sigma),residual)
+                    pdb_ids = (pdb1,pdb2,pdb3)
+                    self.add(ConstraintsHandler.AngleConstraint(pdb_ids,outlier_ok("ANGLE",pdb_ids),ideal,weight,sigma),residual)
                 
        
         # Add nonbonds that are flagged as issues for current structure AND when waters are swapped
@@ -619,7 +656,7 @@ class ConstraintsHandler:
                         pdb_ids = (pdb1,pdb2)
                         pdb_ids_flipped = (pdb2,pdb1)
                         if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
-                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal,symmetries),None)  
+                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),ideal,symmetries),None)  
                             NB_pdb_ids_added.append(pdb_ids)  
         num_nonbonded_from_geo = len(NB_pdb_ids_added)
         if water_water_nonbond:  # TODO Symmetry clashes
@@ -635,7 +672,7 @@ class ConstraintsHandler:
                         pdb_ids = (pdb1,pdb2)
                         pdb_ids_flipped = (pdb2,pdb1)
                         if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
-                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,ideal_water_separation,symmetries),None)
+                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),ideal_water_separation,symmetries),None)
                             NB_pdb_ids_added.append(pdb_ids)     
         num_nonbonded_extra = len(NB_pdb_ids_added)-num_nonbonded_from_geo
 
@@ -648,7 +685,10 @@ class ConstraintsHandler:
                         break
                 else:
                     pdb_ids = [f"{n}     ARES     A      {r}" for (n,r) in zip(name,res_num)]
-                    self.add(ConstraintsHandler.ClashConstraint(pdb_ids,altloc,badness))
+                    self.add(ConstraintsHandler.ClashConstraint(pdb_ids,outlier_ok("CLASH",pdb_ids),altloc,badness))
+
+
+
 
 # Ugh, never do inheritance. TODO refactor to composition.
 class AtomChunk(OrderedResidue):
@@ -707,6 +747,12 @@ class MTSP_Solver:
     min_sigmas_where_anything_goes={
         ConstraintsHandler.BondConstraint:2.5,
         ConstraintsHandler.AngleConstraint:2.5,
+    } 
+    min_tension_where_anything_goes={
+        ConstraintsHandler.BondConstraint:4,
+        ConstraintsHandler.AngleConstraint:5,
+        ConstraintsHandler.NonbondConstraint:4,
+        ConstraintsHandler.ClashConstraint:4,
     } 
     ### This commented out code computes wE for combinations of larger groups of atoms.  
     # Could be useful in future as a quick coarse step... but would probably be better 
@@ -770,9 +816,9 @@ class MTSP_Solver:
     #             return
     #         _,self.ts_distance,_ = UntangleFunctions.assess_geometry_wE(connection_structure_save_path,tmp_out_folder_path,phenixgeometry_only=quick_wE) 
 
-    class AtomChunkConnection():
+    class AtomChunkConnection(): # TODO really need to have a disordered connection class to have some of these properties (e.g. max site tension, outlier_ok)
 
-        def __init__(self, atom_chunks:list[AtomChunk],ts_distance,connection_type,hydrogen_names,z_score):
+        def __init__(self, atom_chunks:list[AtomChunk],ts_distance,connection_type,hydrogen_names,z_score,max_site_tension,outlier_ok):
             assert hydrogen_names==None or len(hydrogen_names)==len(atom_chunks)
             self.atom_chunks = atom_chunks
             self.from_altlocs=[a.get_altloc() for a in atom_chunks]
@@ -782,6 +828,10 @@ class MTSP_Solver:
             self.hydrogen_tag=""
             self.hydrogen_name_set=set([])
             self.z_score=z_score
+            ###
+            self.max_site_tension=max_site_tension
+            self.outlier_ok=outlier_ok
+            ###
             self.forbidden= (connection_type in MTSP_Solver.max_sigmas) and (self.z_score > MTSP_Solver.max_sigmas[self.connection_type]) 
             if hydrogen_names is not None:
                 self.hydrogen_tag = "_"+''.join(hydrogen_names)
@@ -1077,7 +1127,10 @@ class MTSP_Solver:
         constraints_handler=ConstraintsHandler()
         constraints_to_skip=[]
         constraints_to_skip = [kind for kind,value in constraint_weights.items() if value <= 0]
-        constraints_handler.load_all_constraints(constraints_file,nonbond_scores_files,water_clashes,self.ordered_atom_lookup,symmetries=self.symmetries,water_water_nonbond=water_water_nonbond,constraints_to_skip=constraints_to_skip)
+
+        potential_overrides = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}_potential_overrides.txt"
+        constraints_handler.load_all_constraints(constraints_file,nonbond_scores_files,water_clashes,self.ordered_atom_lookup,symmetries=self.symmetries,water_water_nonbond=water_water_nonbond,constraints_to_skip=constraints_to_skip,
+                                                 potential_overrides_file=potential_overrides)
         print("Nonordered constraint properties loaded.")
         #for n,atom in enumerate(self.ordered_atom_lookup.select_atoms_by(names=["CA","C","N"])):
 
@@ -1143,6 +1196,7 @@ class MTSP_Solver:
         '''
         ###########
 
+        #################################################################
         print("Computing connection costs")
         possible_connections:list[MTSP_Solver.AtomChunkConnection]=[]
         for c, constraint in enumerate(constraints_handler.constraints):
@@ -1179,10 +1233,12 @@ class MTSP_Solver:
             # print(set([res_name_num_dict[a] for a in atoms]))
             # print(atoms)
             # assert False
-
+            # NOTE that the tension is contributed by ALL geometric restraints affecting the sites, not just the one represented by 'constraint'
+            constraint.set_tension(np.sum([self.tensions[tag] for tag in constraint.site_tags])/len(constraint.site_tags))
+            constraint.set_max_site_tension(max([self.tensions[tag] for tag in constraint.site_tags]))
             if TENSIONS:
-                tension_mod = np.sum([self.tensions[tag] for tag in constraint.site_tags])/len(constraint.site_tags)+1
-                tension_mod*=tension_mod
+                #tension_mod = (constraint.get_tension()+1)**2
+                tension_mod = (constraint.get_max_site_tension()+1)**2
                 assert tension_mod>=1
 
 
@@ -1236,16 +1292,16 @@ class MTSP_Solver:
 
                     if TENSIONS:
                         distance*=tension_mod
+                    if constraint.outlier_ok:
+                        distance*=weight_mod_for_allowed_outliers
 
-                    connection = self.AtomChunkConnection(atom_chunks_selection,distance,type(constraint),hydrogens,z_score)
+                    connection = self.AtomChunkConnection(atom_chunks_selection,distance,type(constraint),hydrogens,z_score,constraint.get_max_site_tension(),constraint.outlier_ok)  # XXX putting max site tension in here is bad
                     possible_connections.append(connection)
             if debug_print:
                 print("added:",len(list(possible_connections))-old_num_connections)
                 print("total:",len(list(possible_connections)))
                         #print([(ch.name,ch.resnum,distance) for ch in connection.atom_chunks])
-        # for connection in possible_connections:
-        #     print(connection.ts_distance)
-        #     print("_".join(ch.unique_id() for ch in connection.atom_chunks))
+        #################################################################
 
         
 
@@ -1261,34 +1317,55 @@ class MTSP_Solver:
                 assert (connection.atom_chunks!=other.atom_chunks) or (connection.hydrogen_tag!=other.hydrogen_tag) or (connection.connection_type!=other.connection_type), f"duplicate connections of kind {connection.connection_type}, involving ordered atoms {[ch.unique_id() for ch in connection.atom_chunks]}, with badness {connection.ts_distance} and {other.ts_distance}!"
             disordered_connections[connection_id].append(connection)
         
-        # If the current connections have a sigma above a certain value, let solver consider all alternatives.
-        print(f"Re-enabling connections that are alternatives to current connections with sigma > {MTSP_Solver.min_sigmas_where_anything_goes}")
-        num_connections_re_enabled={k:0 for k in MTSP_Solver.min_sigmas_where_anything_goes}
-        num_bad_current_disordered_connections={k:0 for k in MTSP_Solver.min_sigmas_where_anything_goes}
+
+        # If the current connections have a tension above a certain value, let solver consider all alternatives.
+        print(f"Re-enabling connections that are alternatives to current connections with tension > {MTSP_Solver.min_tension_where_anything_goes}")
+        num_bad_current_disordered_connections={k:0 for k in MTSP_Solver.min_tension_where_anything_goes}
+        num_connections_re_enabled={k:0 for k in MTSP_Solver.min_tension_where_anything_goes}
         for disordered_connection_id, ordered_connections in disordered_connections.items():
-            if ordered_connections[0].connection_type not in MTSP_Solver.min_sigmas_where_anything_goes:
+
+            conn_type = ordered_connections[0].connection_type
+            if conn_type not in MTSP_Solver.min_tension_where_anything_goes:
                 continue
-            for conn in ordered_connections:
-                if conn.single_altloc() and conn.z_score >= MTSP_Solver.min_sigmas_where_anything_goes[conn.connection_type]:
-                    num_bad_current_disordered_connections[conn.connection_type]+=1
-                    break
+            if ordered_connections[0].max_site_tension >= MTSP_Solver.min_tension_where_anything_goes[conn_type]:
+                num_bad_current_disordered_connections[conn_type]+=1
             else: continue
+
             for conn in ordered_connections:
                 if conn.forbidden:
                     num_connections_re_enabled[conn.connection_type]+=1
                 conn.forbidden=False
-        print(f"Number of bad disordered connections detected: {num_bad_current_disordered_connections}") 
+        print(f"Number of high tension disordered connections detected: {num_bad_current_disordered_connections}") 
         print(f"Ordered connections re-enabled: {num_connections_re_enabled}")
+        # If the current connections have a sigma above a certain value, let solver consider all alternatives.
 
-        # for disordered_connection_id, ordered_connections in disordered_connections.items():     
-        #     anything_goes=False
-        #     for conn in ordered_connections:
-        #         if conn.single_altloc() and conn.z_score > MTSP_Solver.min_sigmas_where_anything_goes[conn.connection_type]:
-        #             anything_goes=True
-        #             break
-        #     if anything_goes:
-        #         for conn in ordered_connections:
-        #             conn.forbidden=False
+        if not TURN_OFF_MIN_SIGMAS:
+            print(f"Re-enabling connections that are alternatives to current connections with sigma > {MTSP_Solver.min_sigmas_where_anything_goes}")
+            num_bad_current_disordered_connections={k:0 for k in MTSP_Solver.min_sigmas_where_anything_goes}
+            num_connections_re_enabled={k:0 for k in MTSP_Solver.min_sigmas_where_anything_goes}
+            for disordered_connection_id, ordered_connections in disordered_connections.items():
+                if ordered_connections[0].outlier_ok:  # XXX represents disordered connection
+                    continue
+                
+                if ordered_connections[0].connection_type not in MTSP_Solver.min_sigmas_where_anything_goes:
+                    continue
+                for conn in ordered_connections:
+                    if conn.single_altloc() and conn.z_score >= MTSP_Solver.min_sigmas_where_anything_goes[conn.connection_type]:
+                        num_bad_current_disordered_connections[conn.connection_type]+=1
+                        break
+                else: continue
+                for conn in ordered_connections:
+                    if conn.forbidden:
+                        num_connections_re_enabled[conn.connection_type]+=1
+                    conn.forbidden=False
+            print(f"Number of high sigma disordered connections detected: {num_bad_current_disordered_connections}") 
+            print(f"Ordered connections re-enabled: {num_connections_re_enabled}")
+
+
+
+
+
+
                 
 
 
