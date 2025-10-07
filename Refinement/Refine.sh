@@ -222,7 +222,7 @@ mkdir -p $TMPDIR
 phenix.refine $paramFile > $logs_path/${out_handle}.log
 unset TMPDIR
 
-mv ${out_handle}_${serial}.pdb ../../../output/${out_handle}.pdb  
+cp ${out_handle}_${serial}.pdb ../../../output/${out_handle}.pdb  
 
 cd ../.. 
 

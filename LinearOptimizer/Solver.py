@@ -388,6 +388,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         #local_score_tolerate_threshold=2*worst_no_change_score
         #local_score_tolerate_threshold=2*worst_no_change_score
         #local_score_tolerate_threshold=10*worst_no_change_score
+        #local_score_tolerate_threshold=3*worst_no_change_score  # * len(altlocs)?
         local_score_tolerate_threshold=3*worst_no_change_score  # * len(altlocs)?
         always_tolerate_score_threshold = max(local_score_tolerate_threshold,global_score_tolerate_threshold) #worst_no_change_score*10+1e4
 
@@ -602,7 +603,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         elif l == 1:
             print("Solving next-best solution")
         else:
-            print(f"Solving {l}th best solution")
+            print(f"Solving {l+1}th-best solution")
         print(f"-----------------------------------------------------")
         print()
 
@@ -611,9 +612,9 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
 
         class Solver(Enum):
-            COIN="COIN"
-            CPLX_PY="CPLX_PY"
-            CPLX_CMD="CPLX_CMD"
+            COIN=PULP_CBC_CMD
+            CPLX_PY=CPLEX_PY
+            CPLX_CMD=CPLEX_CMD
 
         timeLimit=None
         if max_mins_start is not None:
@@ -625,6 +626,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         #timeLimit=None
         #threads=None
         #threads=26
+        #threads=10
         threads=10
         logPath=out_dir+"xLO-Log"+out_handle+".log"
         #logPath=None

@@ -28,6 +28,11 @@ from matplotlib import pyplot as plt
 
 DISABLE_WATER_ALTLOC_OPTIM=True
 TURN_OFF_BULK_SOLVENT=False
+CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=False
+
+
+# TODO down weight swaps that were previously made but need to be made again (i.e. cases where it's not tangled and the density is pushing it a different way.)
+# TODO Try forbid connection changes in sidechain. 
 
 class Untangler():
     working_dir = os.path.abspath(os.getcwd())
@@ -38,22 +43,22 @@ class Untangler():
     # Skip stages. Requires files to already have been generated (up to the point you are debugging).
     # If a model file hasn't been generated, will use the latest filename that exists and is expected to have been generated up to that point in the process.
     debug_skip_refine = False
-    debug_skip_initial_refine=True
+    debug_skip_initial_refine=False
     debug_skip_first_unrestrained_refine=True
     never_do_unrestrained=False
-    debug_skip_first_focus_swaps=False
-    debug_skip_first_swaps=True
+    debug_skip_first_focus_swaps=False # many swaps strategy only 
+    debug_skip_first_swaps=False
     debug_skip_unrestrained_refine=False
     debug_skip_holton_data_generation=False
     debug_skip_initial_holton_data_generation=debug_skip_initial_refine
     debug_always_accept_proposed_model=True
     auto_group_waters=False
-    debug_skip_to_loop=5
+    debug_skip_to_loop=6
     refine_water_occupancies_initial=True
     ##
     PHENIX = 1
     REFMAC = 2
-    refinement=REFMAC
+    refinement=PHENIX
     ##
     ####
     num_threads=10
@@ -332,13 +337,13 @@ class Untangler():
         self.first_loop=self.loop=0 if self.debug_skip_to_loop is None else self.debug_skip_to_loop
         
         skip_init = (self.debug_skip_refine or self.debug_skip_initial_refine or self.first_loop>0)
-        initial_model=self.initial_refine(self.current_model,debug_skip=skip_init) 
-        if skip_init and not os.path.exists(initial_model):
+        if not skip_init:
+            initial_model=self.initial_refine(self.current_model,debug_skip=skip_init) 
+        else:
             initial_model=self.current_model
             if self.first_loop>0:
-                loop_end_model_path = self.get_out_path(f"loopEnd{self.first_loop-1}")
-                if os.path.exists(loop_end_model_path):
-                    initial_model=loop_end_model_path
+                initial_model= self.get_out_path(f"loopEnd{self.first_loop-1}")
+        assert os.path.exists(initial_model)
         
         self.current_model=initial_model
 
@@ -506,6 +511,7 @@ class Untangler():
         #scoring_function_list = [ConstraintsHandler.prob_weighted_stat,ConstraintsHandler.prob_weighted_stat,ConstraintsHandler.e_density_scaled_dev,ConstraintsHandler.e_density_scaled_dev]
         #scoring_function_list = [ConstraintsHandler.prob_weighted_stat]
         scoring_function_list = [ConstraintsHandler.chi]
+        #scoring_function_list = [ConstraintsHandler.e_density_scaled_dev]
         scoring_function = scoring_function_list[self.loop%len(scoring_function_list)]
         print(f"Using scoring function: {scoring_function.__name__}")
 
@@ -515,7 +521,7 @@ class Untangler():
             
         if need_to_prepare_geom_files:
             self.prepare_pdb_and_read_altlocs(model_to_swap,model_to_swap,sep_chain_format=False) 
-            Solver.MTSP_Solver.prepare_geom_files(model_to_swap,[altloc_subset],water_swaps=not DISABLE_WATER_ALTLOC_OPTIM)
+            Solver.MTSP_Solver.prepare_geom_files(model_to_swap,[altloc_subset],water_swaps=not DISABLE_WATER_ALTLOC_OPTIM, waters = not DISABLE_WATER_ALTLOC_OPTIM)
             need_to_prepare_geom_files=False
 
         swapper.clear_candidates()
@@ -606,6 +612,7 @@ class Untangler():
         models = [f"{model_dir}{m}"  for m in models]
         best_both_decrease = np.inf
         best = np.inf
+        best_tie_breaker_meas=np.inf
         best_model=None
 
         global pooled_method # not sure if this is a good idea. Did this because it tries to pickle but fails if local. Try replacing with line: multiprocessing.set_start_method(‘fork’)
@@ -621,10 +628,14 @@ class Untangler():
             combined, wE,Rwork, Rfree = get_score(score_file_name(model))
             print("Python read | model score wE Rwork Rfree | ",model,combined, wE, Rwork, Rfree)
             if minimize_wE != minimize_R:
-                meas = Rfree if minimize_R else wE 
-                if meas < best:
+                meas, tie_breaker_meas = (Rfree, wE) if minimize_R else (wE,Rfree) 
+                if ((meas < best)
+                or (meas == best and tie_breaker_meas < best_tie_breaker_meas)
+                ):
                     best = meas
+                    best_tie_breaker_meas=tie_breaker_meas
                     best_model = model
+
 
             else: 
                 # Find best Combined Score, but where both decrease relative to current score if possible.
@@ -708,9 +719,12 @@ class Untangler():
         if measure_preswap_postswap:
             preswap_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
         if strategy == Untangler.Strategy.Batch:
+            #subset_size=3
             subset_size=3
             num_combinations=1
             altloc_subsets=self.get_altloc_subsets(subset_size,num_combinations)
+            # if self.loop==6:
+            #      altloc_subsets=[["B","A","C"]]
             cand_models,cand_swaps = [],[]
             for altloc_subset in altloc_subsets:
                 skip_swaps = self.debug_skip_first_swaps and self.loop==self.first_loop
@@ -718,7 +732,8 @@ class Untangler():
                 def get_subset_model(full_model):
                     struct=PDBParser().get_structure("struct",full_model)
                     ordered_atom_lookup = OrderedAtomLookup(struct.get_atoms(),
-                                                                protein=True,waters=True,
+                                                                protein=True,
+                                                                waters=True,
                                                                 altloc_subset=altloc_subset)   
                     #temp_path=working_model[:-4]+"_subsetOut.pdb"
                     out_path=Solver.MTSP_Solver.subset_model_path(full_model,altloc_subset)[:-4]+"Out.pdb"
@@ -737,7 +752,8 @@ class Untangler():
                 cand_models.extend(loop_cand_models)
                 cand_swaps.extend(loop_cand_swaps)
             refined_model_dir = self.regular_batch_refine(cand_models,debug_skip=self.debug_skip_refine)
-            working_model = self.determine_best_model(refined_model_dir)
+            #working_model = self.determine_best_model(refined_model_dir)
+            working_model = self.determine_best_model(refined_model_dir,minimize_wE=CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH)
             shutil.copy(working_model,self.get_out_path(f"loopEnd{self.loop}"))
             score_file_needs_generation=False
             #### TODO Sucks make better ####
@@ -849,7 +865,7 @@ class Untangler():
                     wu=wu,
                     hold_water_positions=self.holding_water(),
                     refine_occupancies=self.refine_water_occupancies_initial,
-                    #ordered_solvent=True
+                    ordered_solvent=True
                 )
             elif self.refinement == self.REFMAC:
                 refine_params=self.get_refine_params_refmac(
@@ -879,7 +895,8 @@ class Untangler():
         if self.refinement==self.PHENIX:
             for n in range(self.num_unrestrained_macro_cycles_phenix):
                 refine_params = self.get_refine_params_phenix(
-                    f"unrestrained-mc{self.loop}-{n}",
+                    #f"unrestrained-mc{self.loop}-{n}",
+                    f"unrestrained{self.loop}",
                     model_path=next_model,
                     num_macro_cycles=1,
                     wc=0,
@@ -1298,7 +1315,7 @@ def main():
     Untangler(
         # max_num_best_swaps_considered=5,
         max_num_best_swaps_considered=10,
-        starting_num_best_swaps_considered=10,
+        starting_num_best_swaps_considered=5,
         num_unrestrained_macro_cycles_phenix=1,
         weight_factors = {
             ConstraintsHandler.BondConstraint: 1,

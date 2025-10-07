@@ -30,7 +30,7 @@ class GeoXrayTension:
             geo_file = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{UntangleFunctions.model_handle(pdb)}.geo"
 
             struct = PDBParser().get_structure("struct",pdb)
-            ordered_atom_lookup=OrderedAtomLookup(struct.get_atoms())
+            ordered_atom_lookup=OrderedAtomLookup(struct.get_atoms(),waters=True)
             
             constraints_handler.load_all_constraints(geo_file,[geo_file],[],ordered_atom_lookup, symmetries,water_water_nonbond)
             atom_residual_dicts.append(constraints_handler.atom_residuals)
@@ -45,12 +45,21 @@ class GeoXrayTension:
             atom_pos_dicts.append(atom_pos_dict)
 
             
-        
+        # TODO tension should be calculated on a per conformer basis. Then average taken.
         print("Computing tensions")
         self.site_tensions:dict[DisorderedTag,float]={}
         assert len(atom_residual_dicts)>1
         assert len(atom_residual_dicts)==len(atom_pos_dicts)
         for key in atom_residual_dicts[0]:
+            broke=False
+            # skip sites (waters) that were removed # XXX better implementation?
+            for d in atom_residual_dicts:
+                if key not in d:
+                    broke=True
+                    break
+            if broke:
+                self.site_tensions[key]=0
+                continue
             residuals = [d[key] for d in atom_residual_dicts]
             # for d in atom_pos_dicts:
             #     assert key in d, list(d.keys())
@@ -71,7 +80,8 @@ class GeoXrayTension:
     @staticmethod
     def tension(delta_geo,delta_pos):
         if delta_pos == 0:
-            return 1
+            #return 1
+            return 0
         #return max(0,delta_geo/delta_pos)
         return delta_geo/delta_pos
 

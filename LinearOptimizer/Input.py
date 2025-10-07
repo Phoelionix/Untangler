@@ -48,10 +48,10 @@ from statistics import NormalDist
 from LinearOptimizer.VariableID import *
 
 
-NO_INDIV_WEIGHTS=False  # Idea being that when we do unrestrained refinement, all geometry is ignored, and all atoms are treated "equally" in fitting to xray data. So it makes little sense to weight connections of the same type differently.
+NO_INDIV_WEIGHTS=True  # (Edit: Also, could be good for avoiding undue weight placed on genuine outliers) Idea being that when we do unrestrained refinement, all geometry is ignored, and all atoms are treated "equally" in fitting to xray data. So it makes little sense to weight connections of the same type differently.
 TENSIONS=True
 TURN_OFF_MIN_SIGMAS=False # Since there are genuine outliers this could be harming things.
-ALLOW_OUTLIERS_FROM_POTENTIAL_OVERRIDES=True # Will not do min sigmas with potential genuine outliers.
+ALLOW_OUTLIERS_FROM_POTENTIAL_OVERRIDES=False # Will not do min sigmas with potential genuine outliers.
 #weight_mod_for_allowed_outliers=1e-1
 weight_mod_for_allowed_outliers=1
 
@@ -107,8 +107,11 @@ class OrderedAtomLookup: #TODO pandas?
                 tmp.set_parent(disorderedAtom.get_parent())
                 tmp.disordered_add(disorderedAtom)
                 disorderedAtom=tmp
-                print("Checking can get res num")
-                print(disorderedAtom.get_parent().get_id()[1])
+                #"Checking can get res num"
+                try:
+                    disorderedAtom.get_parent().get_id()[1]
+                except:
+                    raise Exception("Something went wrong when making ordered atom disordered")
             if res_num not in self.better_dict:
                 self.better_dict[res_num] = {}
                 if allowed_resnums is not None and allowed_resnames is not None:
@@ -741,18 +744,30 @@ class DisorderedTag():
 
 class MTSP_Solver:
     max_sigmas={
-        ConstraintsHandler.BondConstraint:4,
-        ConstraintsHandler.AngleConstraint:4,
-    } 
-    min_sigmas_where_anything_goes={
+        # ConstraintsHandler.BondConstraint:4,
+        # ConstraintsHandler.AngleConstraint:4,
         ConstraintsHandler.BondConstraint:2.5,
         ConstraintsHandler.AngleConstraint:2.5,
     } 
+    min_sigmas_where_anything_goes={
+        # ConstraintsHandler.BondConstraint:2.5,
+        # ConstraintsHandler.AngleConstraint:2.5,
+        # ConstraintsHandler.BondConstraint:4,
+        # ConstraintsHandler.AngleConstraint:4,
+        ConstraintsHandler.BondConstraint:99,
+        ConstraintsHandler.AngleConstraint:99,
+    } 
+    # min_tension_where_anything_goes={
+    #     ConstraintsHandler.BondConstraint:4,
+    #     ConstraintsHandler.AngleConstraint:5,
+    #     ConstraintsHandler.NonbondConstraint:4,
+    #     ConstraintsHandler.ClashConstraint:4,
+    # } 
     min_tension_where_anything_goes={
-        ConstraintsHandler.BondConstraint:4,
-        ConstraintsHandler.AngleConstraint:5,
-        ConstraintsHandler.NonbondConstraint:4,
-        ConstraintsHandler.ClashConstraint:4,
+        ConstraintsHandler.BondConstraint:6,
+        ConstraintsHandler.AngleConstraint:6,
+        ConstraintsHandler.NonbondConstraint:6,
+        ConstraintsHandler.ClashConstraint:6,
     } 
     ### This commented out code computes wE for combinations of larger groups of atoms.  
     # Could be useful in future as a quick coarse step... but would probably be better 
@@ -891,7 +906,7 @@ class MTSP_Solver:
         assert pdb_file_path[-4:]==".pdb",pdb_file_path
         return os.path.join(UntangleFunctions.separated_conformer_pdb_dir(), os.path.basename(pdb_file_path)[:-4]+tag+".pdb")
     @staticmethod
-    def prepare_geom_files(base_model_path,all_altloc_subsets,num_threads=10,water_swaps=True,allowed_resnums=None,allowed_resnames=None):
+    def prepare_geom_files(base_model_path,all_altloc_subsets,num_threads=10,water_swaps=True,allowed_resnums=None,allowed_resnames=None,waters=True):
         if all_altloc_subsets==[None]:
             print("Considering full set of altlocs")
 
@@ -899,7 +914,7 @@ class MTSP_Solver:
         subset_model_paths=[]
         for altloc_subset in all_altloc_subsets:
             ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),
-                                                     protein=True,waters=True,
+                                                     protein=True,waters=waters,
                                                      altloc_subset=altloc_subset,
                                                      allowed_resnums=allowed_resnums,allowed_resnames=allowed_resnames)
                     

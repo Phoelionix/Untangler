@@ -1,5 +1,6 @@
 def delete_water_copies(lines_out):
     added = []
+    lines_to_remove = []
     for i, line in enumerate(lines_out):
         resname=None
         if line.startswith("ATOM") or line.startswith("HETATM"):
@@ -7,11 +8,13 @@ def delete_water_copies(lines_out):
         if resname=="HOH":
             data=line[30:]
             if data in added:
+                lines_to_remove.append(i)
                 continue
             added.append(data) 
+    for i in lines_to_remove[::-1]:
+        del lines_out[i]
             #line = line[:16]+water_altloc+line[17:]
         
-        lines_out[i] = line
 
 def separate_altloc_set(lines_out):
     # move to separate altloc set.
@@ -39,7 +42,5 @@ def separate_altloc_set(lines_out):
         ident=line_out[:6].strip()
         if not ((ident in ["ATOM","HETATM"]) and line_out[17:20]=="HOH"):
             continue
-        print(line_out)
         altloc = line_out[16]
         lines_out[i] = line_out[:16]+convert_dict[altloc]+line_out[17:]
-        print(lines_out[i])
