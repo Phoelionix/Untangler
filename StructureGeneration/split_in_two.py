@@ -92,28 +92,8 @@ def split(pdb_path,out_path,sep_chain_format=False,protein_altloc_from_chain_fix
             max_resnum=max(resnum,max_resnum)
             last_chain = chain
             continue
-    new_solvent_lines=[]
-    for line in solvent_lines:
-        sublines= [line]
-        altloc = line[16]
-        if altloc == ' ' and missing_water_altloc_fix:
-            sublines= []
-            for a in protein_altlocs:
-                occupancy=float(line[54:60])
-                solv_line = replace_occupancy(line,occupancy/2)
-                sublines.append(replace_altloc(solv_line,a))
-        for solv_line in sublines:
-            a = solv_line[16]
-            #solv_line = replace_res_num(solv_line,max_resnum+1)
-            #print(solv_line)
-            #max_resnum+=1
-            new_solvent_lines.append(replace_chain(solv_line,solvent_chain_id))
-            if a not in solvent_altlocs:
-                assert (a != ' '), solv_line
-                solvent_altlocs.append(a) 
-    solvent_lines = new_solvent_lines
 
-    assert len(set(protein_altlocs) & set(solvent_altlocs))==len(protein_altlocs)==len(solvent_altlocs), (protein_altlocs,solvent_altlocs)
+    #assert len(set(protein_altlocs) & set(solvent_altlocs))==len(protein_altlocs)==len(solvent_altlocs), (protein_altlocs,solvent_altlocs)
     new_altlocs={}
     for a in new_altloc_options:
         if a not in protein_altlocs:
@@ -164,17 +144,24 @@ def split(pdb_path,out_path,sep_chain_format=False,protein_altloc_from_chain_fix
         solvent_resnum=int(line[22:26])
         min_solvent_resnum = min(solvent_resnum,min_solvent_resnum)
         shift = max_resnum-min_solvent_resnum + 1
+    split_waters=False
     for line in solvent_lines:
         solvent_resnum=int(line[22:26])
         modified_line = line
         modified_line = replace_res_num(modified_line,shift+solvent_resnum)
         modified_line=replace_serial_num(modified_line,max_serial_num)
         max_serial_num+=1
-        start_lines.append(modified_line)
-        splt = replace_altloc(modified_line,split_altloc(modified_line))
-        splt = replace_serial_num(splt,max_serial_num)
-        max_serial_num+=1
-        start_lines.append(splt)
+        if split_waters:
+            start_lines.append(modified_line)
+            splt = replace_altloc(modified_line,split_altloc(modified_line))
+            splt = replace_serial_num(splt,max_serial_num)
+            max_serial_num+=1
+            start_lines.append(splt)
+        else:
+            occupancy=float(line[54:60])
+            modified_line = replace_occupancy(modified_line,occupancy*2)
+            start_lines.append(modified_line)
+
 
     with open(out_path,'w') as O:
         O.writelines(start_lines+end_lines)

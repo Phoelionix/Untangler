@@ -35,7 +35,9 @@ refine_occupancies='false'
 ordered_solvent='false'
 disable_ADP='false'
 
-while getopts ":o:u:c:n:s:whpragtzAORS" flag; do
+max_sigma_movement=0.1
+
+while getopts ":o:u:c:n:s:q:whpragtzAORS" flag; do
  case $flag in
     o) out_handle=$OPTARG
        out_handle_override='true'
@@ -47,6 +49,8 @@ while getopts ":o:u:c:n:s:whpragtzAORS" flag; do
     n) macro_cycles=$OPTARG
     ;;
     s) shake=$OPTARG
+    ;;
+    q) max_sigma_movement=$OPTARG
     ;;
     w) calc_wE='true'
     ;;
@@ -164,6 +168,8 @@ sed  "s/wxc_scale = 0.5/wxc_scale = ${wxc_scale}/g" $paramFile  > tmp.$$
 mv tmp.$$ $paramFile
 sed  "s/SHAKE_TEMPLATE/${shake}/g" $paramFile  > tmp.$$ 
 mv tmp.$$ $paramFile
+sed  "s/      sigma = 0.1/      sigma = ${max_sigma_movement}/g" $paramFile  > tmp.$$ 
+mv tmp.$$ $paramFile
 
 if $no_mlhl; then
   sed "s/target = auto ml \*mlhl ml_sad ls mli/target = *auto ml mlhl ml_sad ls mli/g" $paramFile > tmp.$$ 
@@ -204,6 +210,7 @@ if ! $restrain_movement; then
     sed 's/reference_coordinate_restraints {\n      enabled = True/reference_coordinate_restraints {\n      enabled = False/g' $paramFile  > tmp.$$ 
     mv tmp.$$ $paramFile
 fi 
+
 
 
 

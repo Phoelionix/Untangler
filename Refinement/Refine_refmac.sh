@@ -13,8 +13,10 @@ xyz_handle=${xyz_file%.*}
 trials=0
 min_trials=0
 
+
 dampA=0.02
-dampB=0.05
+dampB=0.02
+dampC=0.05
 
 #wc=0.5
 #wc=1.0
@@ -28,7 +30,7 @@ calc_wE='false'
 refine_water_occupancy='false'
 turn_off_bulk_solvent='false'
 
-while getopts ":c:o:m:n:A:B:tuwW" flag; do
+while getopts ":c:o:m:n:A:B:C:tuwW" flag; do
  case $flag in
     c) wc=$OPTARG
     ;;
@@ -45,6 +47,8 @@ while getopts ":c:o:m:n:A:B:tuwW" flag; do
     ;;
     B) dampB=$OPTARG
     ;;
+    C) dampB=$OPTARG
+    ;;
     u) unrestrained='true'
     ;;
     w) calc_wE='true'
@@ -59,9 +63,15 @@ while getopts ":c:o:m:n:A:B:tuwW" flag; do
 done
 
 
+
+
+
 if ! $out_handle_override; then
   out_handle=${xyz_handle}_refined
 fi 
+
+xyz_path=$(realpath -s --relative-to="$(dirname "$0")" "$xyz_path" )
+hkl_path=$(realpath -s --relative-to="$(dirname "$0")" "$hkl_path" )
 
 
 cd $(dirname "$0")
@@ -93,8 +103,11 @@ EOF
 # Appending...
 
 cat >> refmac_opts.txt << EOF
-damp $dampA $dampA $dampB
+damp $dampA $dampB $dampC
 EOF
+
+# solvent yes
+# SOLVENT VDWP 1.4 IONP 0.80 RSHR 0.8
 
 
 

@@ -50,8 +50,8 @@ def get_altlocs(pdb_path):
     return protein_altlocs,solvent_altlocs
 
 
-def split_worst(pdb_path,out_path,sep_chain_format=False,protein_altloc_from_chain_fix=False,missing_water_altloc_fix=True):
-    
+def split_worst(pdb_path,out_path,split_waters,sep_chain_format=False,protein_altloc_from_chain_fix=False,missing_water_altloc_fix=True):
+    assert False, "Bad idea, want interchangeable occupancies"
 
     altloc_options = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -222,7 +222,8 @@ def split_worst(pdb_path,out_path,sep_chain_format=False,protein_altloc_from_cha
         modified_line = line
         
         child_altloc = split_altloc(modified_line)
-        if child_altloc is not None:
+        do_split = (child_altloc is not None and split_waters)
+        if do_split:
             occupancy=float(modified_line[54:60])
             modified_line = replace_occupancy(modified_line,occupancy/2)
 
@@ -231,7 +232,7 @@ def split_worst(pdb_path,out_path,sep_chain_format=False,protein_altloc_from_cha
         max_serial_num+=1
         start_lines.append(modified_line)
 
-        if child_altloc is not None:
+        if do_split:
             splt = replace_altloc(modified_line,child_altloc)
             splt = replace_serial_num(splt,max_serial_num)
             max_serial_num+=1
@@ -246,5 +247,5 @@ if __name__ == "__main__":
     assert pdb_path[-4:] == ".pdb"
     out_path = pdb_path[:-4]+"_splitworst.pdb"
 
-    split_worst(pdb_path,out_path)
+    split_worst(pdb_path,out_path,split_waters=False)
 

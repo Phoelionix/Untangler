@@ -20,7 +20,7 @@
     }
     dist_min = 1.8
     dist_max = 3.2
-    dist_min_altloc = 0
+    dist_min_altloc = 0.03
     refine_oat = False
     refine_adp = True
     refine_occupancies = False

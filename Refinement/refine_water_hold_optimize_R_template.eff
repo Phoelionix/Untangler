@@ -1405,7 +1405,7 @@ bond {
     }
     dist_min = 1.8
     dist_max = 3.2
-    dist_min_altloc = 0.5
+    dist_min_altloc = 0.03
     refine_oat = False
     refine_adp = True
     refine_occupancies = True
@@ -1413,9 +1413,9 @@ bond {
     b_iso_min = 1.0
     b_iso_max = 80.0
     anisotropy_min = 0.1
-    occupancy_min = 0.2
+    occupancy_min = 0.02
     occupancy_max = 1.0
-    occupancy = 1.0
+    occupancy = 0.33
     filter_at_start = True
     ignore_final_filtering_step = False
     correct_drifted_waters = True
