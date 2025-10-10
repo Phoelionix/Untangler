@@ -8,6 +8,7 @@ import numpy as np
 
 # Tension between Geo and X-ray
 
+
 def create_delta_constraints_file(pre_unrestrained_constraints_file,post_unrestrained_constraints_file):
     pass
 
@@ -70,14 +71,18 @@ class GeoXrayTension:
                 assert len(positions[i])==len(positions[i+1])
                 mean_separation=0
                 for altloc in positions[i]:
+                    if altloc not in positions[i+1]:
+                        continue  # TODO why is this necessary? Waters?
                     mean_separation += separation(positions[i+1][altloc],positions[i][altloc])
                 mean_separation/=len(positions[i])
                 displacements.append(mean_separation)
             self.site_tensions[key]=np.mean([GeoXrayTension.tension(g,d) for g,d in zip (deltas_geo, displacements)]) 
         mean_tension = np.mean([abs(t) for t in self.site_tensions.values()])
+        assert mean_tension > 0
         for key in self.site_tensions:
             self.site_tensions[key]/=mean_tension
     @staticmethod
+    # TODO delta_pos should be relative to average mean shift of all atoms involved in the geometry
     def tension(delta_geo,delta_pos):
         if delta_pos == 0:
             #return 1

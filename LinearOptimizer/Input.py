@@ -48,12 +48,15 @@ from statistics import NormalDist
 from LinearOptimizer.VariableID import *
 
 
-NO_INDIV_WEIGHTS=True  # (Edit: Also, could be good for avoiding undue weight placed on genuine outliers) Idea being that when we do unrestrained refinement, all geometry is ignored, and all atoms are treated "equally" in fitting to xray data. So it makes little sense to weight connections of the same type differently.
-TENSIONS=True
+NO_INDIV_WEIGHTS=False  # (Edit: Also, could be good for avoiding undue weight placed on genuine outliers) Idea being that when we do unrestrained refinement, all geometry is ignored, and all atoms are treated "equally" in fitting to xray data. So it makes little sense to weight connections of the same type differently.
+APPLY_TENSION_MOD=False
 TURN_OFF_MIN_SIGMAS=False # Since there are genuine outliers this could be harming things.
 ALLOW_OUTLIERS_FROM_POTENTIAL_OVERRIDES=False # Will not do min sigmas with potential genuine outliers.
 #weight_mod_for_allowed_outliers=1e-1
 weight_mod_for_allowed_outliers=1
+#high_tension_penalty=1.75  # Penalty for current connections (i.e. geometries? groups?) that correspond to a high tension (above min_tension_where_anything_goes). TODO should just be a penalty for not having any geometries involving the site change.
+#high_tension_penalty=10  # Penalty for current connections (i.e. geometries? groups?) that correspond to a high tension (above min_tension_where_anything_goes). TODO should just be a penalty for not having any geometries involving the site change.
+high_tension_penalty=1  # Penalty for current connections (i.e. geometries? groups?) that correspond to a high tension (above min_tension_where_anything_goes). TODO should just be a penalty for not having any geometries involving the site change.
 
 #TODO could try reverting model back to preswap model.
 
@@ -339,8 +342,8 @@ class ConstraintsHandler:
             self.outlier_ok=outlier_ok
             #self.sigma=1
             self.num_bound_e= sum([site.num_bound_e() for site in self.site_tags])
-            self.tension = None
-            self.max_site_tension = None
+            self.tension = 0
+            self.max_site_tension = 0
         def get_tension(self):
             return self.tension
         def get_max_site_tension(self):
@@ -743,32 +746,79 @@ class DisorderedTag():
 
 
 class MTSP_Solver:
-    max_sigmas={
-        # ConstraintsHandler.BondConstraint:4,
-        # ConstraintsHandler.AngleConstraint:4,
-        ConstraintsHandler.BondConstraint:2.5,
-        ConstraintsHandler.AngleConstraint:2.5,
-    } 
-    min_sigmas_where_anything_goes={
-        # ConstraintsHandler.BondConstraint:2.5,
-        # ConstraintsHandler.AngleConstraint:2.5,
-        # ConstraintsHandler.BondConstraint:4,
-        # ConstraintsHandler.AngleConstraint:4,
-        ConstraintsHandler.BondConstraint:99,
-        ConstraintsHandler.AngleConstraint:99,
-    } 
-    # min_tension_where_anything_goes={
-    #     ConstraintsHandler.BondConstraint:4,
-    #     ConstraintsHandler.AngleConstraint:5,
-    #     ConstraintsHandler.NonbondConstraint:4,
-    #     ConstraintsHandler.ClashConstraint:4,
-    # } 
-    min_tension_where_anything_goes={
-        ConstraintsHandler.BondConstraint:6,
-        ConstraintsHandler.AngleConstraint:6,
-        ConstraintsHandler.NonbondConstraint:6,
-        ConstraintsHandler.ClashConstraint:6,
-    } 
+    MODE="PHENIX" # PHENIX
+    if MODE=="PHENIX":
+        max_sigmas={
+            # ConstraintsHandler.BondConstraint:4,
+            # ConstraintsHandler.AngleConstraint:4,
+            #ConstraintsHandler.BondConstraint:6,
+            #ConstraintsHandler.AngleConstraint:3,
+            ConstraintsHandler.BondConstraint:4,
+            ConstraintsHandler.AngleConstraint:3,
+            # ConstraintsHandler.BondConstraint:2,
+            # ConstraintsHandler.AngleConstraint:2,
+            # ConstraintsHandler.BondConstraint:99,
+            # ConstraintsHandler.AngleConstraint:99,
+        } 
+        min_sigmas_where_anything_goes={
+            ConstraintsHandler.BondConstraint:2.5,
+            ConstraintsHandler.AngleConstraint:2.5,
+            # ConstraintsHandler.BondConstraint:4,
+            # ConstraintsHandler.AngleConstraint:4,
+            # ConstraintsHandler.BondConstraint:99,
+            # ConstraintsHandler.AngleConstraint:99,
+        } 
+        # min_tension_where_anything_goes={
+        #     ConstraintsHandler.BondConstraint:4,
+        #     ConstraintsHandler.AngleConstraint:5,
+        #     ConstraintsHandler.NonbondConstraint:4,
+        #     ConstraintsHandler.ClashConstraint:4,
+        # } 
+        min_tension_where_anything_goes={
+            ConstraintsHandler.BondConstraint:6,
+            ConstraintsHandler.AngleConstraint:6,
+            ConstraintsHandler.NonbondConstraint:6,
+            ConstraintsHandler.ClashConstraint:6,
+            # ConstraintsHandler.BondConstraint:7,
+            # ConstraintsHandler.AngleConstraint:7,
+            # ConstraintsHandler.NonbondConstraint:7,
+            # ConstraintsHandler.ClashConstraint:7,
+        } 
+    if MODE == "REFMAC":
+        max_sigmas={
+            # ConstraintsHandler.BondConstraint:4,
+            # ConstraintsHandler.AngleConstraint:4,
+            # ConstraintsHandler.BondConstraint:2.5,
+            # ConstraintsHandler.AngleConstraint:2.5,
+            ConstraintsHandler.BondConstraint:4,
+            ConstraintsHandler.AngleConstraint:4,
+            # ConstraintsHandler.BondConstraint:99,
+            # ConstraintsHandler.AngleConstraint:99,
+        } 
+        min_sigmas_where_anything_goes={
+            # ConstraintsHandler.BondConstraint:2.5,
+            # ConstraintsHandler.AngleConstraint:2.5,
+            ConstraintsHandler.BondConstraint:2,
+             ConstraintsHandler.AngleConstraint:3,
+            # ConstraintsHandler.BondConstraint:99,
+            # ConstraintsHandler.AngleConstraint:99,
+        } 
+        # min_tension_where_anything_goes={
+        #     ConstraintsHandler.BondConstraint:4,
+        #     ConstraintsHandler.AngleConstraint:5,
+        #     ConstraintsHandler.NonbondConstraint:4,
+        #     ConstraintsHandler.ClashConstraint:4,
+        # } 
+        min_tension_where_anything_goes={
+            ConstraintsHandler.BondConstraint:6,
+            ConstraintsHandler.AngleConstraint:6,
+            ConstraintsHandler.NonbondConstraint:6,
+            ConstraintsHandler.ClashConstraint:6,
+            # ConstraintsHandler.BondConstraint:5,
+            # ConstraintsHandler.AngleConstraint:5,
+            # ConstraintsHandler.NonbondConstraint:5,
+            # ConstraintsHandler.ClashConstraint:5,
+        } 
     ### This commented out code computes wE for combinations of larger groups of atoms.  
     # Could be useful in future as a quick coarse step... but would probably be better 
     # to build up from the atom-site approach, coding the wE measure directly.   
@@ -858,7 +908,7 @@ class MTSP_Solver:
             return f"{kind}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
 
 
-    def __init__(self,pdb_file_path:str,tensions:dict[DisorderedTag,float], symmetries, align_uncertainty=False,ignore_waters=False,altloc_subset=None,resnums=None,resnames=None): 
+    def __init__(self,pdb_file_path:str,APPLY_TENSION_MOD:dict[DisorderedTag,float], symmetries, align_uncertainty=False,ignore_waters=False,altloc_subset=None,resnums=None,resnames=None): 
         # TODO when subset size > 2, employ fragmentation/partitioning.
          
         # Note if we ignore waters then we aren't considering nonbond clashes between macromolecule and water.
@@ -882,7 +932,7 @@ class MTSP_Solver:
                                                      altloc_subset=altloc_subset,
                                                      allowed_resnums=resnums,allowed_resnames=resnames)   
         self.model_path=MTSP_Solver.subset_model_path(pdb_file_path,altloc_subset)
-        self.tensions=tensions
+        self.APPLY_TENSION_MOD=APPLY_TENSION_MOD
         
     def align_uncertainty(self,structure:Structure.Structure):
         # in x-ray data and geom.
@@ -1249,12 +1299,15 @@ class MTSP_Solver:
             # print(atoms)
             # assert False
             # NOTE that the tension is contributed by ALL geometric restraints affecting the sites, not just the one represented by 'constraint'
-            constraint.set_tension(np.sum([self.tensions[tag] for tag in constraint.site_tags])/len(constraint.site_tags))
-            constraint.set_max_site_tension(max([self.tensions[tag] for tag in constraint.site_tags]))
-            if TENSIONS:
-                #tension_mod = (constraint.get_tension()+1)**2
-                tension_mod = (constraint.get_max_site_tension()+1)**2
-                assert tension_mod>=1
+            tension_mod=None
+            if self.APPLY_TENSION_MOD is not None:
+                constraint.set_tension(np.sum([self.APPLY_TENSION_MOD[tag] for tag in constraint.site_tags])/len(constraint.site_tags))
+                constraint.set_max_site_tension(max([self.APPLY_TENSION_MOD[tag] for tag in constraint.site_tags]))
+                if APPLY_TENSION_MOD:
+                    #tension_mod = (constraint.get_tension()+1)**2
+                    #tension_mod = (constraint.get_max_site_tension()+1)**2
+                    tension_mod = (constraint.get_max_site_tension()+1)**2
+                    assert tension_mod>=1
 
 
             for atoms in combinations_iterator:
@@ -1305,7 +1358,7 @@ class MTSP_Solver:
                     for ach in atom_chunks_selection:
                         assert constraint in ach.constraints_holder.constraints, (constraint, ach.get_disordered_tag(), [c for c in ach.constraints_holder.constraints])
 
-                    if TENSIONS:
+                    if tension_mod is not None:
                         distance*=tension_mod
                     if constraint.outlier_ok:
                         distance*=weight_mod_for_allowed_outliers
@@ -1350,6 +1403,9 @@ class MTSP_Solver:
                 if conn.forbidden:
                     num_connections_re_enabled[conn.connection_type]+=1
                 conn.forbidden=False
+                if conn.single_altloc():
+                    if conn_type == ConstraintsHandler.AngleConstraint:
+                        conn.ts_distance*=high_tension_penalty
         print(f"Number of high tension disordered connections detected: {num_bad_current_disordered_connections}") 
         print(f"Ordered connections re-enabled: {num_connections_re_enabled}")
         # If the current connections have a sigma above a certain value, let solver consider all alternatives.
