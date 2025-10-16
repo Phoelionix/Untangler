@@ -326,9 +326,12 @@ class ConstraintsHandler:
     @staticmethod
     def scaled_dev(dev,sigma,ideal,num_bound_e):
         return abs(dev)/ideal*10
+    @staticmethod
     def e_density_scaled_dev(dev,sigma,ideal,num_bound_e):
         return abs(dev)/ideal*num_bound_e
-    
+    @staticmethod
+    def dev_sqr(dev,sigma,ideal,num_bound_e):
+        return  dev**2
 
 
     class Constraint():
@@ -609,7 +612,7 @@ class ConstraintsHandler:
         print("WARNING: assuming elements all single character")
         NB_pdb_ids_added = []
         for file in (nonbond_scores_files):
-            if ConstraintsHandler.BondConstraint in constraints_to_skip:
+            if ConstraintsHandler.NonbondConstraint in constraints_to_skip:
                 break
 
             with open(file) as f:
@@ -746,7 +749,41 @@ class DisorderedTag():
 
 
 class MTSP_Solver:
-    MODE="PHENIX" # PHENIX
+    MODE= "NO_RESTRICTIONS" #"HIGH_TOL" #"NO_RESTRICTIONS" # PHENIX REFMAC
+
+    if MODE=="NO_RESTRICTIONS":
+        max_sigmas=min_sigmas_where_anything_goes=min_tension_where_anything_goes={}
+    if MODE=="HIGH_TOL":
+        max_sigmas={
+            # ConstraintsHandler.BondConstraint:4,
+            # ConstraintsHandler.AngleConstraint:4,
+            #ConstraintsHandler.BondConstraint:6,
+            #ConstraintsHandler.AngleConstraint:3,
+            ConstraintsHandler.BondConstraint:3,
+            ConstraintsHandler.AngleConstraint:3,
+            # ConstraintsHandler.BondConstraint:2,
+            # ConstraintsHandler.AngleConstraint:2,
+            # ConstraintsHandler.BondConstraint:99,
+            # ConstraintsHandler.AngleConstraint:99,
+        }    
+        min_sigmas_where_anything_goes={
+            ConstraintsHandler.BondConstraint:2,
+            ConstraintsHandler.AngleConstraint:2,
+            # ConstraintsHandler.BondConstraint:4,
+            # ConstraintsHandler.AngleConstraint:4,
+            # ConstraintsHandler.BondConstraint:99,
+            # ConstraintsHandler.AngleConstraint:99,
+        } 
+        min_tension_where_anything_goes={
+            ConstraintsHandler.BondConstraint:5,
+            ConstraintsHandler.AngleConstraint:5,
+            ConstraintsHandler.NonbondConstraint:5,
+            ConstraintsHandler.ClashConstraint:5,
+            # ConstraintsHandler.BondConstraint:7,
+            # ConstraintsHandler.AngleConstraint:7,
+            # ConstraintsHandler.NonbondConstraint:7,
+            # ConstraintsHandler.ClashConstraint:7,
+        } 
     if MODE=="PHENIX":
         max_sigmas={
             # ConstraintsHandler.BondConstraint:4,
