@@ -27,7 +27,11 @@
 # Also need to look at exploring different branches of solutions in an intelligent way, and with parallel processing.  
 
 DEBUG_FIRST_100_SITES=False
-
+# If difference in cost from lowest costing ordered connection of the disordered connection is tiny, don't bother optimizing for it. (small fry)
+#required_cost_range_to_consider=1.0e-2
+required_cost_range_to_consider=0
+TURN_OFF_FORBID_CHANGE_CONDITIONS=True
+PLOTTING=True
 
 import pulp as pl
 import numpy as np
@@ -40,22 +44,26 @@ import json
 from copy import deepcopy
 import gc; 
 import sys
+import matplotlib.pyplot as plt
+
+
 
 #import pulp as pl
 # just for residues for now
 
 
 
+assert required_cost_range_to_consider>=0
 
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[MTSP_Solver.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True,
-          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=3,mins_extra_per_loop=0.5,gapRel=0.001,
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=2,mins_extra_per_loop=0.1,gapRel=0.001,
           forbid_altloc_changes={"name":[]}, forbidden_atom_bond_changes={"name":[]},forbidden_atom_any_connection_changes={"name":[]},
           MAIN_CHAIN_ONLY=False,SIDE_CHAIN_ONLY=False,NO_CB_CHANGES=False,
           #max_bond_changes=None):  
           #max_bond_changes=24):  
           #max_bond_changes=7):  
-          max_bond_changes=3):  
+          max_bond_changes=None):  
           #max_bond_changes=None):  
     # protein_sites, water_sites: Whether these can be swapped.
     # gaprel : relative gap tolerance for the solver to stop (fraction) # https://coin-or.github.io/pulp/technical/solvers.html
@@ -248,7 +256,9 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         nonlocal lp_problem  
 
 
-        def forbid_conditions():
+        def forbid_change_conditions():
+            if TURN_OFF_FORBID_CHANGE_CONDITIONS:
+                return False
             # Forbid changes that are costly to consider and don't seem to tangle
             for ch in disordered_connection[0].atom_chunks:
                 if constraint_type==VariableKind.Bond:
@@ -272,10 +282,9 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                     return True
             return False
         
-        forbid_constraint_change=forbid_conditions()
+        forbid_constraint_change=forbid_change_conditions()
         
-        # If deviation is tiny, don't bother optimizing for it.
-        required_cost_range_to_consider=1.0e-2
+
         scores = [conn.ts_distance for conn in disordered_connection]
         # if max(scores)-min(scores) < required_cost_range_to_consider:
         #     num_small_fry_disordered_connections+=1
@@ -821,19 +830,30 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         ####
 
         ### Changed Connections ###
+        # sigmas_i, costs_i, sigmas_f, costs_f
+        if PLOTTING:
+            all_sigma_costs:list[list[tuple[float]]]=[]
+
+
         changed_disordered_connections=[]
         for disordered_connection_var_dict in mega_connection_var_dict.values():
             active_constraints=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if var.value()>0]
+            original_constraints=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if constraint.single_altloc()]
+
+            if PLOTTING:
+                all_sigma_costs.append([(i[0].z_score,i[0].ts_distance,f[0].z_score, f[0].ts_distance) for (i,f) in zip(original_constraints,active_constraints)])
+
             no_change= all([constr.single_altloc() for constr,_ in active_constraints])
             if no_change:
                 continue
 
-            original_constraints=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if constraint.single_altloc()]
             original_cost = np.sum([constraint.ts_distance for constraint,_ in original_constraints])
             active_cost = np.sum([constraint.ts_distance for constraint,_ in active_constraints])
 
             original_constraints.sort(key=lambda x: x[0].ts_distance,reverse=True)
             active_constraints.sort(key=lambda x: x[0].ts_distance,reverse=True)
+
+
             #original_constraints.sort(key=lambda x: x[0].z_score,reverse=True)
             #active_constraints.sort(key=lambda x: x[0].z_score,reverse=True)
 
@@ -867,7 +887,35 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             out_str+="-----------------------\n"
         with open(f"{out_dir}/xLO-ChangedConnections{out_handle}.txt",'w') as f:
             f.write(out_str)
+
+        if PLOTTING:
+            all_sigma_costs = np.array(all_sigma_costs,dtype=np.float32)
+            xlim_dict:dict[str,tuple[float]]={}
+            for i, name in enumerate(["sigma_i","costs_i","sigma_f","costs_f"]):
+                X=all_sigma_costs[...,i].flatten()
+                # Same x limits for initial and final (TODO same y limits... need to refactor)
+                variable_kind = name.split("_")[0] #XXX
+                if variable_kind not in xlim_dict:
+                    xlim=(np.quantile(X,0.95),np.max(X))
+                    xlim_dict[variable_kind]=xlim
+                else:
+                    xlim=xlim_dict[variable_kind]
+                    
+                
+
+                plt.hist(X,bins=20,range=xlim)
+                plt.yscale('log')
+                plt.ylim([0.9,None])
+
+                plt.xlabel(name)
+                plt.ylabel("frequency")
+                plt.savefig(f"{name}.png")
+                plt.close()
+                
         ##########
+        
+            
+
 
         site_assignments:dict[VariableID,dict[str,dict[str,int]]] = {}
         site_assignment_arrays.append(site_assignments)
