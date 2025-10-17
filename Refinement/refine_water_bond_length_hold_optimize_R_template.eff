@@ -552,7 +552,6 @@ refinement {
       nucleic_acid {
         enabled = True
         hbond_distance_cutoff = 3.4
-        angle_between_bond_and_nucleobase_cutoff = 35
         scale_bonds_sigma = 1
         base_pair {
           enabled = True
@@ -1609,7 +1608,7 @@ bond {
     enabled = False
     file = ../data/ground_truth_water.pdb
     use_starting_model_as_reference = False
-    sigma = 0
+    sigma = 0.1
     limit = 15
     hydrogens = True
     main_chain = False
