@@ -77,7 +77,10 @@ def get_score(score_file,phenixgeometry_only=False):
                 return combined_score,wE_score,Rwork, Rfree
 
 
-def create_score_file(pdb_file_path,log_out_folder_path,phenixgeometry_only=False):
+def batch_create_score_files(pdb_file_path,log_out_folder_path):
+    assert False, "Unimplemented"
+
+def create_score_file(pdb_file_path,log_out_folder_path):
     holton_folder_path = UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/"
 
     #generate_holton_data_shell_file=self.holton_folder_path+'GenerateHoltonData.sh'
@@ -85,8 +88,6 @@ def create_score_file(pdb_file_path,log_out_folder_path,phenixgeometry_only=Fals
     handle = os.path.basename(pdb_file_path)[:-4]
     #generate_holton_data_shell_file=self.holton_folder_path+'GenerateHoltonDataOriginal.sh' # for testing...
     generate_holton_data_shell_file=holton_folder_path+'GenerateHoltonData.sh'
-    if phenixgeometry_only:
-        generate_holton_data_shell_file=holton_folder_path+'GenerateHoltonDataQuick.sh' #
 
     score_file=score_file_name(pdb_file_path)
     if os.path.exists(score_file):
@@ -137,10 +138,10 @@ def geo_file_name(pdb_file_path):
     handle = os.path.basename(pdb_file_path)[:-4]
     return holton_folder_path+f'HoltonOutputs/{handle}.geo'
 
-def assess_geometry_wE(pdb_file_path,log_out_folder_path,phenixgeometry_only=False):
-    score_file = create_score_file(pdb_file_path,log_out_folder_path,phenixgeometry_only)
+def assess_geometry_wE(pdb_file_path,log_out_folder_path):
+    score_file = create_score_file(pdb_file_path,log_out_folder_path)
     assert score_file == score_file_name(pdb_file_path)
-    return get_score(score_file,phenixgeometry_only=phenixgeometry_only)
+    return get_score(score_file)
 
             
 def res_is_water(res):

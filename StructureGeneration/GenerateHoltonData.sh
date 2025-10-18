@@ -5,6 +5,8 @@ modelPDBPath=$1
 cd $(dirname "$0")
 
 
+wxray=1 #10
+
 #auto_ignore_geometries='true'
 auto_ignore_geometries='false'
 
@@ -28,7 +30,11 @@ if $auto_ignore_geometries; then
     args="${args} overridefile=${handle}_potential_overrides.txt"
 fi
 
-../../Measures/untangle_score.csh ../$modelPDBPath $args > "${handle}_log.txt" 
+args="${args} wxray=$wxray"
+
+
+#../../Measures/untangle_score.csh ../$modelPDBPath $args > "${handle}_log.txt" 
+../../Measures/untangle_score_weighted.csh ../$modelPDBPath $args > "${handle}_log.txt" 
 
 
 

@@ -48,6 +48,9 @@ from statistics import NormalDist
 from LinearOptimizer.VariableID import *
 
 
+HYDROGEN_RESTRAINTS=False # If False, hydrogen restraints will be ignored.
+NEVER_FORBID_HYDROGEN_RESTRAINTS=True
+hydrogen_restraint_scale=1e-3 # scales cost of hydrogen restraints. E.g. angles for serine OG - CB - H will prevent a swap that improves OG - CB bond length, even though after refine the hydrogens will rearrange with no issues.  
 NO_INDIV_WEIGHTS=False  # (Edit: Also, could be good for avoiding undue weight placed on genuine outliers) Idea being that when we do unrestrained refinement, all geometry is ignored, and all atoms are treated "equally" in fitting to xray data. So it makes little sense to weight connections of the same type differently.
 APPLY_TENSION_MOD=False
 TURN_OFF_MIN_SIGMAS=False # Since there are genuine outliers this could be harming things.
@@ -56,9 +59,11 @@ ALLOW_OUTLIERS_FROM_POTENTIAL_OVERRIDES=False # Will not do min sigmas with pote
 weight_mod_for_allowed_outliers=1
 #high_tension_penalty=1.75  # Penalty for current connections (i.e. geometries? groups?) that correspond to a high tension (above min_tension_where_anything_goes). TODO should just be a penalty for not having any geometries involving the site change.
 #high_tension_penalty=10  # Penalty for current connections (i.e. geometries? groups?) that correspond to a high tension (above min_tension_where_anything_goes). TODO should just be a penalty for not having any geometries involving the site change.
-high_tension_penalty=1  # Penalty for current connections (i.e. geometries? groups?) that correspond to a high tension (above min_tension_where_anything_goes). TODO should just be a penalty for not having any geometries involving the site change.
+high_tension_penalty=1  # Penalty factor for current connections (i.e. geometries? groups?) that correspond to a high tension (above min_tension_where_anything_goes). TODO should just be a penalty for not having any geometries involving the site change.
 
 #TODO could try reverting model back to preswap model.
+
+assert high_tension_penalty>=1
 
 class OrderedAtomLookup: #TODO pandas?
     def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False,altloc_subset=None,allowed_resnums=None,allowed_resnames=None): # TODO type hint for sequence?
@@ -611,6 +616,7 @@ class ConstraintsHandler:
         print("WARNING: assuming residue numbers are all unique")
         print("WARNING: assuming elements all single character")
         NB_pdb_ids_added = []
+        num_nonbonded_from_geo = 0
         for file in (nonbond_scores_files):
             if ConstraintsHandler.NonbondConstraint in constraints_to_skip:
                 break
@@ -667,7 +673,8 @@ class ConstraintsHandler:
                         if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
                             self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),ideal,symmetries),None)  
                             NB_pdb_ids_added.append(pdb_ids)  
-        num_nonbonded_from_geo = len(NB_pdb_ids_added)
+            print(f"Added {len(NB_pdb_ids_added)-num_nonbonded_from_geo} nonbond constraints from {file}")
+            num_nonbonded_from_geo = len(NB_pdb_ids_added)
         if water_water_nonbond:  # TODO Symmetry clashes
             waters = ordered_atom_lookup.select_atoms_by(protein=False)
             ideal_water_separation=2.200
@@ -934,10 +941,14 @@ class MTSP_Solver:
             self.max_site_tension=max_site_tension
             self.outlier_ok=outlier_ok
             ###
+            #TODO move this to LinearOptimizer.Solver.py!!! 
             self.forbidden= (connection_type in MTSP_Solver.max_sigmas) and (self.z_score > MTSP_Solver.max_sigmas[self.connection_type]) 
+                
             if hydrogen_names is not None:
                 self.hydrogen_tag = "_"+''.join(hydrogen_names)
                 self.hydrogen_name_set = set(hydrogen_names)
+                if NEVER_FORBID_HYDROGEN_RESTRAINTS:
+                    self.forbidden=False
         def single_altloc(self):
             return len({ch.altloc for ch in self.atom_chunks})==1
         def get_disordered_connection_id(self):
@@ -1208,7 +1219,7 @@ class MTSP_Solver:
             water_clashes =  get_water_clashes(model_handle,unflipped_water_dict) 
             
             more_water_swaps=True
-            if water_water_nonbond and more_water_swaps and len(self.ordered_atom_lookup.get_altlocs())==2:
+            if more_water_swaps and len(self.ordered_atom_lookup.get_altlocs())==2:
                 flipped_water_dict = {}
                 altlocs = self.ordered_atom_lookup.get_altlocs()
                 for i in range(2):
@@ -1305,6 +1316,8 @@ class MTSP_Solver:
             if c%1000 == 0: 
                 print(f"Calculating constraint {c} / {len(constraints_handler.constraints)} ({constraint}) ")
             constraints_that_include_H = [ConstraintsHandler.AngleConstraint,ConstraintsHandler.NonbondConstraint]
+            if not HYDROGEN_RESTRAINTS:
+                constraints_that_include_H=[]
             # atoms_for_constraint = self.ordered_atom_lookup.select_atoms_by(
             #     names=constraint.atom_names(),
             #     res_nums=constraint.residues(),
@@ -1360,10 +1373,13 @@ class MTSP_Solver:
                     # print(constraint.atom_names(),constraint.residues())
                     
                     atom_chunks_selection:list[AtomChunk] = []
+                    impossible_H_parent=False
+                    contains_H=False
                     for a in atoms:
                         if a.get_name()[0] != "H":
                             atom_chunks_selection.append(atom_chunks[atom_id(a)])
                         else:
+                            contains_H=True
                             # Convert restraints on riding hydrogens to restraints on parent atoms
                             assert type(constraint) in constraints_that_include_H, (type(constraint),[a.get_name() for a in atoms])
                             res_num, altloc = OrderedAtomLookup.atom_res_seq_num(a), a.get_altloc()
@@ -1381,11 +1397,22 @@ class MTSP_Solver:
                                 [p.get_fullname() for p in possible_parents]
                             ).strip()
                             parent_atom = self.ordered_atom_lookup.better_dict[res_num][parent_name][altloc]
+                            # Commenting out for now because breaks plotting code.
+                            # if parent_atom in atoms:
+                            #     for p_a in self.ordered_atom_lookup.better_dict[res_num][parent_name]:
+                            #         if p_a != parent_atom:
+                            #             impossible_H_parent=True
+                            #             break
+                            #     if impossible_H_parent:
+                            #         break
+
 
                             #assert len(parent_atom) == 1, (parent_atom,parent_name,res_num,altloc)
                             #parent_atom = parent_atom[0]
                             atom_chunks[atom_id(parent_atom)].constraints_holder.add(constraint,None) # NOTE XXX
                             atom_chunks_selection.append(atom_chunks[atom_id(parent_atom)])
+                    # if impossible_H_parent:
+                    #     continue # Commenting out for now because breaks plotting code
 
                     num_hydrogens = len([a.get_name() for a in atoms if a.element=="H"])
                     hydrogens=None
@@ -1399,6 +1426,8 @@ class MTSP_Solver:
                         distance*=tension_mod
                     if constraint.outlier_ok:
                         distance*=weight_mod_for_allowed_outliers
+                    if contains_H:
+                        distance*=hydrogen_restraint_scale
 
                     connection = self.AtomChunkConnection(atom_chunks_selection,distance,type(constraint),hydrogens,z_score,constraint.get_max_site_tension(),constraint.outlier_ok)  # XXX putting max site tension in here is bad
                     possible_connections.append(connection)

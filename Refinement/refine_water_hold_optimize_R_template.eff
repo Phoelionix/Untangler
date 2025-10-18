@@ -585,7 +585,7 @@ refinement {
     reference_coordinate_restraints {
       enabled = True
       exclude_outliers = False
-      selection = all
+      selection = water
       sigma = 0.1
     }
     automatic_linking {

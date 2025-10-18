@@ -54,16 +54,21 @@ class GeoXrayTension:
         for key in atom_residual_dicts[0]:
             broke=False
             # skip sites (waters) that were removed # XXX better implementation?
-            for d in atom_residual_dicts:
-                if key not in d:
-                    broke=True
+            for metric_dict in [atom_residual_dicts,atom_pos_dicts]:
+                for d in metric_dict:
+                    if key not in d:
+                        broke=True
+                        break
+                if broke:
                     break
             if broke:
                 self.site_tensions[key]=0
                 continue
+                
             residuals = [d[key] for d in atom_residual_dicts]
             # for d in atom_pos_dicts:
             #     assert key in d, list(d.keys())
+
             positions = [d[key] for d in atom_pos_dicts]
             deltas_geo = [residuals[i+1]-residuals[i] for i in range(len(residuals)-1)]
             displacements = [] 

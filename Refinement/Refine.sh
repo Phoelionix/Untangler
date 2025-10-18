@@ -37,7 +37,9 @@ disable_ADP='false'
 
 max_sigma_movement=0.1
 
-while getopts ":o:u:c:n:s:q:whpragtzAORS" flag; do
+refine_hydrogens='false'
+
+while getopts ":o:u:c:n:s:q:whpragtzAHORS" flag; do
  case $flag in
     o) out_handle=$OPTARG
        out_handle_override='true'
@@ -68,6 +70,8 @@ while getopts ":o:u:c:n:s:q:whpragtzAORS" flag; do
     ;;
     A) disable_ADP='true'
     ;;
+    H) refine_hydrogens='true'
+    ;;
     O) refine_occupancies='true'
     ;;
     R) restrain_movement='false' 
@@ -85,7 +89,7 @@ if ! $out_handle_override; then
   out_handle=${xyz_handle}-${hkl_handle}
 fi 
 
-echo $xyz_path $hkl_path $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R $generate_r_free $refine_no_hold $turn_off_bulk_solvent $restrain_movement $refine_occupancies
+echo $xyz_path $hkl_path $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R $generate_r_free $refine_no_hold $turn_off_bulk_solvent $restrain_movement $refine_hydrogens $refine_occupancies 
 
 
 expected_path=$xyz_path
@@ -193,13 +197,22 @@ if $turn_off_bulk_solvent; then
   mv tmp.$$ $paramFile
 fi
 
+if $refine_hydrogens; then 
+  sed "s/refine = individual \*riding Auto/refine = *individual riding Auto/g" $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
+  sed "s/xh_bond_distance_deviation_limit = 0/xh_bond_distance_deviation_limit = 999/g" $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
+  # sed "s/real_space_optimize_x_h_orientation = True/real_space_optimize_x_h_orientation = False/g" $paramFile  > tmp.$$ 
+  # mv tmp.$$ $paramFile
+fi
+
 if $ordered_solvent; then 
   sed "s/ordered_solvent = False/ordered_solvent = True/g" $paramFile  > tmp.$$ 
   mv tmp.$$ $paramFile
 fi
 
 if $disable_ADP; then 
-  sed "s/*individual_adp/individual_adp/g" $paramFile  > tmp.$$ 
+  sed "s/\*individual_adp/individual_adp/g" $paramFile  > tmp.$$ 
   mv tmp.$$ $paramFile
 fi
 
