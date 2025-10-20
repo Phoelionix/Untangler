@@ -69,7 +69,7 @@ set sigma_fudge = 3
 # flag to write out restraint files for reducing outliers
 set writefudge = 0
 
-set wxray = 1
+set wxray = 10
 
 # const_shrink_donor_acceptor override
 set csda = 0.6
