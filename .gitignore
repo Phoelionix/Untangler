@@ -7,3 +7,4 @@ StructureGeneration/data/
 *__pycache__*
 data/*
 .vscode/*
+*conformer_subsets/*

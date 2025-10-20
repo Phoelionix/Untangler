@@ -69,6 +69,8 @@ set sigma_fudge = 3
 # flag to write out restraint files for reducing outliers
 set writefudge = 0
 
+set wxray = 1
+
 # const_shrink_donor_acceptor override
 set csda = 0.6
 # sigma of omega
@@ -85,6 +87,7 @@ foreach arg ( $* )
     set assign = `echo $arg | awk '{print ( /=/ )}'`
     set num = `echo $Val | awk '{print $1+0}'`
     set int = `echo $Val | awk '{print int($1+0)}'`
+    
 
     if( $assign ) then
       # re-set any existing variables
@@ -1367,10 +1370,10 @@ awk '{print $0,"M"}' ${outprefix}_stats.txt >! ${t}Mstats.txt
 
 echo $energy |\
 cat - ${t}movement.txt ${t}Rstats.txt ${t}Mstats.txt |\
-awk 'NR==1{energy=$1;next}\
+awk -v wxray=$wxray 'NR==1{energy=$1;next}\
     $NF=="d"{dxyz=$3;dB=$7;next}\
     $NF=="R"{Rw=$2;Rf=$3;bond=$7;ang=$9;vdw=$13;\
-       rE=((Rf-2.0)/2.0)^2;\
+       rE=((Rf-2.0)/2.0)^2*wxray;\
        rstats=$2" "$3" "$7" "$9" "$11" "$13;next}\
     $NF=="M"{Mp=$1;Cl=$2; score=rE+energy;\
     $NF="";\
