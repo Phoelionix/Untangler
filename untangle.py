@@ -17,8 +17,6 @@ from enum import Enum
 import itertools
 from Bio.PDB import PDBParser,Structure,PDBIO
 from Bio.PDB.Atom import Atom,DisorderedAtom
-from sklearn.neighbors import NearestNeighbors
-from sklearn.neighbors import KNeighborsClassifier
 import psutil
 from LinearOptimizer.Tension import GeoXrayTension
 from matplotlib import pyplot as plt
@@ -1188,42 +1186,42 @@ class Untangler():
         
         return out_path
     
-    def group_waters_to_altlocs(self,model_path,out_path):
-        print("Grouping waters")
-        k=len(self.model_protein_altlocs)
+    # def group_waters_to_altlocs(self,model_path,out_path):
+    #     print("Grouping waters")
+    #     k=len(self.model_protein_altlocs)
         
-        structure:Structure = PDBParser(model_path).get_structure("struct",model_path)
-        ordered_ordered_waters:list[Atom]=[]
-        water_coords=[]
-        water_residues={}
-        starting_resnum=np.inf
-        for atom in structure.get_atoms():
-            if res_is_water(atom.get_parent()):
-                resnum=OrderedAtomLookup.atom_res_seq_num(atom)
-                starting_resnum=int(min(starting_resnum,resnum))
-                water_residues[resnum]=atom.get_parent()
-                for ordered_atom in atom:
-                    ordered_atom:Atom
-                    ordered_ordered_waters.append(atom)
-                    water_coords.append(ordered_atom.get_coord())
+    #     structure:Structure = PDBParser(model_path).get_structure("struct",model_path)
+    #     ordered_ordered_waters:list[Atom]=[]
+    #     water_coords=[]
+    #     water_residues={}
+    #     starting_resnum=np.inf
+    #     for atom in structure.get_atoms():
+    #         if res_is_water(atom.get_parent()):
+    #             resnum=OrderedAtomLookup.atom_res_seq_num(atom)
+    #             starting_resnum=int(min(starting_resnum,resnum))
+    #             water_residues[resnum]=atom.get_parent()
+    #             for ordered_atom in atom:
+    #                 ordered_atom:Atom
+    #                 ordered_ordered_waters.append(atom)
+    #                 water_coords.append(ordered_atom.get_coord())
 
         
-        neighbours = NearestNeighbors(n_neighbors=k).fit(np.array(water_coords))
-        distances, indices = neighbours.kneighbors(water_coords)
-        indices:list[list[int]] = indices.tolist()
-        print("Warning: water altloc grouping code is not implemented correctly")
-        for g, group in enumerate(indices):
-            assert len(group)==len(self.model_protein_altlocs)
-            for i, altloc in enumerate(self.model_protein_altlocs):
-                ordered_ordered_waters[group[i]].set_altloc(altloc)
-                ordered_ordered_waters[group[i]].set_occupancy(1/k)
-                ordered_ordered_waters[group[i]].set_parent(water_residues[int(g+starting_resnum)])
+    #     neighbours = NearestNeighbors(n_neighbors=k).fit(np.array(water_coords))
+    #     distances, indices = neighbours.kneighbors(water_coords)
+    #     indices:list[list[int]] = indices.tolist()
+    #     print("Warning: water altloc grouping code is not implemented correctly")
+    #     for g, group in enumerate(indices):
+    #         assert len(group)==len(self.model_protein_altlocs)
+    #         for i, altloc in enumerate(self.model_protein_altlocs):
+    #             ordered_ordered_waters[group[i]].set_altloc(altloc)
+    #             ordered_ordered_waters[group[i]].set_occupancy(1/k)
+    #             ordered_ordered_waters[group[i]].set_parent(water_residues[int(g+starting_resnum)])
 
-        io = PDBIO()
-        io.set_structure(structure)
-        io.save(out_path)             
+    #     io = PDBIO()
+    #     io.set_structure(structure)
+    #     io.save(out_path)             
 
-        self.model_solvent_altlocs=self.model_protein_altlocs
+    #     self.model_solvent_altlocs=self.model_protein_altlocs
 
 
     def get_refine_params_refmac(self,out_tag,model_path,unrestrained=False,refine_water_occupancies=False, turn_off_bulk_solvent=TURN_OFF_BULK_SOLVENT,
