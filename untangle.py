@@ -16,6 +16,7 @@ class Untangler():
     refine_shell_file=f"Refinement/Refine.sh"
     ####
     debug_skip_refine = False # Skip refinement stages. Requires files to already have been generated (up to the point you are debugging).
+    debug_skip_initial_refine=False 
     class Score():
         def __init__(self,combined,wE,R_work):
             self.wE=wE
@@ -67,8 +68,7 @@ class Untangler():
         shutil.copy(pdb_file_path,self.current_model)
         self.swapper = Swapper()
 
-        initial_model=self.initial_refine(self.current_model,debug_skip=self.debug_skip_refine) 
-        #initial_model=self.initial_refine(self.current_model,debug_skip=True)  
+        initial_model=self.initial_refine(self.current_model,debug_skip=(self.debug_skip_refine or self.debug_skip_initial_refine)) 
         self.initial_score = Untangler.Score(*assess_geometry_wE(self.output_dir,initial_model))
         self.current_score = self.best_score = Untangler.Score.inf_bad_score()# i.e. force accept first solution
         shutil.copy(initial_model,self.current_model)
@@ -103,30 +103,51 @@ class Untangler():
         working_model = self.refine_for_positions(self.current_model,debug_skip=self.debug_skip_refine) 
         
         self.swapper.clear_candidates()
-        #for align_uncertainty in [False,True]:  # Not sophisticated enough yet.
-        for align_uncertainty in [False]:
-            atoms, connections = Solver.MTSP_Solver(working_model,align_uncertainty=align_uncertainty).calculate_paths(clash_punish_thing=True)
-            num_best_solutions=min(self.loop+self.n_best_swap_start,self.n_best_swap_max) # increase num solutions we search over time...
-            swaps_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
-                                           out_handle=self.model_handle,
-                                           num_solutions=num_best_solutions,
-                                           force_sulfur_bridge_swap_solutions=True)
-            
-            # Translate candidate solutions from LinearOptimizer into swaps lists
-            # Try proposing each solution until one is accepted or we run out.
-            self.swapper.add_candidates(swaps_file_path) # Note sorted then added to end. So it will go through one loaded set first, then next if no improvements found there.
+        atoms, connections = Solver.MTSP_Solver(working_model, protein_sites=True,water_sites=False).calculate_paths(
+            clash_punish_thing=False,
+            nonbonds=False   # Use later when swapping waters. i.e. we look for the best protein conformation and allot waters after.
+        )
+        num_best_solutions=min(self.loop+self.n_best_swap_start,self.n_best_swap_max) # increase num solutions we search over time...
+        swaps_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
+                                        out_handle=self.model_handle,
+                                        num_solutions=num_best_solutions,
+                                        force_sulfur_bridge_swap_solutions=True)
         
+        # Translate candidate solutions from LinearOptimizer into swaps lists
+        # Try proposing each solution until one is accepted or we run out.
+        self.swapper.add_candidates(swaps_file_path) # Note sorted then added to end. So it will go through one loaded set first, then next if no improvements found there.
+    
+
         pre_swap_model = working_model
         while self.swapper.solutions_remaining()>0: 
             ### Swap on unrestrained model ###
             working_model, _ = self.swapper.run(pre_swap_model)
-            working_model=self.regular_refine(working_model,debug_skip=self.debug_skip_refine)
 
+            # Swap waters
+            atoms, connections = Solver.MTSP_Solver(working_model, protein_sites=False,water_sites=True).calculate_paths(
+            clash_punish_thing=False,
+            nonbonds=True 
+            )
+            waters_swapped_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
+                                                    out_handle=self.model_handle,
+                                                    num_solutions=1,
+                                                    force_sulfur_bridge_swap_solutions=False)
+            water_swapper = Swapper()
+            water_swapper.add_candidates(waters_swapped_path)
+            if len(water_swapper.swap_groups_sorted[0].swaps)!=0:
+                print("Found better water altloc allotments")
+                working_model, _ = water_swapper.run(working_model)
+            
+            working_model=self.regular_refine(working_model,debug_skip=self.debug_skip_refine)
             new_model_was_accepted = self.propose_model(working_model)
 
             if not new_model_was_accepted and two_swaps:
                 #### Swap again on restrained model. Take Best solution only.  ###
-                atoms, connections = Solver.MTSP_Solver(working_model,align_uncertainty=False).calculate_paths()
+                atoms, connections = Solver.MTSP_Solver(working_model,protein_sites=True,water_sites=False).calculate_paths(
+                    clash_punish_thing=False,
+                    nonbonds=True
+                )
+        
                 unswap_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,out_handle=self.model_handle,num_solutions=1,force_sulfur_bridge_swap_solutions=False)
                 unswapper = Swapper()
                 unswapper.add_candidates(unswap_file_path)
