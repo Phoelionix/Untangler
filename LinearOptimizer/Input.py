@@ -18,13 +18,11 @@
 
 # Purpose: Get geometric badness for all possible "groups" of atoms that 
 # we have geometric measures for, to pass to LinearOptimizer.Solver.
-#
-# As of July 2025, badness is the sum of the (weighted... possibly
-# incorrectly) squares of the angle and bond deviations from ideal. 
-# 
+
+
 # TODO  
 # - Change to proper chi-squared (missing denominator presently). 
-# - implement all the other wonderful measures we have available. -- Noth Input and Solver
+# - implement all the other wonderful measures we have available. -- Both Input and Solver
 # - Clean up chunk ID system. -- Both Input and Solver
 # - Consider turning sigmas back off? Don't actually make much sense if following unrestrained refinement. Should divide by ideal instead.
 # - If only some atoms are allowed, need to include all restraints that involve the atoms, even those that do not involve allowed atoms

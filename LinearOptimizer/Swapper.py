@@ -155,7 +155,7 @@ class Swapper():
                     #_atom_name = _atom_name.strip("\n") 
                     for from_altloc, to_altloc in moves[site_key].items():
                         swap_group.add(res_num, atom_name,from_altloc,to_altloc)
-                        
+
         assert len(swap_group_candidates)>0, f"nothing ({swap_group_candidates}) parsed from {swaps_file_path}"
 
 
