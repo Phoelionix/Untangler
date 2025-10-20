@@ -176,7 +176,7 @@ class Swapper():
         out_path = f"{os.path.abspath(os.getcwd())}/output/{model_handle}_lpSwapped.pdb"
         out_path_water_swapped = f"{os.path.abspath(os.getcwd())}/output/{model_handle}_lpSwapped_water_swapped.pdb"       
 
-        swap_group = self.swap_groups_sorted[self.sol_idx]
+        swap_group: Swapper.SwapGroup = self.swap_groups_sorted[self.sol_idx]
         self.flag_swapping(swap_group)
         self.sol_idx+=1 
 
@@ -191,8 +191,14 @@ class Swapper():
                 # Don't change irrelevant lines
             
                 P = Swapper.PDB_Params(line)
-                if not P.valid or P.res_name == "HOH":
+                if not P.valid:
                     new_lines+=line
+                    continue
+                if P.res_name == "HOH":
+                    if (P.res_num,P.atom_name) in swap_group.swaps:
+                        new_lines += P.swap_altloc()
+                    else:
+                        new_lines += line 
                     continue
                 if P.res_num!=last_resnum:
                     H_polarity_dict=dict()
