@@ -30,7 +30,6 @@ DEBUG_FIRST_100_SITES=False
 # If difference in cost from lowest costing ordered connection of the disordered connection is tiny, don't bother optimizing for it. (small fry)
 #required_cost_range_to_consider=1.0e-2
 required_cost_range_to_consider=0
-TURN_OFF_NON_PARAMATER_FORBID_CHANGE_CONDITIONS=False
 PLOTTING=True
 
 import pulp as pl
