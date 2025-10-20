@@ -37,7 +37,7 @@ in a way that not only improves the fit, but also reduces the potential energy
 of the conformations.
 
 
-Currently only 2 conformers supported. Generalising the code to multiple conformers is a WIP.   
+More than 2 conformers are supported, but strategies/parameters are set for the two-conformer challenge structure under the idealizations described [here](https://bl831.als.lbl.gov/~jamesh/challenge/twoconf/). It should take less than an hour and finish in 2 "loops".
 
 
 <!-- ## Background 
