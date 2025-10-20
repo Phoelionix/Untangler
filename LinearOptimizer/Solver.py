@@ -15,6 +15,7 @@ import UntangleFunctions
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: dict[str,Chunk],connections:list[MTSP_Solver.AtomChunkConnection],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True): # 
 
+    assert False
     nodes = [chunk.unique_id() for chunk in chunk_sites.values()]
 
     def get_variables(unique_id)->dict:
