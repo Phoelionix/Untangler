@@ -44,7 +44,6 @@ for c, chain in enumerate(structs[0].get_chains()):  # loop through just the fir
         builder.init_seg(res.get_segid())
         builder.init_residue(res.get_resname(),*res.get_id())
         if res.get_id()[0] == " " or not ignoreHetero: 
-            # not a hetero
             for i, altloc in enumerate(altlocs):
                 # switch to looking at the data in the residue of conformation i
                 conformation_residue = list(list(structs[i].get_chains())[c].get_residues())[r]

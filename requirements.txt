@@ -3,3 +3,5 @@ biopython==1.81
 matplotlib==3.7.3
 numpy==1.26.4
 pulp==3.2.1
+scipy==1.13.1
+psutil==5.9.4

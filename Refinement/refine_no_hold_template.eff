@@ -6,7 +6,7 @@
 
 data_manager {
   miller_array {
-    file = "../../data/HKL_TEMPLATE.mtz"
+    file = "../../../data/HKL_TEMPLATE.mtz"
     labels {
       name = None
       type = *x_ray neutron electron
@@ -78,7 +78,7 @@ data_manager {
       }
     }
   }
-  default_miller_array = "../../data/HKL_TEMPLATE.mtz"
+  default_miller_array = "../../../data/HKL_TEMPLATE.mtz"
   model {
     file = "XYZ_TEMPLATE.pdb"
     type = *x_ray neutron electron reference
@@ -140,7 +140,7 @@ refinement {
     }
   }
   refine {
-      strategy = *individual_sites *individual_sites_real_space rigid_body \
+      strategy = *individual_sites individual_sites_real_space rigid_body \
                  *individual_adp group_adp tls occupancies group_anomalous \
                  den
     sites {
@@ -552,7 +552,6 @@ refinement {
       nucleic_acid {
         enabled = True
         hbond_distance_cutoff = 3.4
-        angle_between_bond_and_nucleobase_cutoff = 35
         scale_bonds_sigma = 1
         base_pair {
           enabled = True
@@ -838,6 +837,50 @@ geometry_restraints.edits {
       target_angle_deg = 0
     }
   }
+  geometry_restraints.remove {
+    angles = None
+    dihedrals = None
+    chiralities = None
+    planarities = None
+    parallelities = None
+  }
+  ordered_solvent {
+    low_resolution = 2.8
+    mode = *second_half filter_only every_macro_cycle \
+           every_macro_cycle_after_first
+    mask_atoms_selection = protein and (name CA or name CB or name N or name \
+                           C or name O)
+    include_altlocs = True
+    n_cycles = 1
+    output_residue_name = HOH
+    output_chain_id = S
+    output_atom_name = O
+    scattering_type = O
+    primary_map_type = mFobs-DFmodel
+    primary_map_cutoff = 3.
+    secondary_map_and_map_cc_filter {
+      cc_map_1_type = "Fmodel"
+      cc_map_2_type = 2mFobs-DFmodel
+      poor_cc_threshold = 0.70
+      poor_map_value_threshold = 1.0
+    }
+    dist_min = 1.8
+    dist_max = 3.2
+    dist_min_altloc = 0.03
+    refine_oat = False
+    refine_adp = True
+    refine_occupancies = True
+    new_solvent = *isotropic anisotropic
+    b_iso_min = 1.0
+    b_iso_max = 80.0
+    anisotropy_min = 0.1
+    occupancy_min = 0.02
+    occupancy_max = 1.0
+    occupancy = 0.33
+    filter_at_start = True
+    ignore_final_filtering_step = False
+    correct_drifted_waters = True
+  }
   peak_search {
     use_sigma_scaled_maps = True
     grid_step = 0.6
@@ -1070,7 +1113,7 @@ geometry_restraints.edits {
     enabled = False
     file = None
     use_starting_model_as_reference = False
-    sigma = 0
+    sigma = 0.001
     limit = 15
     hydrogens = True
     main_chain = False
@@ -1145,7 +1188,7 @@ geometry_restraints.edits {
   }
   gui {
     base_output_dir = None
-    tmp_dir = None
+    tmp_dir = "tmp"
     send_notification = False
     notify_email = None
     add_hydrogens = False
