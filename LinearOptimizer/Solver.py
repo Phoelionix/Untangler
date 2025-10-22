@@ -56,7 +56,7 @@ assert required_cost_range_to_consider>=0
 
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[MTSP_Solver.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True,
-          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=2,mins_extra_per_loop=0.1,
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=60,mins_extra_per_loop=0.1,
           inert_water_sites=False,
           #gapRel=0.001,
           gapRel=0,
@@ -736,8 +736,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         threads=10
         logPath=out_dir+"xLO-Log"+out_handle+".log"
         #logPath=None
-        pulp_solver = Solver.CPLX_PY # https://stackoverflow.com/questions/10035541/what-causes-a-python-segmentation-fault
-        #pulp_solver = Solver.COIN
+        #pulp_solver = Solver.CPLX_PY # https://stackoverflow.com/questions/10035541/what-causes-a-python-segmentation-fault
+        pulp_solver = Solver.COIN
         warmStart=True
         #gapRel=0.0003
         #gapRel=0.001
