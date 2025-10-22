@@ -25,6 +25,8 @@
 # (for each angle, there will be n^3 connections.)
 # So it will be important to break down the problem in some way. Possibly a stochastic way.
 # Also need to look at exploring different branches of solutions in an intelligent way, and with parallel processing.  
+# Try introducing an *elastic* constraint requiring that each conformation should have similar badness/energy. https://coin-or.github.io/pulp/guides/how_to_elastic_constraints.html
+# Code around "forbidden" geometric  restraints should be moved to LinearOptimizer.Input
 
 DEBUG_FIRST_100_SITES=False
 # If difference in cost from lowest costing ordered connection of the disordered connection is tiny, don't bother optimizing for it. (small fry)
@@ -62,13 +64,12 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
           gapRel=0,
           forbid_altloc_changes={"name":[]}, forbidden_atom_bond_changes={"name":[]},forbidden_atom_any_connection_changes={"name":[]},
           MAIN_CHAIN_ONLY=False,SIDE_CHAIN_ONLY=False,NO_CB_CHANGES=False,NO_O_BOND_CHANGES=False, # Forbids BOND changes that do not involve the specified atoms.
-          #max_bond_changes=None):  
-          #max_bond_changes=24):  
-          #max_bond_changes=7):  
-          max_bond_changes=None,
-          ):  
-          #max_bond_changes=None):  
-    # protein_sites, water_sites: Whether these can be swapped.
+          #max_bond_changes=3,  
+          max_bond_changes=None, # None: No limit
+          threads=10
+          ):   
+    # inert_protein_sites, inert_water_sites: Whether these can be swapped.
+    # protein_sites, water_sites: Whether any geometries involving these are considered. TODO remove - if they are passed to the function they should be considered.
     # gaprel : relative gap tolerance for the solver to stop (fraction) # https://coin-or.github.io/pulp/technical/solvers.html
     assert MAIN_CHAIN_ONLY + SIDE_CHAIN_ONLY + NO_CB_CHANGES <=1 
     
@@ -127,9 +128,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
 
 
-    #Disordered variable id
     # Messy...
-    #bond_choices = {} # Each must sum to 1
     distance_vars = [] 
     # NOTE When assigning LP variable names, the "class" of variable should follow format of variableName_other_stuff   (class of variable is variable_type.split("_")[0]) 
     constraint_var_dict:dict[VariableID,tuple[MTSP_Solver.AtomChunkConnection,pl.LpVariable]] = {} 
@@ -141,7 +140,6 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
     # Setup where atoms are assigned.
     # Track which are which based on original altloc.
-
     all_altlocs:list[str]=[]
     for ch in chunk_sites.values():
         if ch.altloc not in all_altlocs:
@@ -238,14 +236,10 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                 site_var_dict[site][site_altlocs[0]][site_altlocs[1]] = var_flipped
                 site_var_dict[site][site_altlocs[1]][site_altlocs[0]] = var_flipped
                 site_var_dict[site][site_altlocs[1]][site_altlocs[1]] = var_not_flipped
-            # lp_problem += (  
-            #     #lpSum(site_var_dict[site][from_altloc])==1,
-            #     var_flipped+var_not_flipped==1,
-            #     f"fromAltLoc_{site}_{from_altloc}"
-            # )
-        need_anchor = not (have_water and inert_water_sites) # if water sites are inert they break the symmetry
+
+        need_symm_break = not (have_water and inert_water_sites) # if water sites are inert they break the symmetry (particular label of a conformation doesn't matter )
         if (force_no_flips
-            or ((site.site_num == lowest_site_num) and need_anchor) # Anchor solution to one where first disordered atom is unchanged.  
+            or ((site.site_num == lowest_site_num) and need_symm_break) # Anchor solution to one where first disordered atom is unchanged.  
             or (not site.is_water and inert_protein_sites)
             or (site.is_water and inert_water_sites)
             or (site.atom_name in forbid_altloc_changes["name"])
@@ -283,13 +277,6 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             # Forbid changes that are costly to consider and don't seem to tangle
             for ch in disordered_connection[0].atom_chunks:
                 if constraint_type==VariableKind.Bond:
-                    #if ch.name in ["O","OH"]:
-                    #if ch.name in ["O"]:
-
-                    #if ch.name in ["O","CD2"]:
-                    #if ch.name in ["O","CD2","NH2"] or ch.name[0]=="O":
-                    #if ch.name in ["O","OH","OG","OG1","OD1","NZ"]:
-                    #if ch.name[0]=="O":
                     if NO_O_BOND_CHANGES and ch.name in ["O"]:
                         return True
                     #TODO implement option turn off swaps of O or other "endpoint" atom to its ridden atom (C for O) when there are no other connection changes involving same C
@@ -304,23 +291,15 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         
 
         scores = [conn.ts_distance for conn in disordered_connection]
-        # if max(scores)-min(scores) < required_cost_range_to_consider:
-        #     num_small_fry_disordered_connections+=1
-        #     return
         min_score = min(scores)
         
         # If change is allowed and the difference is minor, don't bother optimizing for it
         small_fry = []
         small_fry_threshold = min_score+required_cost_range_to_consider
-        #small_fry = [conn for conn in disordered_connection if conn.ts_distance - min_score < required_cost_range_to_consider]
         small_fry = [conn for conn in disordered_connection if conn.ts_distance < small_fry_threshold]
         nonlocal num_small_fry_disordered_connections
         num_small_fry_disordered_connections+=len(small_fry)
         
-            
-
-        
-
         if len(small_fry)==len(disordered_connection) and not forbid_constraint_change:
             return
         
@@ -358,15 +337,6 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             tag+=extra_tag
             ########
 
-            # if not allowed: 
-            #     for to_altloc in all_altlocs:
-            #         assignment_vars = [site_var_dict[VariableID.Atom(ch)][ch.get_altloc()][to_altloc] for ch in ordered_connection_option.atom_chunks]
-            #         lp_problem += (
-            #             lpSum(assignment_vars) <=  len(assignment_vars)-1,   
-            #             f"FORBID{constraint_type.value}_{tag}>>{to_altloc}"
-            #             )
-            #else:
-
             var_active = pl.LpVariable(f"{constraint_type.value}_{tag}",  #TODO cat=pl.LpBinary
                                 lowBound=0,upBound=1,cat=pl.LpBinary)
             
@@ -396,27 +366,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
 
 
-        #     # This makes things slower...
-        #     '''
-        #     if allowed:
-        #         assert len(permutation_vars)==len(altlocs)
-        #         lp_problem += (
-        #             lpSum(permutation_vars) <= len(permutation_vars)*permutation_vars[0],   # all or none are active.
-        #             f"Permutation{constraint_type.value}{p}_{tag}"
-        #             )
-        #     '''
-                    
-            #TODO CRITICAL Variables for when hydrogen is involved can be simplified, especially for angles involving hydrogen.
-
-        # TODO!!!! if connection options don't appear in any non-forbidden group, can just write:
-        # for to_altloc in all_altlocs:
-        #     assignment_vars = [site_var_dict[VariableID.Atom(ch)][ch.get_altloc()][to_altloc] for ch in ordered_connection_option.atom_chunks]
-        #     lp_problem += (
-        #         lpSum(assignment_vars) <=  len(assignment_vars)-1,   
-        #         f"FORBID{constraint_type.value}_{tag}>>{to_altloc}"
-        #         )
-        # And also remove corresponding var_active ordered connection variable.
-        # This will make things clearer, if not faster. 
+      
         
         worst_no_change_score=0
         #    So possible solution is guaranteed, always allow connections of original structure.  
@@ -424,10 +374,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             if ordered_connection_option.single_altloc():
                 worst_no_change_score=max(worst_no_change_score,ordered_connection_option.ts_distance)
         
-        #local_score_tolerate_threshold=2*worst_no_change_score
-        #local_score_tolerate_threshold=2*worst_no_change_score
         #local_score_tolerate_threshold=10*worst_no_change_score
-        #local_score_tolerate_threshold=3*worst_no_change_score  # * len(altlocs)?
+        #local_score_tolerate_threshold=3*worst_no_change_score  
         local_score_tolerate_threshold=2*worst_no_change_score  # * len(altlocs)?   # TODO This should be done in input when setting what is forbidfden.
         always_tolerate_score_threshold = max(local_score_tolerate_threshold,global_score_tolerate_threshold) #worst_no_change_score*10+1e4
 
@@ -446,8 +394,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             else:
                 allowed =  (not ordered_connection_option.forbidden) \
                     or (ordered_connection_option.ts_distance<=always_tolerate_score_threshold)
-            
-            #allowed = ordered_connection_option.ts_distance <= always_tolerate_score_threshold
+
             
             chance_allow_anyway=0
             if not allowed and chance_allow_anyway>0:
@@ -471,9 +418,6 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                     from_altloc = ch.get_altloc()
                     site = VariableID.Atom(ch)
                     assignment_options[to_altloc].append(site_var_dict[site][from_altloc][to_altloc])
-            # if variable is inactive, cannot have all atoms assigned to the same altloc.
-            # Note that since every connection option is looped through, this also means 
-            # that if variable is active, all atoms will be assigned to the same altloc.
             
             if allowed and (ordered_connection_option not in small_fry):
                 assert ordered_connection_option.ts_distance>=0
@@ -481,12 +425,6 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             num_allowed_connections+=allowed 
             num_forbidden_connections+=not allowed 
             
-            # Constraint will be handled by parent atom of hydrogen
-
-            #disordered_connection_vars.append(var_active)
-
-            # if allowed:
-            #     active_subvars = []
 
             #### CONSTRAINT 1 "If all atoms are active in a connection, that connection is active" #####
             for to_altloc, assignment_vars in assignment_options.items():
@@ -524,7 +462,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         
     # TODO make it the 25th percentile or something.
     # TODO make it adapt based on solver time.
-    global_score_tolerate_threshold=worst_global_no_change_score/100
+    #global_score_tolerate_threshold=worst_global_no_change_score/100
     global_score_tolerate_threshold=0
     print("global score tolerate threshold:",global_score_tolerate_threshold)
     #global_score_tolerate_threshold=0
@@ -570,45 +508,6 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             f"Max{max_bond_changes}BondChanges"
         )
 
-    # for disordered_connection_var_dict in mega_connection_var_dict.values():
-    #     active_constraints=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if var.value()>0]
-    #     if len(active_constraints)==0:
-    #         print("warning: , initial constraint inactive")
-    #         continue
-    #     if active_constraints[0][0].connection_type!=ConstraintsHandler.BondConstraint:
-    #         continue
-    #     for site in active_constraints[0][0].atom_chunks:
-    #         if site.name not in ["N","CA","CB","C","O"]:
-    #             main_chain_atoms=False
-    #             break
-    #     else:
-    #         main_chain_atoms = True
-
-    #     if not main_chain_atoms:
-    #         continue
-        
-    #     no_change_var = (
-    #         lpSum(constr[1] for constr in active_constraints)==len(active_constraints)
-    #     )
-    #     #lp_problem += no_change_var
-    #     #no_change_vars.append(no_change_var)
-    #     no_change_vars.append(no_change_var)
-    
-    # print(len(no_change_vars))
-    # print(no_change_vars[0])
-    # print(no_change_vars[-1])
-    # lp_problem += (
-    #     lpSum(no_change_vars)>=(len(no_change_vars)-max_main_chain_bond_changes),
-    #     f"Max{max_main_chain_bond_changes}BondChanges"
-    # )
-
-
-    # if  force_sulfur_bridge_swap_solutions \
-    #     and [ch.element for ch in connection.atom_chunks]==["S","S"]:
-    #     forced_swap_solutions.append(
-    #         var_dict[atom_a]["flipped"]==var_dict[atom_b]["flipped"]==1
-    #     )
-
     if  force_sulfur_bridge_swap_solutions:
         raise Exception("force swap solutions unimplemented")
 
@@ -626,7 +525,10 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     print(f"Initial badness: {initial_badness}")
         
     
-    # TODO: Suspect we want the two badness to be close to equal. Because if they aren't similar badness, we wouldn't expec to see both?
+    # TODO: Suspect that it will often be beneficial to reward solver for finding solutions
+    # for a particular connection where the badness/energy is similar for each conformation.  
+    # Though exceptions to this could be biologically important...
+    # At the very least, we could try introducing an elastic constraint that each conformation should have similar badness/energy.
 
     
     ######################
@@ -640,8 +542,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             
 
     swaps_file =  swaps_file_path(out_dir,out_handle)
+    # Store the altloc label changes in a JSON file. Each change is given as "FromAltloc": "ToAltloc" 
     def update_swaps_file(distances, site_assignment_arrays,record_notable_improvements_threshold=None): # record_notable_improvements_threshold: fractional improvement required to record separately
-    # Create json file that lists all the site *changes* that are required to meet the solution. 
         out_dict = {"target": out_handle,"initial badness":initial_badness,"solutions":{}}
         if record_notable_improvements_threshold is not None:
             assert 0 <= record_notable_improvements_threshold < 1
@@ -663,7 +565,6 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                         # No change needed
                         continue
                     if verbose:
-                        # TODO Flag only when swaps have **changed**, as did in 2 altloc version.
                         print(f"Flagging assignment of {site} {from_altloc} to {to_altloc}")
                     if site_key not in moves:
                         moves[site_key] = {}
@@ -729,18 +630,10 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             timeLimit=timeLimitStart+l*extra_time_per_loop
         elif mins_extra_per_loop != 0:
             print("Warning: extra time per loop is not 0, but there is no time limit")
-        #timeLimit=None
-        #threads=None
-        #threads=26
-        #threads=10
-        threads=10
         logPath=out_dir+"xLO-Log"+out_handle+".log"
-        #logPath=None
-        #pulp_solver = Solver.CPLX_PY # https://stackoverflow.com/questions/10035541/what-causes-a-python-segmentation-fault
+
         pulp_solver = Solver.COIN
         warmStart=True
-        #gapRel=0.0003
-        #gapRel=0.001
         
         #gapRel=None
         if create_initial_variable_files:
@@ -800,13 +693,6 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
 
 
-
-        # dry = None
-        # for val in connections.values():
-        #     for v in val.values():
-        #         dry=v.calculated_dry()
-        #         break
-        # tag = "_dry" if dry else ""
         with open(f"{out_dir}/xLO-Out{out_handle}.txt",'w') as f:
             f.write(f"Status: {LpStatus[lp_problem.status]}\n")
 
@@ -838,10 +724,10 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         ####
 
         ### Changed Connections ###
-        # sigmas_i, costs_i, sigmas_f, costs_f
-        if PLOTTING:
-            all_sigma_costs:list[list[tuple[float]]]=[]
 
+        if PLOTTING:
+            # sigmas_i, costs_i, sigmas_f, costs_f
+            all_sigma_costs:list[list[tuple[float]]]=[]
 
         changed_disordered_connections=[]
         for disordered_connection_var_dict in mega_connection_var_dict.values():
@@ -893,7 +779,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             out_str+="Active\n"
             add_disordered_block_to_str(active_constraints)
             out_str+="-----------------------\n"
-        with open(f"{out_dir}/xLO-ChangedConnections{out_handle}.txt",'w') as f:
+        with open(f"{out_dir}/xLO-ChangedConnections{out_handle}.txt",'w') as f: # TODO Don't overwrite previous cycles, like in ToFlip.json file.
             f.write(out_str)
 
         if PLOTTING:
@@ -945,35 +831,14 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                         site_assignments[site][from_altloc]=to_altloc
                 assert to_altloc_found, (site, from_altloc)
 
-            # if site.name==str(DisorderedTag(10,"CA")) or site.name==str(DisorderedTag(2,"CA")) :
-            #     for from_altloc in site_var_dict[site]:
-            #         for to_altloc in site_var_dict[site][from_altloc]:
 
-            #             print(from_altloc,to_altloc)
-            #             print(round(site_var_dict[site][from_altloc][to_altloc].value()))
-            #             print(site_var_dict[site][from_altloc][to_altloc].value())
-            #             print(site_var_dict[site][from_altloc][to_altloc])
-
-
-        # print("KEYS")
-        # for key in nonzero_variables:
-        #     print(key)
         distances.append(value(lp_problem.objective))
         
         update_swaps_file(distances,site_assignment_arrays,record_notable_improvements_threshold=0.03)
-      
-       
-        # solution = [var.value() for var in lp_problem.variables()] 
-        # lp_variables = lp_problem.variables()
-        # lp_problem += (  
-        #         pulp.lpSum(solution[i]*lp_variables[i] for i in range(len(solution))) <= len(solution)-1,
-        #         f"forceNextBest_{l}"
-        #     )
 
 
         flipped_flip_variables = []
         flip_variables=[]
-        #TODO Critical - for some reason the 'next-best' solutions can be better. Maybe the gap tolerance is not 0?
         for chunk in chunk_sites.values():
             site = VariableID.Atom(chunk)
             if not site_being_considered(site):
