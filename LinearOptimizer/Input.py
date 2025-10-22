@@ -789,6 +789,21 @@ class MTSP_Solver:
             # ConstraintsHandler.NonbondConstraint:7,
             # ConstraintsHandler.ClashConstraint:7,
         } 
+    if MODE=="LOW_TOL":
+        max_sigmas={
+            ConstraintsHandler.BondConstraint:1.2,
+            ConstraintsHandler.AngleConstraint:1.2,
+        }    
+        min_sigmas_where_anything_goes={
+            ConstraintsHandler.BondConstraint:99,
+            ConstraintsHandler.AngleConstraint:99,
+        } 
+        min_tension_where_anything_goes={
+            ConstraintsHandler.BondConstraint:8,
+            ConstraintsHandler.AngleConstraint:8,
+            ConstraintsHandler.NonbondConstraint:8,
+            ConstraintsHandler.ClashConstraint:8,
+        } 
     if MODE=="PHENIX":
         max_sigmas={
             # ConstraintsHandler.BondConstraint:4,

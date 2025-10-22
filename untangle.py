@@ -710,6 +710,7 @@ class Untangler():
         #     else:
         #         strategy=Untangler.Strategy.SwapManyPairs
         strategy=Untangler.Strategy.Batch
+        #strategy=Untangler.Strategy.SwapManyPairs
 
         working_model = self.current_model
         if not self.never_do_unrestrained:        
@@ -847,18 +848,15 @@ class Untangler():
                 print("Score preswap:",preswap_score) 
                 print("Score postswap:",postswap_score) 
         elif strategy == Untangler.Strategy.SwapManyPairs:
-            if TENSIONS:
-                tensions = get_tensions(self.current_model,working_model) if TENSIONS else None
-            else:
-                tensons=None
+            tensions = get_tensions(self.current_model,working_model) if TENSIONS else None
 
             swaps_focused = None
             # FOCUS SWAPS (TODO better name)
             if (not self.debug_skip_first_focus_swaps) or self.loop!=self.first_loop:
                 #working_model,swaps_cys = self.swap_cysteines(self.swapper,working_model)
                 working_model,swaps_cys = self.swap_cysteines(self.swapper,tensions,working_model)
-                working_model,swaps_tyr = self.swap_specific_residues(["TYR"],self.swapper,tensions,working_model,file_tag="TyrSwaps")
-                swaps_focused = swaps_cys+swaps_tyr
+                #working_model,swaps_tyr = self.swap_specific_residues(["TYR"],self.swapper,tensions,working_model,file_tag="TyrSwaps")
+                swaps_focused = swaps_cys#+swaps_tyr
 
             ##
 
