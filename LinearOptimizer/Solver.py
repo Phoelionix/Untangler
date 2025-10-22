@@ -56,7 +56,7 @@ assert required_cost_range_to_consider>=0
 
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[MTSP_Solver.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True,
-          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=2,mins_extra_per_loop=0.1,
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=60,mins_extra_per_loop=0.1,
           inert_water_sites=False,
           #gapRel=0.001,
           gapRel=0,
@@ -736,8 +736,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         threads=10
         logPath=out_dir+"xLO-Log"+out_handle+".log"
         #logPath=None
-        pulp_solver = Solver.CPLX_PY # https://stackoverflow.com/questions/10035541/what-causes-a-python-segmentation-fault
-        #pulp_solver = Solver.COIN
+        #pulp_solver = Solver.CPLX_PY # https://stackoverflow.com/questions/10035541/what-causes-a-python-segmentation-fault
+        pulp_solver = Solver.COIN
         warmStart=True
         #gapRel=0.0003
         #gapRel=0.001
@@ -756,21 +756,15 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                 f.write(f"Total distance = {value(lp_problem.objective)}")
 
 
-        solver_class=PULP_CBC_CMD
+        solver_class=pulp_solver.value
         solver_options=[]
-        if pulp_solver == Solver.COIN: 
-            solver_class = PULP_CBC_CMD
-        elif pulp_solver == Solver.CPLX_CMD:   # cant get working
+        if pulp_solver == Solver.CPLX_CMD:   # cant get working
             assert False
             pulp_solver = CPLEX_CMD
         # CPLEX parameters: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.6.0/ilog.odms.cplex.help/CPLEX/GettingStarted/topics/tutorials/InteractiveOptimizer/settingParams.html
         # CPLEX status: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.10.0/ilog.odms.cplex.help/refcallablelibrary/macros/Solution_status_codes.html
             solver_options.append("set parallel -1")
             #path='~/ibm/ILOG/CPLEX_STUDIO2211/cplex'
-        elif pulp_solver == Solver.CPLX_PY:
-            solver_class = CPLEX_PY
-        else:
-            raise Exception("not implemented")
         #solver = solver_class(timeLimit=timeLimit,threads=threads,logPath=logPath,warmStart=warmStart,path=path)
         solver = solver_class(timeLimit=timeLimit,threads=threads,warmStart=warmStart,logPath=logPath,gapRel=gapRel)
         lp_problem.solve(solver)
