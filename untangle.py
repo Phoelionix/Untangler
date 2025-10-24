@@ -845,10 +845,7 @@ class Untangler():
                 print("Score preswap:",preswap_score) 
                 print("Score postswap:",postswap_score) 
         elif strategy == Untangler.Strategy.SwapManyPairs:
-            if TENSIONS:
-                tensions = get_tensions(self.current_model,working_model) if TENSIONS else None
-            else:
-                tensons=None
+            tensions = get_tensions(self.current_model,working_model) if TENSIONS else None
 
             swaps_focused = None
             # FOCUS SWAPS (TODO better name)
