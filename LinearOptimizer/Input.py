@@ -875,7 +875,7 @@ class MTSP_Solver:
     if MODE=="NO_RESTRICTIONS":
         max_sigmas=min_sigmas_where_anything_goes=min_tension_where_anything_goes={}
 
-    if MODE=="NONBOND_RESTRICTIONS":
+    elif MODE=="NONBOND_RESTRICTIONS":
         max_sigmas={
             ConstraintsHandler.NonbondConstraint:3,
         }
@@ -883,7 +883,7 @@ class MTSP_Solver:
             ConstraintsHandler.NonbondConstraint:2,
         }
         min_tension_where_anything_goes={}
-    if MODE=="HIGH_TOL":
+    elif MODE=="HIGH_TOL":
         max_sigmas={
             # ConstraintsHandler.BondConstraint:4,
             # ConstraintsHandler.AngleConstraint:4,
@@ -916,7 +916,7 @@ class MTSP_Solver:
             # ConstraintsHandler.NonbondConstraint:7,
             # ConstraintsHandler.ClashConstraint:7,
         } 
-    if MODE=="LOW_TOL":
+    elif MODE=="LOW_TOL":
         # max_sigmas={
         #     ConstraintsHandler.BondConstraint:1.5,
         #     ConstraintsHandler.AngleConstraint:1.5,
@@ -942,7 +942,7 @@ class MTSP_Solver:
             ConstraintsHandler.NonbondConstraint:8,
             ConstraintsHandler.ClashConstraint:8,
         } 
-    if MODE=="PHENIX":
+    elif MODE=="PHENIX":
         max_sigmas={
             # ConstraintsHandler.BondConstraint:4,
             # ConstraintsHandler.AngleConstraint:4,
@@ -979,7 +979,7 @@ class MTSP_Solver:
             # ConstraintsHandler.NonbondConstraint:7,
             # ConstraintsHandler.ClashConstraint:7,
         } 
-    if MODE == "REFMAC":
+    elif MODE == "REFMAC":
         max_sigmas={
             # ConstraintsHandler.BondConstraint:4,
             # ConstraintsHandler.AngleConstraint:4,
@@ -1014,6 +1014,8 @@ class MTSP_Solver:
             # ConstraintsHandler.NonbondConstraint:5,
             # ConstraintsHandler.ClashConstraint:5,
         } 
+    else:
+        raise Exception(f"Invalid MODE {MODE}")
     ### This commented out code computes wE for combinations of larger groups of atoms.  
     # Could be useful in future as a quick coarse step... but would probably be better 
     # to build up from the atom-site approach, coding the wE measure directly.   
