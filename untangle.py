@@ -31,6 +31,8 @@ TURN_OFF_BULK_SOLVENT=False
 CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=True
 PHENIX_ORDERED_SOLVENT=False
 TENSIONS=False  # Enables behaviours of re-enabling connection options involving high-tension sites, and, if option enabled, to scale cost by tensions
+PHENIX_FREEZE_WATER=True
+PHENIX_DISABLE_CDL=False # TODO -> set True
 
 # TODO down weight swaps that were previously made but need to be made again (i.e. cases where it's not tangled and the density is pushing it a different way.)
 # TODO Try forbid connection changes in sidechain. 
@@ -45,8 +47,8 @@ class Untangler():
     # If a model file hasn't been generated, will use the latest filename that exists and is expected to have been generated up to that point in the process.
     debug_skip_refine = False
     debug_phenix_ordered_solvent_on_initial=False
-    debug_skip_initial_refine=False
-    debug_skip_first_unrestrained_refine=False
+    debug_skip_initial_refine=True
+    debug_skip_first_unrestrained_refine=True
     never_do_unrestrained=False
     debug_skip_first_swaps=False
     debug_skip_first_focus_swaps=False # many swaps strategy only 
@@ -311,8 +313,8 @@ class Untangler():
 
         with open(out_path,'w') as O:
             O.writelines(start_lines+end_lines)
-        self.model_protein_altlocs=protein_altlocs
-        self.model_solvent_altlocs=solvent_altlocs
+        self.model_protein_altlocs=set(protein_altlocs)
+        self.model_solvent_altlocs=set(solvent_altlocs)
 
     def run(self,pdb_file_path,hkl_file_path,desired_score=18.6,max_num_runs=100):
         # pdb_file_path: path to starting model
@@ -534,7 +536,8 @@ class Untangler():
         #scoring_function_list = [ConstraintsHandler.prob_weighted_stat]
         #scoring_function_list = [ConstraintsHandler.prob_weighted_stat,ConstraintsHandler.chi,ConstraintsHandler.e_density_scaled_dev]
         #scoring_function_list = [ConstraintsHandler.chi]
-        scoring_function_list = [ConstraintsHandler.dev_sqr]
+        #scoring_function_list = [ConstraintsHandler.dev_sqr]
+        scoring_function_list = [ConstraintsHandler.log_chi]
         #scoring_function_list = [ConstraintsHandler.prob_weighted_stat]
         #scoring_function_list = [ConstraintsHandler.e_density_scaled_dev]
         scoring_function = scoring_function_list[self.loop%len(scoring_function_list)]
@@ -544,11 +547,14 @@ class Untangler():
             #Override
             need_to_prepare_geom_files=False
             
+        # keep altloc_subset None if all subsets. This is to save regenerating some files and to make it clear from file names when we are using a subset.
+        num_altlocs = len(altloc_subset) if altloc_subset is not None else len(self.model_protein_altlocs)
+        do_water_swaps=(self.model_protein_altlocs==self.model_solvent_altlocs) and num_altlocs==2
         if need_to_prepare_geom_files:
             self.prepare_pdb_and_read_altlocs(model_to_swap,model_to_swap,sep_chain_format=False) 
             Solver.MTSP_Solver.prepare_geom_files(model_to_swap,[altloc_subset],
                                                   waters = True,
-                                                  water_swaps=len(self.model_solvent_altlocs)==2)
+                                                  water_swaps=do_water_swaps)
             need_to_prepare_geom_files=False
 
         swapper.clear_candidates()
@@ -595,6 +601,7 @@ class Untangler():
                 os.remove(path) 
 
         i = num_sols_already_saved_this_loop
+        print(f"Applying swaps to {model_to_swap}")
         while swapper.solutions_remaining()>0: 
             ### Swap on unrestrained model ###
             working_model, swapGroup = swapper.run(model_to_swap)
@@ -766,19 +773,21 @@ class Untangler():
 
 
             # Limited options
-            if self.loop%2==0: # All options
+            if (self.loop+2)%3!=0: # All options
                 subset_size=self.altloc_subset_size
                 num_combinations=1
                 altloc_subsets.extend(self.get_altloc_subsets(subset_size,num_combinations))
                 kwargs_list.extend([{} for _ in altloc_subsets])
 
             else: # Focused swaps V2
-                focused_subset_size =7 
+                #focused_subset_size =7 
+                focused_subset_size =self.altloc_subset_size 
                 num_focused_combinations=2
                 focused_subsets = self.get_altloc_subsets(focused_subset_size,num_focused_combinations)
                 for subset in focused_subsets:
                     #for key in ["NO_CB_CHANGES","MAIN_CHAIN_ONLY"]:
                     for key in ["MAIN_CHAIN_ONLY"]:
+                            print(f"Considering {key}")
                             altloc_subsets.append(subset)
                             kwargs_list.append({key:True})
 
@@ -865,7 +874,8 @@ class Untangler():
             if independent_sulfur_approach:
                 forbidden_atom_any_connection_changes.append("SG")
             working_model,swaps = self.many_swapped(self.swapper,tensions,working_model,allot_protein_independent_of_waters,
-                                                    forbidden_atom_any_connection_changes=forbidden_atom_any_connection_changes)
+                                                    forbidden_atom_any_connection_changes=forbidden_atom_any_connection_changes,
+                                                    altloc_subset_size=self.altloc_subset_size)
             if swaps_focused is not None:
                 swaps = swaps_focused+swaps
             if measure_preswap_postswap:
@@ -991,7 +1001,7 @@ class Untangler():
                     num_macro_cycles=1,
                     #wc=0,
                     wc=self.refine_for_positions_geo_weight,
-                    max_sigma_movement=0.1,#0.001, 
+                    max_sigma_movement_waters=0.1,#0.001, 
                     #wu=0,
                     #wc=0.25,
                     hold_water_positions=True,
@@ -1044,9 +1054,9 @@ class Untangler():
                     #ordered_solvent=False,
                     ordered_solvent=PHENIX_ORDERED_SOLVENT,
                     refine_occupancies=False,
-                    #max_sigma_movement=0.05,
-                    max_sigma_movement=0.1,
-                    #max_sigma_movement=0.07,
+                    #max_sigma_movement_waters=0.05,
+                    max_sigma_movement_waters=0.1,
+                    #max_sigma_movement_waters=0.07,
                     )
             elif self.refinement == self.REFMAC:
                 refine_params=self.get_refine_params_refmac(
@@ -1114,9 +1124,9 @@ class Untangler():
                 #ordered_solvent=False,
                 ordered_solvent=PHENIX_ORDERED_SOLVENT,
                 refine_occupancies=False,
-                #max_sigma_movement=0.05,
-                max_sigma_movement=0.1,
-                #max_sigma_movement=0.07,
+                #max_sigma_movement_waters=0.05,
+                max_sigma_movement_waters=0.1,
+                #max_sigma_movement_waters=0.07,
 
             )
         elif self.refinement == self.REFMAC:
@@ -1258,7 +1268,7 @@ class Untangler():
                           wc=1,wu=1., shake=0., optimize_R=False,
                           hold_water_positions=False,hold_protein_positions=False,
                           refine_occupancies=False,turn_off_bulk_solvent=TURN_OFF_BULK_SOLVENT,ordered_solvent=False,
-                          no_restrain_movement=False,max_sigma_movement=0.1,refine_hydrogens=False):  # restraining movement refers to the reference_coordinate_restraints option
+                          no_restrain_movement=False,max_sigma_movement_waters=0.1,refine_hydrogens=False):  # restraining movement refers to the reference_coordinate_restraints option
         ### Override next_model with formatted one.
         #next_model = model_path[:-4]+"_fmtd.pdb"
 
@@ -1268,6 +1278,11 @@ class Untangler():
 
         #model_path = next_model 
         ###
+        if PHENIX_FREEZE_WATER:
+            hold_water_positions=True
+        disable_CDL=False
+        if PHENIX_DISABLE_CDL:
+            disable_CDL=True
 
         assert (not hold_water_positions) or (not hold_protein_positions) 
         param_dict = locals()
@@ -1286,7 +1301,7 @@ class Untangler():
                           wc=1,wu=1, shake=0, optimize_R=False,
                           hold_water_positions=False,hold_protein_positions=False,
                           refine_occupancies=False,turn_off_bulk_solvent=TURN_OFF_BULK_SOLVENT,ordered_solvent=False,
-                          no_restrain_movement=False,max_sigma_movement=0.1,refine_hydrogens=False)
+                          no_restrain_movement=False,max_sigma_movement_waters=0.1,refine_hydrogens=False,disable_CDL=False)
         
         if type(param_dict) is SimpleNamespace:
             param_dict:dict[str,Any] = vars(param_dict)
@@ -1303,9 +1318,11 @@ class Untangler():
             "-n",f"{P.num_macro_cycles}",
             "-o",f"{self.model_handle}_{P.out_tag}",
             "-s",f"{P.shake}",
-            "-q",f"{P.max_sigma_movement}",
+            "-q",f"{P.max_sigma_movement_waters}",
         ]
-        for bool_param, flag in ([P.hold_water_positions,"-h"],[P.refine_hydrogens,"-H"],[P.optimize_R,"-r"],[P.hold_protein_positions,"-p"],[P.refine_occupancies,"-O"],[P.turn_off_bulk_solvent,"-t"],[P.ordered_solvent,"-S"],[P.no_restrain_movement,"-R"]):
+        for bool_param, flag in ([P.hold_water_positions,"-h"],[P.refine_hydrogens,"-H"],[P.optimize_R,"-r"],
+                                 [P.hold_protein_positions,"-p"],[P.refine_occupancies,"-O"],[P.turn_off_bulk_solvent,"-t"],
+                                 [P.ordered_solvent,"-S"],[P.no_restrain_movement,"-R"],[P.disable_CDL,"-C"]):
             if bool_param:
                 args.append(flag)
         return P, args
@@ -1461,9 +1478,9 @@ def main():
     Untangler(
         # max_num_best_swaps_considered=5,
         num_end_loop_refine_cycles=6,
-        max_num_best_swaps_considered=40,
-        starting_num_best_swaps_considered=20,
-        altloc_subset_size=3,
+        max_num_best_swaps_considered=12,
+        starting_num_best_swaps_considered=12,
+        altloc_subset_size=2,
         #refine_for_positions_geo_weight=0.03,
         refine_for_positions_geo_weight=0,
         num_unrestrained_macro_cycles_phenix=1,
@@ -1488,9 +1505,15 @@ def main():
         #     ConstraintsHandler.NonbondConstraint: 1,  # TODO experiment with this.
         #     ConstraintsHandler.ClashConstraint: 1,
         # },
+        # weight_factors = {
+        #     ConstraintsHandler.BondConstraint: 1,
+        #     ConstraintsHandler.AngleConstraint: 1,
+        #     ConstraintsHandler.NonbondConstraint: 1,  # TODO experiment with this.
+        #     ConstraintsHandler.ClashConstraint: 0,
+        # },
         weight_factors = {
-            ConstraintsHandler.BondConstraint: 1,
-            ConstraintsHandler.AngleConstraint: 1,
+            ConstraintsHandler.BondConstraint: 0.01,
+            ConstraintsHandler.AngleConstraint: 80,#1,
             ConstraintsHandler.NonbondConstraint: 1,  # TODO experiment with this.
             ConstraintsHandler.ClashConstraint: 0,
         },

@@ -34,12 +34,13 @@ restrain_movement='true'
 refine_occupancies='false'
 ordered_solvent='false'
 disable_ADP='false'
+disable_CDL='false' # Disable conformation-dependent library
 
 max_sigma_movement=0.1
 
 refine_hydrogens='false'
 
-while getopts ":o:u:c:n:s:q:whpragtzAHORS" flag; do
+while getopts ":o:u:c:n:s:q:whpragtzACHORS" flag; do
  case $flag in
     o) out_handle=$OPTARG
        out_handle_override='true'
@@ -69,6 +70,8 @@ while getopts ":o:u:c:n:s:q:whpragtzAHORS" flag; do
     z) refine_no_hold='true'
     ;;
     A) disable_ADP='true'
+    ;;
+    C) disable_CDL='true'
     ;;
     H) refine_hydrogens='true'
     ;;
@@ -213,6 +216,11 @@ fi
 
 if $disable_ADP; then 
   sed "s/\*individual_adp/individual_adp/g" $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
+fi
+
+if $disable_CDL; then 
+  sed "s/cdl = True/cdl = False/g" $paramFile  > tmp.$$ 
   mv tmp.$$ $paramFile
 fi
 

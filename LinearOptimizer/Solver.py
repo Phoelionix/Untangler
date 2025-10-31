@@ -56,7 +56,7 @@ assert required_cost_range_to_consider>=0
 
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[MTSP_Solver.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True,
-          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=2,mins_extra_per_loop=0.1,
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=100,mins_extra_per_loop=10,
           inert_water_sites=False,
           #gapRel=0.001,
           gapRel=0,
@@ -204,22 +204,31 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                         var_atom_assignment.setInitialValue(1)
                     site_var_dict[site][from_altloc][to_altloc]=var_atom_assignment
 
-                # Each ordered atom is assigned to one conformer from:to == n:1
+                # Each ordered atom is assigned to one conformation from:to == n:1
                 lp_problem += (  
                     #lpSum(site_var_dict[site][from_altloc])==1,
                     lpSum(site_var_dict[site][from_altloc].values())==1,
                     f"fromAltLoc_{site}_{from_altloc}"
                 )
 
-            # Each conformer is assigned one ordered atom. from:to == 1:n
-            for to_altloc in all_altlocs:
+            # Each conformation is assigned no more than one ordered atom. 
+            for to_altloc in all_altlocs: # TODO at some point replace the all_altlocs variable in this loop with a variable representing all altlocs allowed to be assigned to.
                 to_altloc_vars:list[LpVariable] = []
                 for from_alt_loc_dict in site_var_dict[site].values():
                     to_altloc_vars.append(from_alt_loc_dict[to_altloc])
-                lp_problem += (  
-                    lpSum(to_altloc_vars)==1,
-                    f"toAltLoc_{site}.{to_altloc}"
-                )
+                # from:to == 1:n
+                if set(site_altlocs)==set(all_altlocs):
+                    lp_problem += (  
+                        lpSum(to_altloc_vars)==1,
+                        f"toAltLoc_{site}.{to_altloc}"
+                    )
+                # E.g. water sites which are not in all conformations.
+                else:
+                    lp_problem += (  
+                        lpSum(to_altloc_vars)<=1,
+                        f"toAltLoc_{site}.{to_altloc}"
+                    )
+
         else:
             var_flipped =  pl.LpVariable(
                 f"{site}_Flipped",
@@ -281,6 +290,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                         return True
 
             # Forbid changes that are costly to consider and don't seem to tangle
+            #TESTING_DISABLE_CHANGES=["CD2","CE2","OH","NH2","NZ"]
+            TESTING_DISABLE_CHANGES=[]
             for ch in disordered_connection[0].atom_chunks:
                 if constraint_type==VariableKind.Bond:
                     #if ch.name in ["O","OH"]:
@@ -296,7 +307,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                     
                     if ch.name in forbidden_atom_bond_changes["name"]:
                         return True
-                if ch.name in forbidden_atom_any_connection_changes["name"]:
+                if (ch.name in forbidden_atom_any_connection_changes["name"]) or (ch.name in TESTING_DISABLE_CHANGES):
                     return True
             return False
         
@@ -428,7 +439,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         #local_score_tolerate_threshold=2*worst_no_change_score
         #local_score_tolerate_threshold=10*worst_no_change_score
         #local_score_tolerate_threshold=3*worst_no_change_score  # * len(altlocs)?
-        local_score_tolerate_threshold=2*worst_no_change_score  # * len(altlocs)?   # TODO This should be done in input when setting what is forbidfden.
+        #local_score_tolerate_threshold=2*worst_no_change_score  # * len(altlocs)?   # TODO This should be done in input when setting what is forbidfden.
+        local_score_tolerate_threshold=worst_no_change_score  # * len(altlocs)?   # TODO This should be done in input when setting what is forbidfden.
         always_tolerate_score_threshold = max(local_score_tolerate_threshold,global_score_tolerate_threshold) #worst_no_change_score*10+1e4
 
 
@@ -731,8 +743,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             print("Warning: extra time per loop is not 0, but there is no time limit")
         #timeLimit=None
         #threads=None
-        #threads=26
-        #threads=10
+        #threads=24
         threads=10
         logPath=out_dir+"xLO-Log"+out_handle+".log"
         #logPath=None

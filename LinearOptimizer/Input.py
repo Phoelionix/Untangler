@@ -35,6 +35,7 @@ from Bio.PDB.Residue import Residue # Note we don't want the disorderedresidue h
 from Bio.PDB.StructureBuilder import StructureBuilder
 from pulp import *
 import UntangleFunctions 
+from UntangleFunctions import two_key_read
 from LinearOptimizer.Swapper import Swapper
 import os
 import random
@@ -44,6 +45,7 @@ from multiprocessing import Pool
 import scipy.stats as st
 from statistics import NormalDist
 from LinearOptimizer.VariableID import *
+from LinearOptimizer.mon_lib_read import read_vdw_parameters,get_mon_lib_names
 
 
 HYDROGEN_RESTRAINTS=False # If False, hydrogen restraints will be ignored.
@@ -73,6 +75,7 @@ class OrderedAtomLookup: #TODO pandas?
         self.residue_nums=[]
         self.residue_sources=[]
         self.altlocs=[]
+        self.protein_altlocs=[]
         self.res_names:dict[int,str]={}
         self.better_dict:dict[str,dict[str,dict[str,Atom]]] = {}
         self.water_residue_nums:list[int]=[]
@@ -142,6 +145,9 @@ class OrderedAtomLookup: #TODO pandas?
                 
                 if altloc not in self.altlocs:
                     self.altlocs.append(altloc)
+                    if not is_water:
+                        assert altloc not in self.protein_altlocs
+                        self.protein_altlocs.append(altloc)
 
                 
 
@@ -217,7 +223,7 @@ class OrderedAtomLookup: #TODO pandas?
 
     def select_atoms_from(self,ordered_atoms:list[Atom], res_nums=None,serial_numbers=None,names=None,
                         disordered_serial_numbers=None,altlocs=None,
-                        waters=True, protein=True, exclude_H=False)->list[Atom]:
+                        waters=True, protein=True, exclude_H=False,exclude_atom_names=[])->list[Atom]:
         atom_selection = []
         
 
@@ -232,6 +238,8 @@ class OrderedAtomLookup: #TODO pandas?
             if not protein and not is_water:
                 continue
             if exclude_H and atom.element == "H":
+                continue
+            if atom.get_name() in exclude_atom_names:
                 continue
             
             for key, v in allowed_values.items():
@@ -327,6 +335,9 @@ class ConstraintsHandler:
     def chi(dev,sigma,ideal,num_bound_e):
         return  dev**2/ideal
     @staticmethod
+    def log_chi(dev,sigma,ideal,num_bound_e):
+        return math.log(1+ConstraintsHandler.chi(dev,sigma,ideal,num_bound_e))
+    @staticmethod
     def scaled_dev(dev,sigma,ideal,num_bound_e):
         return abs(dev)/ideal*10
     @staticmethod
@@ -335,6 +346,9 @@ class ConstraintsHandler:
     @staticmethod
     def dev_sqr(dev,sigma,ideal,num_bound_e):
         return  dev**2
+    #@staticmethod
+    # def chi_piecewise(dev,sigma,ideal,num_bound_e):
+    #     return  
 
 
     class Constraint():
@@ -445,12 +459,9 @@ class ConstraintsHandler:
             # return 0, badness
         
     class ClashConstraint(Constraint):
-        default_weight=1
-        def __init__(self,atom_ids,outlier_ok,altlocs,badness,weight=None,sigma=None):
+        def __init__(self,atom_ids,outlier_ok,altlocs,badness,weight=1):
             self.altlocs = altlocs
             self.badness = badness
-            if weight is None:
-                weight = ConstraintsHandler.ClashConstraint.default_weight
             super().__init__(atom_ids,outlier_ok,None,weight,None)
         def get_distance(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
@@ -464,11 +475,9 @@ class ConstraintsHandler:
 
     class NonbondConstraint(Constraint):
         # TODO currently just looks at the smallest separation of all symmetries.
-        default_weight=1
-        def __init__(self,atom_ids,outlier_ok,ideal_separation,symmetries,weight=None):
-            if weight is None:
-                weight = ConstraintsHandler.NonbondConstraint.default_weight
-            super().__init__(atom_ids,outlier_ok,ideal_separation,weight,None)
+        def __init__(self,atom_ids,outlier_ok,E_min_separation,E_min,symmetries,weight=1):
+            super().__init__(atom_ids,outlier_ok,E_min_separation,weight,None)
+            self.E_min = E_min
             # if (DisorderedTag(17,"H") in self.site_tags) and (DisorderedTag(81,"O") in self.site_tags):
             self.symmetries=symmetries
         @staticmethod
@@ -493,19 +502,45 @@ class ConstraintsHandler:
         
         @staticmethod
         def lennard_jones(r,r0):
+            # NOTE: E_min not used.
+
             #obs=$1;ideal=$2;sigma=1;energy=lj(obs,ideal)
             # function lj0(r,r0) {if(r==0)return 1e40;return 4*((r0*2^(-1./6)/r)^12-(r0*2^(-1./6)/r)^6)}\
             # function lj(r,r0) {return lj0(r,r0)-lj0(6,r0)}'
-            def lj0(r,r0):
-                if r == 0:
-                    return 1e40
-                return 4*((r0*2**(-1/6)/r)**12-(r0*2**(-1/6)/r)**6)
-            return lj0(r,r0)-lj0(6,r0)  
-        @staticmethod
-        def badness(r,r0,neg_badness_limit=-0.1): # TODO implement properly as in untangle_score.csh. 
+            #def lj0(r,r0):
+            if r == 0:
+                return 1e40
+            return 4*((r0*2**(-1/6)/r)**12-(r0*2**(-1/6)/r)**6)
+            #return lj0(r,r0)-lj0(6,r0)
+        @staticmethod  
+        def badness(r,r0): # TODO implement properly as in untangle_score.csh. 
             # negative when separation is greater than ideal.
-            assert neg_badness_limit < 0 
-            return abs(max(neg_badness_limit,ConstraintsHandler.NonbondConstraint.lennard_jones(r,r0)))
+            lj_energy = ConstraintsHandler.NonbondConstraint.lennard_jones(r,r0)
+            if r > r0:
+                assert lj_energy <= 0, (r, r0, lj_energy)
+                # Logic: Expect atoms to be near bottom of potential if within a certain range. 
+                if lj_energy>=-0.0163169:  # R=2.5 sigma TODO look for a good value based on structures generated by phenix geometry refine etc. 
+                    #return None
+                    return 0
+            return lj_energy+1
+            #return abs(max(neg_badness_limit,ConstraintsHandler.NonbondConstraint.lennard_jones(r,r0,E_min)))
+        #@staticmethod
+        # def lennard_jones(Rij,Rmin,EPSij):
+        #     # ENERGY =  EPSij * ( (Rmin/Rij)**12 - 2 * (Rmin/Rij)**6 )  NB: Sign is flipped here since EPSij is negative... (ENERGY = -EPSij when Rij=Rmin) 
+        #     if Rij == 0:
+        #         return 1e40
+        #     return -1 * EPSij * ( (Rmin/Rij)**12 - 2 * (Rmin/Rij)**6 )
+        #@staticmethod
+        # def badness(r,r0,E_min): # TODO implement properly as in untangle_score.csh. 
+        #     # negative when separation is greater than ideal.
+        #     assert E_min < 0
+        #     lj_energy = ConstraintsHandler.NonbondConstraint.lennard_jones(r,r0,E_min)
+        #     assert lj_energy <= 0
+        #     # Logic: Expect atoms to be near bottom of potential if within a certain range. 
+        #     if lj_energy>=0.0163169*E_min:  # R=2.5 sigma TODO look for a good value based on structures generated by phenix geometry refine etc. 
+        #         return 0
+        #     return lj_energy-E_min
+        #     #return abs(max(neg_badness_limit,ConstraintsHandler.NonbondConstraint.lennard_jones(r,r0,E_min)))
         def get_distance(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
@@ -514,7 +549,11 @@ class ConstraintsHandler:
             r = ConstraintsHandler.NonbondConstraint.symm_min_separation(a,b,self.symmetries)
             r0 = self.ideal
             energy = ConstraintsHandler.NonbondConstraint.badness(r,r0)
-            return 0, energy * self.weight
+            # if energy is None:
+            #     return None
+
+            #return 0, energy * self.weight
+            return np.sqrt(energy), energy * self.weight
         
 
     def __init__(self,constraints:list[Constraint]=[]):
@@ -615,8 +654,55 @@ class ConstraintsHandler:
         print("WARNING: assuming elements all single character")
         NB_pdb_ids_added = []
         num_nonbonded_from_geo = 0
+
+
+
+
+        mon_lib_energy_name_dict:dict[dict[str]] = {}
+        for res in "HOH, ALA, ARG, ASN, ASP, CYS, GLU, GLN, GLY, HIS, ILE, LEU, LYS, MET, PHE, PRO, SER, THR, TRP, TYR, VAL".split(", "):
+            mon_lib_energy_name_dict[res]=get_mon_lib_names(res)
+        
+        vdw_params = read_vdw_parameters()
+        general_water_nonbond=True
+        water_water_nonbond=False
+        protein_protein_nonbonds=True
+        if water_water_nonbond: 
+            assert general_water_nonbond
+        if (general_water_nonbond or protein_protein_nonbonds) and ConstraintsHandler.NonbondConstraint not in constraints_to_skip: 
+            atoms = ordered_atom_lookup.select_atoms_by(protein=True, waters=water_water_nonbond,exclude_H=True)
+            other_atoms = ordered_atom_lookup.select_atoms_by(protein=protein_protein_nonbonds,waters=general_water_nonbond,exclude_H=True,
+                                                              exclude_atom_names=["C","N","CA","CB"])
+            for i,atom in enumerate(atoms):
+                if i%100==0:
+                    print(f"Computing possible LJ potentials {i}/{len(atoms)}")
+                for other_atom in other_atoms:
+                    if OrderedAtomLookup.atom_res_seq_num(other_atom) == OrderedAtomLookup.atom_res_seq_num(atom):
+                        continue
+                    max_nonbond_sep=4
+                    if ConstraintsHandler.NonbondConstraint.symm_min_separation(atom,other_atom,symmetries) > max_nonbond_sep:
+                        continue
+
+                    atom_energy_type = two_key_read(mon_lib_energy_name_dict,"mon_lib_energy_name_dict",
+                                                 OrderedAtomLookup.atom_res_name(atom),atom.get_name())
+                    other_atom_energy_type = two_key_read(mon_lib_energy_name_dict,"mon_lib_energy_name_dict",
+                                                 OrderedAtomLookup.atom_res_name(other_atom),other_atom.get_name())
+                    
+                    E_min,R_min = two_key_read(vdw_params,"vdw_params",
+                                                atom_energy_type,other_atom_energy_type)
+
+                    pdb1 = f"{atom.name}     ARES     A      {OrderedAtomLookup.atom_res_seq_num(atom)}"
+                    pdb2 = f"{other_atom.name}     ARES     A      {OrderedAtomLookup.atom_res_seq_num(other_atom)}"
+                    pdb_ids = (pdb1,pdb2)
+                    pdb_ids_flipped = (pdb2,pdb1)
+                    if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
+                        self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),R_min,E_min,symmetries),None)
+                        NB_pdb_ids_added.append(pdb_ids)     
+        num_nonbonded_general = len(NB_pdb_ids_added)
+        print(f"Added {num_nonbonded_general} nonbond constraints")
+        
+        skip_nonbonds_from_geo=True
         for file in (nonbond_scores_files):
-            if ConstraintsHandler.NonbondConstraint in constraints_to_skip:
+            if (ConstraintsHandler.NonbondConstraint in constraints_to_skip) or skip_nonbonds_from_geo:
                 break
 
             with open(file) as f:
@@ -669,28 +755,30 @@ class ConstraintsHandler:
                         pdb_ids = (pdb1,pdb2)
                         pdb_ids_flipped = (pdb2,pdb1)
                         if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
-                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),ideal,symmetries),None)  
+                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),ideal,None,symmetries),None)  
                             NB_pdb_ids_added.append(pdb_ids)  
             print(f"Added {len(NB_pdb_ids_added)-num_nonbonded_from_geo} nonbond constraints from {file}")
-            num_nonbonded_from_geo = len(NB_pdb_ids_added)
-        if water_water_nonbond:  # TODO Symmetry clashes
-            waters = ordered_atom_lookup.select_atoms_by(protein=False)
-            ideal_water_separation=2.200
-            for atom in waters:
-                for other_atom in waters:
-                    if other_atom == atom:
-                        continue
-                    if ConstraintsHandler.NonbondConstraint.symm_min_separation(atom,other_atom,symmetries) < 8:
-                        pdb1 = f"{atom.name}     ARES     A      {OrderedAtomLookup.atom_res_seq_num(atom)}"
-                        pdb2 = f"{other_atom.name}     ARES     A      {OrderedAtomLookup.atom_res_seq_num(other_atom)}"
-                        pdb_ids = (pdb1,pdb2)
-                        pdb_ids_flipped = (pdb2,pdb1)
-                        if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
-                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),ideal_water_separation,symmetries),None)
-                            NB_pdb_ids_added.append(pdb_ids)     
-        num_nonbonded_extra = len(NB_pdb_ids_added)-num_nonbonded_from_geo
-
-        print(f"Nonbonded from geo: {num_nonbonded_from_geo}, extra: {num_nonbonded_extra}")
+            num_nonbonded_from_geo = len(NB_pdb_ids_added)-num_nonbonded_general
+        # if water_water_nonbond:  # TODO Symmetry clashes
+        #     waters = ordered_atom_lookup.select_atoms_by(protein=False)
+        #     ideal_water_separation=2.200
+        #     for atom in waters:
+        #         for other_atom in waters:
+        #             if other_atom == atom:
+        #                 continue
+        #             if ConstraintsHandler.NonbondConstraint.symm_min_separation(atom,other_atom,symmetries) < 8:
+        #                 pdb1 = f"{atom.name}     ARES     A      {OrderedAtomLookup.atom_res_seq_num(atom)}"
+        #                 pdb2 = f"{other_atom.name}     ARES     A      {OrderedAtomLookup.atom_res_seq_num(other_atom)}"
+        #                 pdb_ids = (pdb1,pdb2)
+        #                 pdb_ids_flipped = (pdb2,pdb1)
+        #                 if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
+        #                     self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),ideal_water_separation,symmetries),None)
+        #                     NB_pdb_ids_added.append(pdb_ids)     
+        #num_nonbonded_extra = len(NB_pdb_ids_added)-num_nonbonded_from_geo
+        
+        print(f"Nonbonded from geo: {num_nonbonded_from_geo}, extra: {num_nonbonded_general}")
+        if num_nonbonded_from_geo > 0:
+            print("WARNING: Bad nonbond possibilities between two different conformer labels are likely being missed")
 
         if ordered_atom_lookup.waters_allowed and ConstraintsHandler.ClashConstraint not in constraints_to_skip:
             for name, res_num, badness, altloc in water_clashes:
@@ -754,10 +842,19 @@ class DisorderedTag():
 
 
 class MTSP_Solver:
-    MODE= "NO_RESTRICTIONS" #"HIGH_TOL" #"NO_RESTRICTIONS" # PHENIX REFMAC
+    MODE= "LOW_TOL" # "NONBOND_RESTRICTIONS" #"LOW_TOL" #"HIGH_TOL" #"NO_RESTRICTIONS" # PHENIX REFMAC
 
     if MODE=="NO_RESTRICTIONS":
         max_sigmas=min_sigmas_where_anything_goes=min_tension_where_anything_goes={}
+
+    if MODE=="NONBOND_RESTRICTIONS":
+        max_sigmas={
+            ConstraintsHandler.NonbondConstraint:3,
+        }
+        min_sigmas_where_anything_goes={
+            ConstraintsHandler.NonbondConstraint:2,
+        }
+        min_tension_where_anything_goes={}
     if MODE=="HIGH_TOL":
         max_sigmas={
             # ConstraintsHandler.BondConstraint:4,
@@ -790,17 +887,28 @@ class MTSP_Solver:
             # ConstraintsHandler.ClashConstraint:7,
         } 
     if MODE=="LOW_TOL":
+        # max_sigmas={
+        #     ConstraintsHandler.BondConstraint:1.5,
+        #     ConstraintsHandler.AngleConstraint:1.5,
+        # }    
         max_sigmas={
-            ConstraintsHandler.BondConstraint:1.2,
-            ConstraintsHandler.AngleConstraint:1.2,
+            #ConstraintsHandler.BondConstraint:8,
+            #ConstraintsHandler.AngleConstraint:3,
+            ConstraintsHandler.BondConstraint:8,
+            ConstraintsHandler.NonbondConstraint:3,
+            ConstraintsHandler.AngleConstraint:2.5,
         }    
         min_sigmas_where_anything_goes={
             ConstraintsHandler.BondConstraint:99,
+            #ConstraintsHandler.AngleConstraint:5,
             ConstraintsHandler.AngleConstraint:99,
+            ConstraintsHandler.NonbondConstraint:2,
         } 
         min_tension_where_anything_goes={
             ConstraintsHandler.BondConstraint:8,
-            ConstraintsHandler.AngleConstraint:8,
+            ConstraintsHandler.AngleConstraint:4,
+            #ConstraintsHandler.BondConstraint:8,
+            #ConstraintsHandler.AngleConstraint:8,
             ConstraintsHandler.NonbondConstraint:8,
             ConstraintsHandler.ClashConstraint:8,
         } 
@@ -1265,6 +1373,9 @@ class MTSP_Solver:
         altloc_counts={}
         last_site=None
         for n,atom in enumerate(ordered_atoms):
+            if atom.get_altloc() not in self.ordered_atom_lookup.protein_altlocs:
+                # Skip solvent atoms that aren't assigned same conformer letter. (Really need a better way to track conformers than just altloc letters. Maybe a json format with hierarchy of conformer groups and subgroups is what is needed...)
+                continue
             if atom.get_altloc() not in altloc_counts:
                 altloc_counts[atom.get_altloc()]=0
             altloc_counts[atom.get_altloc()]+=1
