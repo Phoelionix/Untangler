@@ -615,6 +615,8 @@ class ConstraintsHandler:
                 return (kind,atom_strings) in outliers_to_ignore
 
         self.constraints: list[ConstraintsHandler.Constraint]=[]
+        Bonds_added=[]
+        AngleEnds_added=[]
         with open(constraints_file,"r") as f:
             lines = f.readlines()
             for i, line in enumerate(lines):
@@ -631,6 +633,11 @@ class ConstraintsHandler:
                     #     continue
                     #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
                     pdb_ids = (pdb1,pdb2)
+                    name1 = pdb1[0:4].strip()
+                    name2 = pdb2[0:4].strip()
+                    resnum1 = int(pdb1.strip().split()[-1])
+                    resnum2 = int(pdb2.strip().split()[-1])
+                    Bonds_added.append( ((name1,resnum1),(name2,resnum2)) )
                     self.add(ConstraintsHandler.BondConstraint(pdb_ids,outlier_ok("BOND",pdb_ids),ideal,weight,sigma),residual)
                 if line.startswith("angle"):
                     if ConstraintsHandler.AngleConstraint in constraints_to_skip:
@@ -645,6 +652,12 @@ class ConstraintsHandler:
                     #     continue
                     #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
                     pdb_ids = (pdb1,pdb2,pdb3)
+
+                    name1 = pdb1[0:4].strip()
+                    name3 = pdb3[0:4].strip()
+                    resnum1 = int(pdb1.strip().split()[-1])
+                    resnum3 = int(pdb3.strip().split()[-1])
+                    AngleEnds_added.append( ((name1,resnum1),(name3,resnum3)) )
                     self.add(ConstraintsHandler.AngleConstraint(pdb_ids,outlier_ok("ANGLE",pdb_ids),ideal,weight,sigma),residual)
                 
        
@@ -671,16 +684,34 @@ class ConstraintsHandler:
         if (general_water_nonbond or protein_protein_nonbonds) and ConstraintsHandler.NonbondConstraint not in constraints_to_skip: 
             atoms = ordered_atom_lookup.select_atoms_by(protein=True, waters=water_water_nonbond,exclude_H=True)
             other_atoms = ordered_atom_lookup.select_atoms_by(protein=protein_protein_nonbonds,waters=general_water_nonbond,exclude_H=True,
-                                                              exclude_atom_names=["C","N","CA","CB"])
+                                                              )
+                                                              #exclude_atom_names=["C","N","CA","CB"])
+            
+            max_nonbond_sep=4
             for i,atom in enumerate(atoms):
                 if i%100==0:
                     print(f"Computing possible LJ potentials {i}/{len(atoms)}")
                 for other_atom in other_atoms:
                     if OrderedAtomLookup.atom_res_seq_num(other_atom) == OrderedAtomLookup.atom_res_seq_num(atom):
                         continue
-                    max_nonbond_sep=4
+                    atom_resnum=OrderedAtomLookup.atom_res_seq_num(atom)
+                    other_atom_resnum=OrderedAtomLookup.atom_res_seq_num(other_atom)
+                    pdb1 = f"{atom.name}     ARES     A      {atom_resnum}"
+                    pdb2 = f"{other_atom.name}     ARES     A      {other_atom_resnum}"
+                    pdb_ids = (pdb1,pdb2)
+                    pdb_ids_flipped = (pdb2,pdb1)
+
+                    # XXX stupid. Change the pdb_id thing to (name,resnum) and won't need to define another set of variables containing same information like this. 
+                    tmp1,tmp2=(atom.name,atom_resnum),(other_atom.name,other_atom_resnum)
+                    B_A_check,B_A_check_flipped=(tmp1,tmp2),(tmp2,tmp1)   
+
                     if ConstraintsHandler.NonbondConstraint.symm_min_separation(atom,other_atom,symmetries) > max_nonbond_sep:
                         continue
+                    if ((B_A_check in Bonds_added) or (B_A_check_flipped in Bonds_added) 
+                    or  (B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added) 
+                    or (pdb_ids in NB_pdb_ids_added) or (pdb_ids_flipped in NB_pdb_ids_added)):
+                        continue
+
 
                     atom_energy_type = two_key_read(mon_lib_energy_name_dict,"mon_lib_energy_name_dict",
                                                  OrderedAtomLookup.atom_res_name(atom),atom.get_name())
@@ -689,14 +720,10 @@ class ConstraintsHandler:
                     
                     E_min,R_min = two_key_read(vdw_params,"vdw_params",
                                                 atom_energy_type,other_atom_energy_type)
+                    self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),R_min,E_min,symmetries),None)
+                    NB_pdb_ids_added.append(pdb_ids)
 
-                    pdb1 = f"{atom.name}     ARES     A      {OrderedAtomLookup.atom_res_seq_num(atom)}"
-                    pdb2 = f"{other_atom.name}     ARES     A      {OrderedAtomLookup.atom_res_seq_num(other_atom)}"
-                    pdb_ids = (pdb1,pdb2)
-                    pdb_ids_flipped = (pdb2,pdb1)
-                    if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
-                        self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),R_min,E_min,symmetries),None)
-                        NB_pdb_ids_added.append(pdb_ids)     
+     
         num_nonbonded_general = len(NB_pdb_ids_added)
         print(f"Added {num_nonbonded_general} nonbond constraints")
         
@@ -861,8 +888,9 @@ class MTSP_Solver:
             # ConstraintsHandler.AngleConstraint:4,
             #ConstraintsHandler.BondConstraint:6,
             #ConstraintsHandler.AngleConstraint:3,
-            ConstraintsHandler.BondConstraint:3,
-            ConstraintsHandler.AngleConstraint:3,
+            ConstraintsHandler.BondConstraint:10,
+            ConstraintsHandler.AngleConstraint:4,
+            ConstraintsHandler.NonbondConstraint:4,
             # ConstraintsHandler.BondConstraint:2,
             # ConstraintsHandler.AngleConstraint:2,
             # ConstraintsHandler.BondConstraint:99,
@@ -871,6 +899,7 @@ class MTSP_Solver:
         min_sigmas_where_anything_goes={
             ConstraintsHandler.BondConstraint:2,
             ConstraintsHandler.AngleConstraint:2,
+            ConstraintsHandler.NonbondConstraint:2,
             # ConstraintsHandler.BondConstraint:4,
             # ConstraintsHandler.AngleConstraint:4,
             # ConstraintsHandler.BondConstraint:99,
@@ -881,6 +910,7 @@ class MTSP_Solver:
             ConstraintsHandler.AngleConstraint:5,
             ConstraintsHandler.NonbondConstraint:5,
             ConstraintsHandler.ClashConstraint:5,
+            ConstraintsHandler.NonbondConstraint:5,
             # ConstraintsHandler.BondConstraint:7,
             # ConstraintsHandler.AngleConstraint:7,
             # ConstraintsHandler.NonbondConstraint:7,
