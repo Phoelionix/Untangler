@@ -696,7 +696,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
     og_connections_str = ""
     og_connections_str+="name, sigma, cost\n"
-    vals = [(constraint,var) for constraint,var in constraint_var_dict.values() if var.value()>0]
+    vals = [(constraint,var) for constraint,var in constraint_var_dict.values() if var.value()>0.5]
     #vals.sort(key=lambda x: x[0].z_score,reverse=True)
     vals.sort(key=lambda x: x[0].ts_distance,reverse=True)
     for constraint, var in vals:
@@ -760,7 +760,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
                 for v in lp_problem.variables():
                     try:
-                        if v.value() > 0:
+                        if v.value() > 0.5:
                             f.write(f"{v.name} = {v.value()}\n")
                     except:
                         raise Exception(v,v.value())
@@ -804,7 +804,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
             if verbose:
                 for v in lp_problem.variables():
-                    if v.value() > 0:
+                    if v.value() > 0.5:
                         print(v.name, "=", v.value())
 
             print(f"Target: {out_handle}")
@@ -829,7 +829,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
             for v in lp_problem.variables():
                 try:
-                    if v.value() > 0:
+                    if v.value() > 0.5:
                         f.write(f"{v.name} = {v.value()}\n")
                 except:
                     raise Exception(v,v.value())
@@ -845,7 +845,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
         ##Active Connections##
         out_str_active_conn=""
-        vals = [(constraint,var) for constraint,var in constraint_var_dict.values() if var.value()>0]
+        vals = [(constraint,var) for constraint,var in constraint_var_dict.values() if var.value()>0.5]
         vals.sort(key=lambda x: x[0].ts_distance,reverse=True)
         #vals.sort(key=lambda x: x[0].z_score)
         for constraint, var in vals:
@@ -862,7 +862,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
         changed_disordered_connections=[]
         for disordered_connection_var_dict in mega_connection_var_dict.values():
-            active_constraints=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if var.value()>0]
+            active_constraints=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if var.value()>0.5]
             original_constraints=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if constraint.single_altloc()]
 
             if PLOTTING:
@@ -956,7 +956,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                     break 
                 to_altloc_found = False
                 for to_altloc in site_var_dict[site][from_altloc]:
-                    if round(site_var_dict[site][from_altloc][to_altloc].value())==1:  # For some reason CPLEX outptuts values like 1.0000000000094025 sometimes.
+                    if site_var_dict[site][from_altloc][to_altloc].value()>0.5:  # For some reason CPLEX outptuts values like 1.0000000000094025 sometimes.
                         assert not to_altloc_found
                         to_altloc_found=True
                         site_assignments[site][from_altloc]=to_altloc
@@ -1001,7 +1001,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             for to_altloc, var in site_var_dict[site][from_altloc].items():
                 val = var.value()
                 flip_variables.append(var)
-                if val == 1:
+                if val > 0.5:
                     #if (1-var) not in flipped_flip_variables:
                     flipped_flip_variables.append(1-var)
         if len(flipped_flip_variables) == 0:
