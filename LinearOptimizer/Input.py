@@ -708,7 +708,8 @@ class ConstraintsHandler:
                     if ConstraintsHandler.NonbondConstraint.symm_min_separation(atom,other_atom,symmetries) > max_nonbond_sep:
                         continue
                     if ((B_A_check in Bonds_added) or (B_A_check_flipped in Bonds_added) 
-                    or  (B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added) 
+                    #or  (B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added) 
+                    or  (((B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)) and other_atom.name in ["C","N","CA","CB"])
                     or (pdb_ids in NB_pdb_ids_added) or (pdb_ids_flipped in NB_pdb_ids_added)):
                         continue
 
@@ -910,7 +911,6 @@ class MTSP_Solver:
             ConstraintsHandler.AngleConstraint:5,
             ConstraintsHandler.NonbondConstraint:5,
             ConstraintsHandler.ClashConstraint:5,
-            ConstraintsHandler.NonbondConstraint:5,
             # ConstraintsHandler.BondConstraint:7,
             # ConstraintsHandler.AngleConstraint:7,
             # ConstraintsHandler.NonbondConstraint:7,
