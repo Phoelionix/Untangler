@@ -48,9 +48,9 @@ from LinearOptimizer.VariableID import *
 from LinearOptimizer.mon_lib_read import read_vdw_parameters,get_mon_lib_names
 
 
-HYDROGEN_RESTRAINTS=False # If False, hydrogen restraints will be ignored.
+#HYDROGEN_RESTRAINTS=False # If False, hydrogen restraints will be ignored.
 NEVER_FORBID_HYDROGEN_RESTRAINTS=True
-hydrogen_restraint_scale=1e-3 # scales cost of hydrogen restraints. E.g. angles for serine OG - CB - H will prevent a swap that improves OG - CB bond length, even though after refine the hydrogens will rearrange with no issues.  
+hydrogen_restraint_scale=1 # scales cost of hydrogen restraints. E.g. angles for serine OG - CB - H will prevent a swap that improves OG - CB bond length, even though after refine the hydrogens will rearrange with no issues.  
 NO_INDIV_WEIGHTS=False  # (Edit: Also, could be good for avoiding undue weight placed on genuine outliers) Idea being that when we do unrestrained refinement, all geometry is ignored, and all atoms are treated "equally" in fitting to xray data. So it makes little sense to weight connections of the same type differently.
 APPLY_TENSION_MOD=False
 TURN_OFF_MIN_SIGMAS=False # Since there are genuine outliers this could be harming things.
@@ -459,18 +459,22 @@ class ConstraintsHandler:
             # return 0, badness
         
     class ClashConstraint(Constraint):
-        def __init__(self,atom_ids,outlier_ok,altlocs,badness,weight=1):
-            self.altlocs = altlocs
-            self.badness = badness
+        def __init__(self,atom_ids,outlier_ok,weight=1):
+            self.altlocs_clash_dict={}
             super().__init__(atom_ids,outlier_ok,None,weight,None)
+        def add_clash(self,altlocs,badness):
+            self.altlocs_clash_dict[tuple(altlocs)]=badness
         def get_distance(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
             a,b = ordered_atoms
-            if a.get_altloc() == self.altlocs[0] and b.get_altloc() == self.altlocs[1]:
-                return 0, self.badness*self.weight
-            return None 
+            altlocs=(a.get_altloc(),b.get_altloc())
+            if altlocs not in self.altlocs_clash_dict:
+                altlocs=(b.get_altloc(),a.get_altloc())
+            if (altlocs in self.altlocs_clash_dict):
+                return 0, self.altlocs_clash_dict[altlocs]*self.weight
+            return 0, 0  # TODO return None once LinearOptimizer.Solver behaves fine with it
 
 
     class NonbondConstraint(Constraint):
@@ -593,7 +597,7 @@ class ConstraintsHandler:
             # if site == DisorderedTag(17,"N"):
             #     print(self.atom_constraints[site])
 
-    def load_all_constraints(self,constraints_file,nonbond_scores_files,water_clashes,ordered_atom_lookup:OrderedAtomLookup,symmetries, water_water_nonbond:bool,constraints_to_skip=[],potential_overrides_file=None):
+    def load_all_constraints(self,constraints_file,nonbond_scores_files,clashes,ordered_atom_lookup:OrderedAtomLookup,symmetries, water_water_nonbond:bool,constraints_to_skip=[],potential_overrides_file=None):
         print(f"Parsing constraints in {constraints_file}")
 
 
@@ -688,9 +692,11 @@ class ConstraintsHandler:
                                                               #exclude_atom_names=["C","N","CA","CB"])
             
             max_nonbond_sep=4
+            #TODO can speed up a lot by generating symmetric grid and assigning atoms to voxels and checking if in same or neighbouring voxels,
+            # rather than calculating distances between every single atom and checking if within max_nonbond_sep...
             for i,atom in enumerate(atoms):
                 if i%100==0:
-                    print(f"Computing possible LJ potentials {i}/{len(atoms)}")
+                    print(f"Flagging possible LJ potentials {i}/{len(atoms)}")
                 for other_atom in other_atoms:
                     if OrderedAtomLookup.atom_res_seq_num(other_atom) == OrderedAtomLookup.atom_res_seq_num(atom):
                         continue
@@ -808,16 +814,20 @@ class ConstraintsHandler:
         if num_nonbonded_from_geo > 0:
             print("WARNING: Bad nonbond possibilities between two different conformer labels are likely being missed")
 
-        if ordered_atom_lookup.waters_allowed and ConstraintsHandler.ClashConstraint not in constraints_to_skip:
-            for name, res_num, badness, altloc in water_clashes:
+        if ConstraintsHandler.ClashConstraint not in constraints_to_skip:
+            for name, res_num, badness, altloc in clashes:
                 for n, r, a in zip(name,res_num,altloc):
                     if r not in ordered_atom_lookup.better_dict or n not in ordered_atom_lookup.better_dict[r]: 
                         break
                 else:
                     pdb_ids = [f"{n}     ARES     A      {r}" for (n,r) in zip(name,res_num)]
-                    self.add(ConstraintsHandler.ClashConstraint(pdb_ids,outlier_ok("CLASH",pdb_ids),altloc,badness))
-
-
+                    self.add(ConstraintsHandler.ClashConstraint(pdb_ids,outlier_ok("CLASH",pdb_ids)),None)
+                    found=0
+                    for constraint in self.constraints:
+                        if constraint == ConstraintsHandler.ClashConstraint(pdb_ids,outlier_ok("CLASH",pdb_ids)):
+                            constraint.add_clash(altloc,badness)
+                            found+=1
+                    assert found == 1
 
 
 # Ugh, never do inheritance. TODO refactor to composition.
@@ -1330,8 +1340,9 @@ class MTSP_Solver:
 
         # Generate geo file
         nonbond_scores_files = []
-        water_clashes=[]
+        clashes=[]
         if nonbonds:
+
 
             # CLASH 26.6682 0.79 | A  62 AARG  HD2| S 128 AHOH  O 
             # Terrible code. XXX
@@ -1358,6 +1369,23 @@ class MTSP_Solver:
                         clashes.append((name, res_num, badness, from_altloc))
                 return clashes
 
+            def get_clashes(handle)->list: # from_altloc_dict, with keys being the to_altlocs.
+                clashes = []
+                #nonbond_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_scorednonbond.txt"
+                clashes_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_clashes.txt"
+                with open(clashes_path) as clashes_file:
+                    for line in clashes_file:
+                        #pdb1 = f"{name}     ARES     A      {res_num}"
+                        res_num = [int(entry.split()[1]) for entry in line.split("|")[1:]] 
+                        #  NOTE At the moment altlocs will all be the same. But hope to 
+                        # one day read from file that does clashes between all altlocs!!!!
+                        altlocs = [entry.split()[-2][0] for entry in line.split("|")[1:]] 
+                        name = [entry.strip().split()[-1] for entry in line.split("|")[1:]] 
+                        badness = float(line.split()[1])
+                        #new_line = f"CLASH   {badness} XXXXX XXXXX XXXXX X |  {name[0]}_{res_num[0]} {name[1]}_{res_num[1]}"
+                        clashes.append((name, res_num, badness, altlocs))
+                return clashes
+
             
 
             nonbond_scores_path = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}.geo"
@@ -1369,7 +1397,7 @@ class MTSP_Solver:
             unflipped_water_dict = {}
             for altloc in self.ordered_atom_lookup.get_altlocs():
                 unflipped_water_dict[altloc]=altloc
-            water_clashes =  get_water_clashes(model_handle,unflipped_water_dict) 
+            clashes =  get_clashes(model_handle) 
             
             more_water_swaps=True
             if more_water_swaps and len(self.ordered_atom_lookup.get_altlocs())==2:
@@ -1378,7 +1406,7 @@ class MTSP_Solver:
                 for i in range(2):
                     flipped_water_dict[altlocs[i]]=altlocs[-i-1]
 
-                water_clashes+= get_water_clashes(model_water_swapped_handle,flipped_water_dict)
+                clashes+= get_water_clashes(model_water_swapped_handle,flipped_water_dict)
 
             
                 #nonbond_water_flipped_scores_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{model_water_swapped_handle}_scorednonbond.txt"
@@ -1395,7 +1423,7 @@ class MTSP_Solver:
         constraints_to_skip = [kind for kind,value in constraint_weights.items() if value <= 0]
 
         potential_overrides = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}_potential_overrides.txt"
-        constraints_handler.load_all_constraints(constraints_file,nonbond_scores_files,water_clashes,self.ordered_atom_lookup,symmetries=self.symmetries,water_water_nonbond=water_water_nonbond,constraints_to_skip=constraints_to_skip,
+        constraints_handler.load_all_constraints(constraints_file,nonbond_scores_files,clashes,self.ordered_atom_lookup,symmetries=self.symmetries,water_water_nonbond=water_water_nonbond,constraints_to_skip=constraints_to_skip,
                                                  potential_overrides_file=potential_overrides)
         print("Nonordered constraint properties loaded.")
         #for n,atom in enumerate(self.ordered_atom_lookup.select_atoms_by(names=["CA","C","N"])):
@@ -1471,9 +1499,9 @@ class MTSP_Solver:
         for c, constraint in enumerate(constraints_handler.constraints):
             if c%1000 == 0: 
                 print(f"Calculating constraint {c} / {len(constraints_handler.constraints)} ({constraint}) ")
-            constraints_that_include_H = [ConstraintsHandler.AngleConstraint,ConstraintsHandler.NonbondConstraint]
-            if not HYDROGEN_RESTRAINTS:
-                constraints_that_include_H=[]
+            #constraints_that_include_H = [ConstraintsHandler.AngleConstraint,ConstraintsHandler.NonbondConstraint,ConstraintsHandler.ClashConstraint]
+            #if not HYDROGEN_RESTRAINTS:
+            constraints_that_include_H=[ConstraintsHandler.ClashConstraint]  # Since the purpose of clash constraints is to say "the current thing is wrong", in which case using the hydrogens is fine.
             # atoms_for_constraint = self.ordered_atom_lookup.select_atoms_by(
             #     names=constraint.atom_names(),
             #     res_nums=constraint.residues(),

@@ -1515,7 +1515,7 @@ def main():
             ConstraintsHandler.BondConstraint: 0.01,
             ConstraintsHandler.AngleConstraint: 80,#1,
             ConstraintsHandler.NonbondConstraint: 0.1,  # TODO experiment with this.
-            ConstraintsHandler.ClashConstraint: 0,
+            ConstraintsHandler.ClashConstraint: 10,
         },
         # weight_factors = {
         #     ConstraintsHandler.BondConstraint: 1,
