@@ -6,6 +6,7 @@ class VariableKind(Enum):
     Nonbond="Nonbond"
     Clash="Clash"
     Angle = "Angle"
+    Penalty = "Penalty"
 
 class VariableID:
     @staticmethod

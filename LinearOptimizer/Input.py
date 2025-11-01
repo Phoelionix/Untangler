@@ -45,10 +45,12 @@ from multiprocessing import Pool
 import scipy.stats as st
 from statistics import NormalDist
 from LinearOptimizer.VariableID import *
-from LinearOptimizer.mon_lib_read import read_vdw_parameters,get_mon_lib_names
+from LinearOptimizer.mon_lib_read import read_vdw_radii,read_lj_parameters,get_mon_lib_names
 
 
 #HYDROGEN_RESTRAINTS=False # If False, hydrogen restraints will be ignored.
+IGNORE_HYDROGEN_CLASHES=True # Does not apply to CustomClashConstraint
+DISABLE2WATERFLIP=True 
 NEVER_FORBID_HYDROGEN_RESTRAINTS=True
 hydrogen_restraint_scale=1 # scales cost of hydrogen restraints. E.g. angles for serine OG - CB - H will prevent a swap that improves OG - CB bond length, even though after refine the hydrogens will rearrange with no issues.  
 NO_INDIV_WEIGHTS=False  # (Edit: Also, could be good for avoiding undue weight placed on genuine outliers) Idea being that when we do unrestrained refinement, all geometry is ignored, and all atoms are treated "equally" in fitting to xray data. So it makes little sense to weight connections of the same type differently.
@@ -352,8 +354,8 @@ class ConstraintsHandler:
 
 
     class Constraint():
-        def __init__(self,atom_ids:list[str],outlier_ok:bool,ideal:float,weight:float,sigma:float):
-            self.site_tags = [DisorderedTag(pdb.strip().split()[-1], pdb[:4].strip()) for pdb in atom_ids]
+        def __init__(self,pdb_ids:list[str],outlier_ok:bool,ideal:float,weight:float,sigma:float):
+            self.site_tags = ConstraintsHandler.Constraint.site_tags_from_pdb_ids(pdb_ids)
             self.ideal = ideal
             self.weight = weight
             if NO_INDIV_WEIGHTS:
@@ -364,6 +366,9 @@ class ConstraintsHandler:
             self.num_bound_e= sum([site.num_bound_e() for site in self.site_tags])
             self.tension = 0
             self.max_site_tension = 0
+        @staticmethod
+        def site_tags_from_pdb_ids(pdb_ids):
+            return [DisorderedTag(pdb.strip().split()[-1], pdb[:4].strip()) for pdb in pdb_ids]
         def get_tension(self):
             return self.tension
         def get_max_site_tension(self):
@@ -387,10 +392,11 @@ class ConstraintsHandler:
         @staticmethod
         def kind(constraint_type:Type):
             return {
-                ConstraintsHandler.BondConstraint:"Bond",
-                ConstraintsHandler.AngleConstraint:"Angle",
-                ConstraintsHandler.NonbondConstraint:"Nonbond",
-                ConstraintsHandler.ClashConstraint:"Clash",
+                ConstraintsHandler.BondConstraint:VariableKind.Bond.value,
+                ConstraintsHandler.AngleConstraint:VariableKind.Angle.value,
+                ConstraintsHandler.NonbondConstraint:VariableKind.Nonbond.value,
+                ConstraintsHandler.ClashConstraint:VariableKind.Clash.value,
+                ConstraintsHandler.TwoAtomPenalty:VariableKind.Penalty.value,
                 }[constraint_type]
 
         DEBUG=False
@@ -459,12 +465,34 @@ class ConstraintsHandler:
             # return 0, badness
         
     class ClashConstraint(Constraint):
+        def __init__(self,atom_ids,outlier_ok,vdw_gap,symmetries,weight=1):
+            super().__init__(atom_ids,outlier_ok,None,weight,None)
+            self.vdw_gap = vdw_gap
+            self.symmetries=symmetries
+        def get_distance(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
+            ordered_atoms = self.get_ordered_atoms(atoms)
+            if ordered_atoms is None:
+                return None
+            a,b = ordered_atoms
+            badness = ConstraintsHandler.NonbondConstraint.symm_min_separation(a,b,self.symmetries)
+
+            return 0, badness * self.weight # note a z-score doesnt make sense here.
+
+        def badness(r, vdw_gap):
+            if r > vdw_gap:
+                return 0
+            return 3*((vdw_gap - r)/0.4)**2  # TODO how Holton calculates it?
+        
+    class TwoAtomPenalty(Constraint):
         def __init__(self,atom_ids,outlier_ok,weight=1):
             self.altlocs_clash_dict={}
             super().__init__(atom_ids,outlier_ok,None,weight,None)
         def add_clash(self,altlocs,badness):
+            assert len(altlocs)==2
+            assert tuple(altlocs) not in self.altlocs_clash_dict
+            assert tuple(reversed(altlocs)) not in self.altlocs_clash_dict
             self.altlocs_clash_dict[tuple(altlocs)]=badness
-        def get_distance(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
+        def get_distance(self,atoms:list[Atom],scoring_function):
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
@@ -580,6 +608,27 @@ class ConstraintsHandler:
             raise Exception(f"No constraints found for {site}")
         return ConstraintsHandler(self.atom_constraints[site])
 
+    def add_custom_clash_constraint(self,constraint:TwoAtomPenalty,residual,altlocs,badness):
+        self.add(constraint,residual)
+        found=0
+        first_site = constraint.site_tags[0]
+        for held_constraint in self.atom_constraints[first_site]:
+            if held_constraint == constraint:
+                constraint.add_clash(altlocs,badness)
+                found+=1
+        assert found == 1
+    def scale_constraint_weight(self,pdb_ids:list[str],constraint_type:Type,weight_factor:float):
+        site_tags = ConstraintsHandler.Constraint.site_tags_from_pdb_ids(pdb_ids)
+        site = site_tags[0]
+        found=0
+        for constraint in self.atom_constraints[site]:
+            if (type(constraint) == constraint_type) and (set(constraint.site_tags) == set(site_tags)):
+                found+=1
+                constraint.weight*=weight_factor
+        assert found<=1
+        if found < 1:
+            print(f"Warning: could not scale non-existent constraint: {constraint_type} {site_tags}")
+        
     def add(self,constraint:Constraint,residual):
         if constraint not in self.constraints:
             self.constraints.append(constraint)
@@ -597,7 +646,7 @@ class ConstraintsHandler:
             # if site == DisorderedTag(17,"N"):
             #     print(self.atom_constraints[site])
 
-    def load_all_constraints(self,constraints_file,nonbond_scores_files,clashes,ordered_atom_lookup:OrderedAtomLookup,symmetries, water_water_nonbond:bool,constraints_to_skip=[],potential_overrides_file=None):
+    def load_all_constraints(self,constraints_file,nonbond_scores_files,clashes,original_clashes,ordered_atom_lookup:OrderedAtomLookup,symmetries, water_water_nonbond:bool,constraints_to_skip=[],potential_overrides_file=None):
         print(f"Parsing constraints in {constraints_file}")
 
 
@@ -670,34 +719,72 @@ class ConstraintsHandler:
         print("WARNING: assuming residue numbers are all unique")
         print("WARNING: assuming elements all single character")
         NB_pdb_ids_added = []
+        clash_pdb_ids_added=[]
         num_nonbonded_from_geo = 0
 
 
 
 
-        mon_lib_energy_name_dict:dict[dict[str]] = {}
+        vdw_mon_lib_energy_name_dict:dict[dict[str]] = {}
+        lj_mon_lib_energy_name_dict:dict[dict[str]] = {}
         for res in "HOH, ALA, ARG, ASN, ASP, CYS, GLU, GLN, GLY, HIS, ILE, LEU, LYS, MET, PHE, PRO, SER, THR, TRP, TYR, VAL".split(", "):
-            mon_lib_energy_name_dict[res]=get_mon_lib_names(res)
+            vdw_mon_lib_energy_name_dict[res],lj_mon_lib_energy_name_dict[res]=get_mon_lib_names(res)
         
-        vdw_params = read_vdw_parameters()
+        vdw_radii = read_vdw_radii(with_H=not IGNORE_HYDROGEN_CLASHES)
+        lj_params = read_lj_parameters()
+
         general_water_nonbond=True
         water_water_nonbond=False
         protein_protein_nonbonds=True
+        cross_conformation_clashes = True
+        num_clashes_found=0
         if water_water_nonbond: 
             assert general_water_nonbond
         if (general_water_nonbond or protein_protein_nonbonds) and ConstraintsHandler.NonbondConstraint not in constraints_to_skip: 
-            atoms = ordered_atom_lookup.select_atoms_by(protein=True, waters=water_water_nonbond,exclude_H=True)
-            other_atoms = ordered_atom_lookup.select_atoms_by(protein=protein_protein_nonbonds,waters=general_water_nonbond,exclude_H=True,
+            waters_outer_loop=water_water_nonbond
+            atoms = ordered_atom_lookup.select_atoms_by(protein=True, waters=waters_outer_loop,exclude_H=IGNORE_HYDROGEN_CLASHES)
+            other_atoms = ordered_atom_lookup.select_atoms_by(protein=protein_protein_nonbonds,waters=general_water_nonbond, exclude_H=IGNORE_HYDROGEN_CLASHES
                                                               )
                                                               #exclude_atom_names=["C","N","CA","CB"])
             
             max_nonbond_sep=4
             #TODO can speed up a lot by generating symmetric grid and assigning atoms to voxels and checking if in same or neighbouring voxels,
             # rather than calculating distances between every single atom and checking if within max_nonbond_sep...
+            last_num_found_LJ=last_num_found_clashes=0
+
+
+            lj_other_atom_symbols = []
+            vdw_other_atom_symbols = []
+            for other_atom in other_atoms:
+                lj_symbol = None
+                if other_atom.get_name() in lj_mon_lib_energy_name_dict[OrderedAtomLookup.atom_res_name(other_atom)]:
+                    
+                    lj_symbol=two_key_read(lj_mon_lib_energy_name_dict,"lj_mon_lib_energy_name_dict",
+                                           OrderedAtomLookup.atom_res_name(other_atom),other_atom.get_name()) 
+
+                vdw_symbol=two_key_read(vdw_mon_lib_energy_name_dict,"vdw_mon_lib_energy_name_dict",
+                                        OrderedAtomLookup.atom_res_name(other_atom),other_atom.get_name())
+                lj_other_atom_symbols.append(lj_symbol)
+                vdw_other_atom_symbols.append(vdw_symbol)
+
+            DEBUG_FIRST_200=False
             for i,atom in enumerate(atoms):
+                if DEBUG_FIRST_200 and i > 200:
+                        break
                 if i%100==0:
-                    print(f"Flagging possible LJ potentials {i}/{len(atoms)}")
+                    print(f"Flagging cross-conformation nonbonds for{' protein' if not waters_outer_loop else ''} conformer {i}/{len(atoms)}")
+                    print(f"LJ potentials found: {len(NB_pdb_ids_added)-last_num_found_LJ} | Clashes found: {num_clashes_found-last_num_found_clashes}")
+                    last_num_found_LJ=len(NB_pdb_ids_added)
+                    last_num_found_clashes=num_clashes_found
+
+
+                vdw_atom_symbol = two_key_read(vdw_mon_lib_energy_name_dict,"vdw_mon_lib_energy_name_dict",
+                                            OrderedAtomLookup.atom_res_name(atom),atom.get_name())
+                if atom.get_name() in lj_mon_lib_energy_name_dict[OrderedAtomLookup.atom_res_name(atom)]:
+                    lj_atom_symbol = two_key_read(lj_mon_lib_energy_name_dict,"lj_mon_lib_energy_name_dict",
+                                                 OrderedAtomLookup.atom_res_name(atom),atom.get_name())
                 for other_atom in other_atoms:
+                    
                     if OrderedAtomLookup.atom_res_seq_num(other_atom) == OrderedAtomLookup.atom_res_seq_num(atom):
                         continue
                     atom_resnum=OrderedAtomLookup.atom_res_seq_num(atom)
@@ -706,30 +793,42 @@ class ConstraintsHandler:
                     pdb2 = f"{other_atom.name}     ARES     A      {other_atom_resnum}"
                     pdb_ids = (pdb1,pdb2)
                     pdb_ids_flipped = (pdb2,pdb1)
-
                     # XXX stupid. Change the pdb_id thing to (name,resnum) and won't need to define another set of variables containing same information like this. 
                     tmp1,tmp2=(atom.name,atom_resnum),(other_atom.name,other_atom_resnum)
                     B_A_check,B_A_check_flipped=(tmp1,tmp2),(tmp2,tmp1)   
 
-                    if ConstraintsHandler.NonbondConstraint.symm_min_separation(atom,other_atom,symmetries) > max_nonbond_sep:
+                    min_separation = ConstraintsHandler.NonbondConstraint.symm_min_separation(atom,other_atom,symmetries)
+                    if min_separation > max_nonbond_sep:
                         continue
-                    if ((B_A_check in Bonds_added) or (B_A_check_flipped in Bonds_added) 
-                    #or  (B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added) 
-                    or  (((B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)) and other_atom.name in ["C","N","CA","CB","O"])
+                    if ((atom.element=="H" and other_atom.element == "H") # Do not consider H-H clashes (expect to be more harmful than helpful due to H positions being poor.)
+                        or (B_A_check in Bonds_added) or (B_A_check_flipped in Bonds_added)):
+                        continue
+
+                    # VDW overlap (clashes)
+                    if (cross_conformation_clashes and (ConstraintsHandler.ClashConstraint not in constraints_to_skip) 
+                        and not ((pdb_ids in clash_pdb_ids_added) or (pdb_ids_flipped in clash_pdb_ids_added))):
+                        vdw_gap = vdw_radii[vdw_atom_symbol] + vdw_radii[vdw_other_atom_symbols[i]] 
+                        if vdw_gap - min_separation >= 0.4:  
+                            num_clashes_found+=1                            
+                            clash_pdb_ids_added.append(pdb_ids)
+                            self.add(ConstraintsHandler.ClashConstraint(pdb_ids,outlier_ok("CLASH",pdb_ids),vdw_gap,symmetries),None)
+
+                    # Lennard-Jones (nonbonded)
+                    #if ((((B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)) and other_atom.name in ["C","N","CA","CB","O"])
+                    if ((atom.element == "H" or other_atom.element == "H") # Do not consider any LJ involving H.
+                    or (B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added) 
                     or (pdb_ids in NB_pdb_ids_added) or (pdb_ids_flipped in NB_pdb_ids_added)):
                         continue
 
-
-                    atom_energy_type = two_key_read(mon_lib_energy_name_dict,"mon_lib_energy_name_dict",
-                                                 OrderedAtomLookup.atom_res_name(atom),atom.get_name())
-                    other_atom_energy_type = two_key_read(mon_lib_energy_name_dict,"mon_lib_energy_name_dict",
-                                                 OrderedAtomLookup.atom_res_name(other_atom),other_atom.get_name())
+                    assert lj_atom_symbol is not None
+                    assert lj_other_atom_symbols[i] is not None
                     
-                    E_min,R_min = two_key_read(vdw_params,"vdw_params",
-                                                atom_energy_type,other_atom_energy_type)
+                    
+                    E_min,R_min = two_key_read(lj_params,"lj_params",
+                                                lj_atom_symbol,lj_other_atom_symbols[i])
                     self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),R_min,E_min,symmetries),None)
                     NB_pdb_ids_added.append(pdb_ids)
-
+        print(f"Added {num_clashes_found} clashes")
      
         num_nonbonded_general = len(NB_pdb_ids_added)
         print(f"Added {num_nonbonded_general} nonbond constraints")
@@ -814,21 +913,25 @@ class ConstraintsHandler:
         if num_nonbonded_from_geo > 0:
             print("WARNING: Bad nonbond possibilities between two different conformer labels are likely being missed")
 
-        if ConstraintsHandler.ClashConstraint not in constraints_to_skip:
+        if not cross_conformation_clashes and (ConstraintsHandler.ClashConstraint not in constraints_to_skip):
+            assert False, "Not refactored"
             for name, res_num, badness, altloc in clashes:
                 for n, r, a in zip(name,res_num,altloc):
                     if r not in ordered_atom_lookup.better_dict or n not in ordered_atom_lookup.better_dict[r]: 
                         break
                 else:
                     pdb_ids = [f"{n}     ARES     A      {r}" for (n,r) in zip(name,res_num)]
-                    self.add(ConstraintsHandler.ClashConstraint(pdb_ids,outlier_ok("CLASH",pdb_ids)),None)
-                    found=0
-                    for constraint in self.constraints:
-                        if constraint == ConstraintsHandler.ClashConstraint(pdb_ids,outlier_ok("CLASH",pdb_ids)):
-                            constraint.add_clash(altloc,badness)
-                            found+=1
-                    assert found == 1
+                    self.add(ConstraintsHandler.ClashConstraint(pdb_ids,outlier_ok("CLASH",pdb_ids)),None,altloc,badness)
 
+        # If clash was present at end of last loop, prioritise finding a solution without a clash and/or punish solution that does not assign differing altlocs to the conformers.
+        for name, res_num, badness, altloc in original_clashes:
+            for n, r, a in zip(name,res_num,altloc):
+                if r not in ordered_atom_lookup.better_dict or n not in ordered_atom_lookup.better_dict[r]: 
+                    break
+            else:
+                pdb_ids = [f"{n}     ARES     A      {r}" for (n,r) in zip(name,res_num)]
+                #self.scale_constraint_weight(pdb_ids,ConstraintsHandler.ClashConstraint,10*badness)
+                self.add_custom_clash_constraint(ConstraintsHandler.TwoAtomPenalty(pdb_ids,outlier_ok("CLASH",pdb_ids)),None,altloc,100*badness)
 
 # Ugh, never do inheritance. TODO refactor to composition.
 class AtomChunk(OrderedResidue):
@@ -879,7 +982,7 @@ class DisorderedTag():
         return not(self == other)
 
 
-class MTSP_Solver:
+class LP_Input:
     MODE= "LOW_TOL" # "NONBOND_RESTRICTIONS" #"LOW_TOL" #"HIGH_TOL" #"NO_RESTRICTIONS" # PHENIX REFMAC
 
     if MODE=="NO_RESTRICTIONS":
@@ -935,7 +1038,7 @@ class MTSP_Solver:
             #ConstraintsHandler.BondConstraint:8,
             #ConstraintsHandler.AngleConstraint:3,
             ConstraintsHandler.BondConstraint:8,
-            ConstraintsHandler.NonbondConstraint:3,
+            #ConstraintsHandler.NonbondConstraint:3,
             ConstraintsHandler.AngleConstraint:2.5,
         }    
         min_sigmas_where_anything_goes={
@@ -1105,7 +1208,7 @@ class MTSP_Solver:
             self.outlier_ok=outlier_ok
             ###
             #TODO move this to LinearOptimizer.Solver.py!!! 
-            self.forbidden= (connection_type in MTSP_Solver.max_sigmas) and (self.z_score > MTSP_Solver.max_sigmas[self.connection_type]) 
+            self.forbidden= (connection_type in LP_Input.max_sigmas) and (self.z_score > LP_Input.max_sigmas[self.connection_type]) 
                 
             if hydrogen_names is not None:
                 self.hydrogen_tag = "_"+''.join(hydrogen_names)
@@ -1119,7 +1222,7 @@ class MTSP_Solver:
             return f"{kind}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
 
 
-    def __init__(self,pdb_file_path:str,APPLY_TENSION_MOD:dict[DisorderedTag,float], symmetries, align_uncertainty=False,ignore_waters=False,altloc_subset=None,resnums=None,resnames=None): 
+    def __init__(self,pdb_file_path:str,restrained_refine_pdb_file_path:str,APPLY_TENSION_MOD:dict[DisorderedTag,float], symmetries, align_uncertainty=False,ignore_waters=False,altloc_subset=None,resnums=None,resnames=None): 
         # TODO when subset size > 2, employ fragmentation/partitioning.
          
         # Note if we ignore waters then we aren't considering nonbond clashes between macromolecule and water.
@@ -1142,7 +1245,8 @@ class MTSP_Solver:
                                                      protein=True,waters=not ignore_waters,
                                                      altloc_subset=altloc_subset,
                                                      allowed_resnums=resnums,allowed_resnames=resnames)   
-        self.model_path=MTSP_Solver.subset_model_path(pdb_file_path,altloc_subset)
+        self.model_path=LP_Input.subset_model_path(pdb_file_path,altloc_subset)
+        self.restrained_model_path=restrained_refine_pdb_file_path
         self.APPLY_TENSION_MOD=APPLY_TENSION_MOD
         
     def align_uncertainty(self,structure:Structure.Structure):
@@ -1179,7 +1283,7 @@ class MTSP_Solver:
                                                      altloc_subset=altloc_subset,
                                                      allowed_resnums=allowed_resnums,allowed_resnames=allowed_resnames)
                     
-            subset_model = MTSP_Solver.subset_model_path(base_model_path,altloc_subset)
+            subset_model = LP_Input.subset_model_path(base_model_path,altloc_subset)
             assert subset_model not in subset_model_paths
             subset_model_paths.append(subset_model)
             ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=base_model_path,out_path=subset_model)
@@ -1187,7 +1291,7 @@ class MTSP_Solver:
 
         global pooled_method # not sure if this is a good idea. Did this because it tries to pickle but fails if local. Try replacing with line: multiprocessing.set_start_method(‘fork’)
         def pooled_method(i):
-            MTSP_Solver.prepare_geom_files_for_one_subset(subset_model_paths[i],water_swaps=water_swaps)
+            LP_Input.prepare_geom_files_for_one_subset(subset_model_paths[i],water_swaps=water_swaps)
 
         with Pool(num_threads) as p:
             p.map(pooled_method,range(len(subset_model_paths)))
@@ -1217,7 +1321,7 @@ class MTSP_Solver:
                                                      protein=True,waters=True,
                                                      altloc_subset=altloc_subset)
                     
-            subset_model = MTSP_Solver.subset_model_path(base_model_path,altloc_subset)
+            subset_model = LP_Input.subset_model_path(base_model_path,altloc_subset)
             ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=base_model_path,out_path=subset_model)
 
         altlocs = []
@@ -1233,7 +1337,7 @@ class MTSP_Solver:
                                                      protein=True,waters=True,
                                                      altloc_subset=[altloc])
                     
-            conformation = MTSP_Solver.geo_model_paths(base_model_path,[altloc])
+            conformation = LP_Input.geo_model_paths(base_model_path,[altloc])
             assert len(conformation)==1 and type(conformation)==list
             conformation=conformation[0]
             assert conformation not in geo_model_paths
@@ -1243,7 +1347,7 @@ class MTSP_Solver:
 
         global pooled_method # not sure if this is a good idea. Did this because it tries to pickle but fails if local. Try replacing with line: multiprocessing.set_start_method(‘fork’)
         def pooled_method(i):
-            MTSP_Solver.prepare_geom_files_for_one_subset(subset_model_paths[i],water_swaps=water_swaps)
+            LP_Input.prepare_geom_files_for_one_subset(subset_model_paths[i],water_swaps=water_swaps)
 
         with Pool(num_threads) as p:
             p.map(pooled_method,range(len(subset_model_paths)))
@@ -1256,11 +1360,11 @@ class MTSP_Solver:
     
     @staticmethod
     def prepare_geom_files_for_one_subset(model_path,water_swaps=True):
-        UntangleFunctions.assess_geometry_wE(model_path,MTSP_Solver.geo_log_out_folder()) 
-        model_water_swapped_path=UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{MTSP_Solver.water_swapped_handle(model_path)}.pdb"
-        if water_swaps:
+        UntangleFunctions.assess_geometry_wE(model_path,LP_Input.geo_log_out_folder()) 
+        model_water_swapped_path=UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{LP_Input.water_swapped_handle(model_path)}.pdb"
+        if water_swaps and not DISABLE2WATERFLIP:
             Swapper.MakeSwapWaterFile(model_path,model_water_swapped_path)
-            UntangleFunctions.assess_geometry_wE(model_water_swapped_path,MTSP_Solver.geo_log_out_folder()) 
+            UntangleFunctions.assess_geometry_wE(model_water_swapped_path,LP_Input.geo_log_out_folder()) 
 
     @staticmethod 
     def water_swapped_handle(model_path):
@@ -1273,12 +1377,17 @@ class MTSP_Solver:
         print("Calculating geometric costs for all possible connections between chunks of atoms (pairs for bonds, triplets for angles, etc.)")
         
         if constraint_weights is None:
-            constraint_weights = {
-                ConstraintsHandler.BondConstraint: 1,
-                ConstraintsHandler.AngleConstraint: 1,
-                ConstraintsHandler.NonbondConstraint: 1,
-                ConstraintsHandler.ClashConstraint: 1,
-            }
+            constraint_weights={}
+        
+        for key in [
+            ConstraintsHandler.BondConstraint,
+            ConstraintsHandler.AngleConstraint,
+            ConstraintsHandler.NonbondConstraint,
+            ConstraintsHandler.ClashConstraint,
+            ConstraintsHandler.TwoAtomPenalty,
+        ]:
+            if key not in constraint_weights:
+                constraint_weights[key]=1
 
         if water_water_nonbond is None:
             water_water_nonbond = self.ordered_atom_lookup.has_water()
@@ -1302,7 +1411,7 @@ class MTSP_Solver:
                     atoms = self.ordered_atom_lookup.select_atoms_by(res_nums=[res_num],altlocs=[altloc])
                     orderedResidues.append(OrderedResidue(altloc,res_num,referenceResidue,atoms))
             chunk_sets.append(orderedResidues)
-            connection_types.append(MTSP_Solver.ChunkConnection)
+            connection_types.append(LP_Input.ChunkConnection)
 
 
             #Triplets of residues
@@ -1318,7 +1427,7 @@ class MTSP_Solver:
                     tripletResidues.append(triplet)
             # half-halfs of residues
             chunk_sets.append(tripletResidues)
-            connection_types.append(MTSP_Solver.ChunkConnection)
+            connection_types.append(LP_Input.ChunkConnection)
 
             tripletAtoms = "TODO"
 
@@ -1373,6 +1482,7 @@ class MTSP_Solver:
                 clashes = []
                 #nonbond_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_scorednonbond.txt"
                 clashes_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_clashes.txt"
+                print(f"Reading clashes from {clashes_path}")
                 with open(clashes_path) as clashes_file:
                     for line in clashes_file:
                         #pdb1 = f"{name}     ARES     A      {res_num}"
@@ -1398,9 +1508,15 @@ class MTSP_Solver:
             for altloc in self.ordered_atom_lookup.get_altlocs():
                 unflipped_water_dict[altloc]=altloc
             clashes =  get_clashes(model_handle) 
+
+            original_clashes = get_clashes(UntangleFunctions.model_handle(self.restrained_model_path))
+            print(f"Original structure has {len(original_clashes)} clashes")
+            if len(original_clashes) <= 5:
+                for clash in original_clashes:
+                    print(clash)
             
-            more_water_swaps=True
-            if more_water_swaps and len(self.ordered_atom_lookup.get_altlocs())==2:
+            
+            if not DISABLE2WATERFLIP and len(self.ordered_atom_lookup.get_altlocs())==2:
                 flipped_water_dict = {}
                 altlocs = self.ordered_atom_lookup.get_altlocs()
                 for i in range(2):
@@ -1423,7 +1539,7 @@ class MTSP_Solver:
         constraints_to_skip = [kind for kind,value in constraint_weights.items() if value <= 0]
 
         potential_overrides = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}_potential_overrides.txt"
-        constraints_handler.load_all_constraints(constraints_file,nonbond_scores_files,clashes,self.ordered_atom_lookup,symmetries=self.symmetries,water_water_nonbond=water_water_nonbond,constraints_to_skip=constraints_to_skip,
+        constraints_handler.load_all_constraints(constraints_file,nonbond_scores_files,clashes,original_clashes,self.ordered_atom_lookup,symmetries=self.symmetries,water_water_nonbond=water_water_nonbond,constraints_to_skip=constraints_to_skip,
                                                  potential_overrides_file=potential_overrides)
         print("Nonordered constraint properties loaded.")
         #for n,atom in enumerate(self.ordered_atom_lookup.select_atoms_by(names=["CA","C","N"])):
@@ -1458,12 +1574,12 @@ class MTSP_Solver:
             
         del ordered_atoms
         chunk_sets.append(atom_chunks)
-        connection_types.append(MTSP_Solver.AtomChunkConnection)
+        connection_types.append(LP_Input.AtomChunkConnection)
 
 
         ############ Calculate wE for different combinations (don't need known constraints).
         '''
-        possible_connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]]={}
+        possible_connections:dict[str,dict[str,LP_Input.ChunkConnection]]={}
         
         # Add chunk connections
         for chunk_set,connection_type in zip(chunk_sets,connection_types):
@@ -1472,7 +1588,7 @@ class MTSP_Solver:
                 for m,B in enumerate(chunk_set):
                     if B==A:
                         continue
-                    if connection_type is MTSP_Solver.AtomChunkConnection:
+                    if connection_type is LP_Input.AtomChunkConnection:
                         if n>=m:
                             continue
                         connection = self.AtomChunkConnection(A,B)
@@ -1480,7 +1596,7 @@ class MTSP_Solver:
                         if connection.ts_distance is not None:
                             #print(connection.ts_distance)
                             possible_connections[A.unique_id()][B.unique_id()]=connection
-                    elif connection_type is MTSP_Solver.ChunkConnection:
+                    elif connection_type is LP_Input.ChunkConnection:
                         if B.start_resnum-A.end_resnum!=1:
                             continue
                         connection = self.ChunkConnection(A,B)
@@ -1495,13 +1611,13 @@ class MTSP_Solver:
 
         #################################################################
         print("Computing connection costs")
-        possible_connections:list[MTSP_Solver.AtomChunkConnection]=[]
+        possible_connections:list[LP_Input.AtomChunkConnection]=[]
         for c, constraint in enumerate(constraints_handler.constraints):
             if c%1000 == 0: 
                 print(f"Calculating constraint {c} / {len(constraints_handler.constraints)} ({constraint}) ")
             #constraints_that_include_H = [ConstraintsHandler.AngleConstraint,ConstraintsHandler.NonbondConstraint,ConstraintsHandler.ClashConstraint]
             #if not HYDROGEN_RESTRAINTS:
-            constraints_that_include_H=[ConstraintsHandler.ClashConstraint]  # Since the purpose of clash constraints is to say "the current thing is wrong", in which case using the hydrogens is fine.
+            constraints_that_include_H=[ConstraintsHandler.ClashConstraint,ConstraintsHandler.TwoAtomPenalty]  # Since the purpose of clash constraints is to say "the current thing is wrong", in which case using the hydrogens is fine.
             # atoms_for_constraint = self.ordered_atom_lookup.select_atoms_by(
             #     names=constraint.atom_names(),
             #     res_nums=constraint.residues(),
@@ -1623,7 +1739,7 @@ class MTSP_Solver:
 
         
 
-        disordered_connections:dict[str,list[MTSP_Solver.AtomChunkConnection]] ={} # options for each alt connection
+        disordered_connections:dict[str,list[LP_Input.AtomChunkConnection]] ={} # options for each alt connection
         
         
         for connection in possible_connections:
@@ -1637,15 +1753,15 @@ class MTSP_Solver:
         
 
         # If the current connections have a tension above a certain value, let solver consider all alternatives.
-        print(f"Re-enabling connections that are alternatives to current connections with tension > {MTSP_Solver.min_tension_where_anything_goes}")
-        num_bad_current_disordered_connections={k:0 for k in MTSP_Solver.min_tension_where_anything_goes}
-        num_connections_re_enabled={k:0 for k in MTSP_Solver.min_tension_where_anything_goes}
+        print(f"Re-enabling connections that are alternatives to current connections with tension > {LP_Input.min_tension_where_anything_goes}")
+        num_bad_current_disordered_connections={k:0 for k in LP_Input.min_tension_where_anything_goes}
+        num_connections_re_enabled={k:0 for k in LP_Input.min_tension_where_anything_goes}
         for disordered_connection_id, ordered_connections in disordered_connections.items():
 
             conn_type = ordered_connections[0].connection_type
-            if conn_type not in MTSP_Solver.min_tension_where_anything_goes:
+            if conn_type not in LP_Input.min_tension_where_anything_goes:
                 continue
-            if ordered_connections[0].max_site_tension >= MTSP_Solver.min_tension_where_anything_goes[conn_type]:
+            if ordered_connections[0].max_site_tension >= LP_Input.min_tension_where_anything_goes[conn_type]:
                 num_bad_current_disordered_connections[conn_type]+=1
             else: continue
 
@@ -1661,17 +1777,17 @@ class MTSP_Solver:
         # If the current connections have a sigma above a certain value, let solver consider all alternatives.
 
         if not TURN_OFF_MIN_SIGMAS:
-            print(f"Re-enabling connections that are alternatives to current connections with sigma > {MTSP_Solver.min_sigmas_where_anything_goes}")
-            num_bad_current_disordered_connections={k:0 for k in MTSP_Solver.min_sigmas_where_anything_goes}
-            num_connections_re_enabled={k:0 for k in MTSP_Solver.min_sigmas_where_anything_goes}
+            print(f"Re-enabling connections that are alternatives to current connections with sigma > {LP_Input.min_sigmas_where_anything_goes}")
+            num_bad_current_disordered_connections={k:0 for k in LP_Input.min_sigmas_where_anything_goes}
+            num_connections_re_enabled={k:0 for k in LP_Input.min_sigmas_where_anything_goes}
             for disordered_connection_id, ordered_connections in disordered_connections.items():
                 if ordered_connections[0].outlier_ok:  # XXX represents disordered connection
                     continue
                 
-                if ordered_connections[0].connection_type not in MTSP_Solver.min_sigmas_where_anything_goes:
+                if ordered_connections[0].connection_type not in LP_Input.min_sigmas_where_anything_goes:
                     continue
                 for conn in ordered_connections:
-                    if conn.single_altloc() and conn.z_score >= MTSP_Solver.min_sigmas_where_anything_goes[conn.connection_type]:
+                    if conn.single_altloc() and conn.z_score >= LP_Input.min_sigmas_where_anything_goes[conn.connection_type]:
                         num_bad_current_disordered_connections[conn.connection_type]+=1
                         break
                 else: continue

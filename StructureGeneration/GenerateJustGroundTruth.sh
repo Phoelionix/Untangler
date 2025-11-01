@@ -1,6 +1,8 @@
+set -u
 
 pdbID=$1
-numConformations=4
+numConformations=3
+shake_before_geo_optim=0.1
 useCDL=False
 #pdbID="6QIY" # 9MIZ not workin?
 
@@ -21,18 +23,19 @@ cd $(dirname "$0")/data
 # )
 #for pdbID in "${FIELDS[@]}"; do
     bash ../FetchPDB.sh $pdbID
-    #bash ../GenerateConformationsGroundTruth.sh $pdbID $numConformations  
-    bash ../GenerateConformationsForInitialRefine.sh $pdbID $numConformations $useCDL
+    bash ../GenerateConformationsGroundTruth.sh $pdbID $numConformations $shake_before_geo_optim $useCDL
+    #bash ../GenerateConformationsForInitialRefine.sh $pdbID $numConformations 
     # bash ../ReadySet.sh $pdbID $numConformations 
     # python3.9 ../CombineStructuresToEnsemble.py ${pdbID}_ground_truth ${pdbID}_conf_1H.pdb ${pdbID}_conf_2H.pdb
-    # bash ../GenerateScatteringData.sh $pdbID  
     #python3.9 ../CombineStructuresToEnsemble.py ${pdbID}_initial_model ${pdbID}_starting_1H.pdb ${pdbID}_starting_2H.pdb
     
-    #structures=$(echo ${pdbID}_starting_{1..12}.pdb)
-    structures=$(eval echo ${pdbID}_starting_{1..$numConformations}.pdb)
+    structures=$(eval echo ${pdbID}_conf_{1..$numConformations}.pdb)
 
-    python3.9 ../CombineStructuresToEnsemble.py ${pdbID}_initial_model-$numConformations $structures
+    python3.9 ../CombineStructuresToEnsemble.py ${pdbID}_simTruth-$numConformations $structures
+    bash ../GenerateScatteringData.sh ${pdbID}_simTruth-$numConformations
 
+    cd ../
+    bash GenerateHoltonData.sh data/${pdbID}_simTruth-$numConformations.pdb
     # bash ../GenerateRefinement.sh $pdbID
     #python3.9 ../CreateStartingEnsemblePair.py $pdbID.pdb
 

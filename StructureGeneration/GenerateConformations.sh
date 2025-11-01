@@ -1,4 +1,5 @@
 # Add some deviations. Minimize geometry energy.
+set -u
 
 pdbID=$1
 
@@ -10,10 +11,11 @@ tag=$4
 
 shake=$5
 
+useCDL=$6
 
 for i in $(seq 1 $numConformations);
 do
-   phenix.pdbtools $pdbID.pdb shake=$shake
+   phenix.pdbtools $pdbID.pdb shake=$shake cdl=$useCDL
         
     
 

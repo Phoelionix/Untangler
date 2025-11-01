@@ -196,8 +196,8 @@ class Swapper():
                     print(composition_candidate.swaps)
                 
         try:
-            sorted_groups = sorted(swap_group_candidates,key=self.get_priority,reverse=True)
-
+            #sorted_groups = sorted(swap_group_candidates,key=self.get_priority,reverse=True)
+            sorted_groups = swap_group_candidates
             #TODO reimplement
             '''print("Swap group | priority")
             for sg, priority in zip(sorted_groups,[self.get_priority(sg) for sg in sorted_groups]):

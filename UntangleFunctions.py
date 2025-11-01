@@ -271,4 +271,18 @@ def get_sym_xfmed_point(R,symmetry):
     sym_rot, sym_trans = symmetry
     return (sym_rot @ R.T).T+ sym_trans
 
+def two_key_read(dict_obj,dict_name,key1,key2):
+    try: 
+        return dict_obj[key1][key2]
+    except:
+        if key1 not in dict_obj:
+            exception = f"{key1} not in {dict_name}"
+            for k in dict_obj:
+                print(k)
+        else:
+            exception = f"{key2} not in {dict_name}[{key1}]"
+            for k in dict_obj[key1]:
+                print(k)
+        raise Exception(exception)
+
 # %%

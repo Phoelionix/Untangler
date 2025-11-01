@@ -6,11 +6,11 @@ from UntangleFunctions import UNTANGLER_WORKING_DIRECTORY
 
 
 #TODO switch to vdw radius?
-def read_vdw_parameters():
+def read_lj_parameters():
 
     params:dict[str,dict[str,tuple[float]]]={}
     with open(f"{UNTANGLER_WORKING_DIRECTORY}../ccp4-8.0/lib/data/monomers/ener_lib.cif") as f:
-        print("vdw param warning: Reading parameters for atoms with hydrogens")
+        print("lj param warning: Reading parameters for atoms with hydrogens")
         reading=False
         for line in f:
             if line.startswith("#             ENERGY =  EPSij * ( (Rmin/Rij)**12 - 2 * (Rmin/Rij)**6 )"):
@@ -33,6 +33,27 @@ def read_vdw_parameters():
         assert not reading
     return params
     
+def read_vdw_radii(with_H):
+
+    params:dict[str,dict[float]]={}
+    with open(f"{UNTANGLER_WORKING_DIRECTORY}../ccp4-8.0/lib/data/monomers/ener_lib.cif") as f:
+        reading=False
+        for line in f:
+            if line.startswith("#   _vdw_radius  Van-Der-Waals radius"):
+                reading=True
+            elif line.startswith("#   Sort out valencies of atoms"):
+                reading=False
+                break
+            elif line.startswith("#"):
+                continue
+            elif reading:
+                A,_,_,r_vdw,r_vdw_H,_,_,_,_ = line.split()
+                if with_H and r_vdw_H.isnumeric():
+                    params[A]=float(r_vdw_H)
+                else:
+                    params[A]=float(r_vdw)
+        assert not reading
+    return params
 
 def get_mon_lib_names(residue):
     # Returns a dict that gives the atom type used in ener_lib.cif for each corresponding pdb atom name (as defined by MON_LIB)
@@ -44,10 +65,11 @@ def get_mon_lib_names(residue):
         print (f"|+ Running: {' '.join(args)}")
         subprocess.run(args)#,stdout=log)
 
-    out_dict={}
+    vdw_dict={}
+    lj_dict={}
     with open(residue_monomer_lib_file) as f:
         reading=False
-        substitutes = dict(CR6="C",CR5="C",CR15="CH1",CR56="C",NT1="NH1",NR15="NH1",NR16="NH1",NC1="NH1",NC2="NH2",NC3="NH3",NH3="NT3") # Atom energy types that dont appear in vdw contacts (probably because charged... but doing this for now in lieu of Coulomb potential...)???  (NB NH3/NT3 is synonymous)
+        lj_substitutes = dict(CR6="C",CR5="C",CR15="CH1",CR56="C",NT1="NH1",NR15="NH1",NR16="NH1",NC1="NH1",NC2="NH2",NC3="NH3",NH3="NT3") # Atom energy types that dont appear in vdw contacts (for some probably because charged... but doing this for now in lieu of Coulomb potential...)???  (NB NH3/NT3 is synonymous)
         for line in f:
             if line.startswith("_chem_comp_atom.z"):
                 reading=True
@@ -57,11 +79,12 @@ def get_mon_lib_names(residue):
                     break
                 name = line.split()[1]
                 type_energy=line.split()[3]
-                if type_energy in substitutes:
-                    type_energy=substitutes[type_energy]
-                out_dict[name]=type_energy                
+                vdw_dict[name]=type_energy
+                if type_energy in lj_substitutes:
+                    type_energy=lj_substitutes[type_energy]
+                lj_dict[name]=type_energy                
         assert not reading
-    return out_dict
+    return vdw_dict,lj_dict
 
             # 4th element: _chem_comp_atom.type_energy
             

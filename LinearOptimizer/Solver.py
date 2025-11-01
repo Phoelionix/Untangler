@@ -54,8 +54,8 @@ import matplotlib.pyplot as plt
 
 assert required_cost_range_to_consider>=0
 
-#def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,MTSP_Solver.ChunkConnection]],out_handle:str): # 
-def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[MTSP_Solver.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True,
+#def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,LP_Input.ChunkConnection]],out_handle:str): # 
+def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[LP_Input.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True,
           inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=100,mins_extra_per_loop=10,
           inert_water_sites=False,
           #gapRel=0.001,
@@ -132,7 +132,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     #bond_choices = {} # Each must sum to 1
     distance_vars = [] 
     # NOTE When assigning LP variable names, the "class" of variable should follow format of variableName_other_stuff   (class of variable is variable_type.split("_")[0]) 
-    constraint_var_dict:dict[VariableID,tuple[MTSP_Solver.AtomChunkConnection,pl.LpVariable]] = {} 
+    constraint_var_dict:dict[VariableID,tuple[LP_Input.AtomChunkConnection,pl.LpVariable]] = {} 
     site_var_dict:dict[VariableID,dict[str,dict[str,pl.LpVariable]]] ={}
     var_dictionaries = dict(
         constraints = constraint_var_dict,
@@ -273,7 +273,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
     num_small_fry_disordered_connections=0
 
-    def add_constraints_from_disordered_connection(constraint_type:VariableKind,disordered_connection: list[MTSP_Solver.AtomChunkConnection],global_score_tolerate_threshold=0):
+    def add_constraints_from_disordered_connection(constraint_type:VariableKind,disordered_connection: list[LP_Input.AtomChunkConnection],global_score_tolerate_threshold=0):
         # Rule: If all atom assignments corresponding to a connection are active,
         # then all those atoms must be swapped to the same assignment.
         nonlocal lp_problem  
@@ -355,7 +355,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                     #return
 
         # dicts indexed by code corresponding to from altlocs (e.g. "ACB" means connecting up site 1 altloc A, site 2 altloc C, site 3 altloc B)
-        connection_var_dict:dict[str,tuple[MTSP_Solver.AtomChunkConnection,LpVariable]]={} # indexed by from_altloc
+        connection_var_dict:dict[str,tuple[LP_Input.AtomChunkConnection,LpVariable]]={} # indexed by from_altloc
 
         #assert site_altlocs_same, (disordered_connection[0].connection_type, len(connection_dict),n**m,n,m)
 
@@ -542,7 +542,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     #global_score_tolerate_threshold=0
     
     #TODO this should replace 'constraint_var_dict'
-    mega_connection_var_dict:dict[str,dict[str,tuple[MTSP_Solver.AtomChunkConnection,LpVariable]]]={}
+    mega_connection_var_dict:dict[str,dict[str,tuple[LP_Input.AtomChunkConnection,LpVariable]]]={}
     for i, (connection_id, ordered_connection_choices) in enumerate(disordered_connections.items()):
         if i % 250 == 0:
             print(f"Adding constraints {i}/{len(disordered_connections)}")
@@ -868,10 +868,16 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             if PLOTTING:
                 all_sigma_costs.append([(i[0].z_score,i[0].ts_distance,f[0].z_score, f[0].ts_distance) for (i,f) in zip(original_constraints,active_constraints)])
 
-            no_change= all([constr.single_altloc() for constr,_ in active_constraints])
+            no_change= all([constr.single_altloc() for constr,_ in active_constraints]) 
             if no_change:
                 continue
 
+            if active_constraints[0][0].connection_type == ConstraintsHandler.ClashConstraint:
+                original_constraints = [(constraint,var) for constraint,var in original_constraints if constraint.ts_distance!=0]
+                active_constraints = [(constraint,var) for constraint,var in active_constraints if constraint.ts_distance!=0]
+
+                if len(original_constraints)==0 and len(active_constraints)==0:
+                    continue
             original_cost = np.sum([constraint.ts_distance for constraint,_ in original_constraints])
             active_cost = np.sum([constraint.ts_distance for constraint,_ in active_constraints])
 
@@ -895,7 +901,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         out_str+="name, sigma, cost\n"
         for original_constraints,active_constraints,original_cost,active_cost in changed_disordered_connections:
             out_str+=active_constraints[0][0].get_disordered_connection_id()+"\n"
-            def add_disordered_block_to_str(constraints_vars:list[tuple[MTSP_Solver.AtomChunkConnection,LpVariable]]):
+            def add_disordered_block_to_str(constraints_vars:list[tuple[LP_Input.AtomChunkConnection,LpVariable]]):
                 nonlocal out_str
                 for constraint, var  in constraints_vars:
                     altloc_str = ','.join(constraint.from_altlocs)
@@ -1027,7 +1033,7 @@ if __name__=="__main__":
     out_dir = f"{os.path.abspath(os.getcwd())}/output/{handle}/"
     os.makedirs(out_dir,exist_ok=True)
     pdbPath = f"{UntangleFunctions.pdb_data_dir()}/{handle}.pdb"
-    finest_chunks,disordered_connections= MTSP_Solver(pdbPath).calculate_paths(
+    finest_chunks,disordered_connections= LP_Input(pdbPath).calculate_paths(
         atoms_only=True,
     )
     solve(finest_chunks,disordered_connections,handle)

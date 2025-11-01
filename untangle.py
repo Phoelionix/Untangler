@@ -56,7 +56,7 @@ class Untangler():
     debug_skip_holton_data_generation=False
     debug_always_accept_proposed_model=False
     auto_group_waters=False
-    debug_skip_to_loop=0
+    debug_skip_to_loop=1
     debug_skip_initial_holton_data_generation =debug_skip_initial_refine or (debug_skip_to_loop!=0)
     refmac_refine_water_occupancies_initial=False
     ##
@@ -365,7 +365,7 @@ class Untangler():
         else:
             initial_model=self.current_model
             if self.first_loop>0:
-                initial_model= self.get_out_path(f"loopEnd{self.first_loop-1}")
+                initial_model= self.current_model_name_at_loop(self.first_loop)
         assert os.path.exists(initial_model)
         
         self.current_model=initial_model
@@ -427,7 +427,7 @@ class Untangler():
         return altloc_subsets
 
     #TODO resample if sample same subsets as last cycle
-    def many_swapped(self,swapper,tensions,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset_size=3,num_combinations=30,cycles=3,conformer_stats=False,
+    def many_swapped(self,swapper,tensions,model_to_swap:str,restrained_refine_pdb_file_path:str,allot_protein_independent_of_waters:bool,altloc_subset_size=3,num_combinations=30,cycles=3,conformer_stats=False,
                      file_tag="manySwaps", allowed_resnums=None,allowed_resnames=None,forbidden_atom_bond_changes=[],forbidden_atom_any_connection_changes=[],forbid_altloc_changes=[]):
         
         # forbidden_atom_bond_changes:  atom names for which  bonds involving them should not be changed.
@@ -460,7 +460,7 @@ class Untangler():
 
 
         if conformer_stats:
-            Solver.MTSP_Solver.prepare_geom_files(model_to_swap,self.model_protein_altlocs,water_swaps=False)
+            Solver.LP_Input.prepare_geom_files(model_to_swap,self.model_protein_altlocs,water_swaps=False)
 
         for r in range(cycles):
             #altloc_subset_combinations:itertools.combinations[tuple[str]] = list(itertools.combinations(self.model_protein_altlocs, altloc_subset_size))
@@ -481,7 +481,7 @@ class Untangler():
                 UntangleFunctions.clear_geo() # Mainly space concerns.
                 # TODO should be preparing geo file for one conformation. Barring clashes (and maybe some nonbonds?) it is all calculated in LinearOptimizer.input 
                 # TODO swaps can create nonbond issues that are not recorded due to not being present in geo file?
-                Solver.MTSP_Solver.prepare_geom_files(working_model,altloc_subsets,allowed_resnames=allowed_resnames,
+                Solver.LP_Input.prepare_geom_files(working_model,altloc_subsets,allowed_resnames=allowed_resnames,
                                                       water_swaps=(altloc_subset_size==2))
             else:
                 print("Warning: reusing old geom files")
@@ -496,7 +496,7 @@ class Untangler():
                 process = psutil.Process()
                 print("Memory usage (MB):",psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2)
 
-                cand_models, cand_swaps = self.candidate_models_from_swapper(swapper,1,tensions,working_model,allot_protein_independent_of_waters,
+                cand_models, cand_swaps = self.candidate_models_from_swapper(swapper,1,tensions,working_model,restrained_refine_pdb_file_path,allot_protein_independent_of_waters,
                                                                    altloc_subset=altloc_subset,need_to_prepare_geom_files=False,
                                                                    resnums=allowed_resnums,resnames=allowed_resnames,forbidden_atom_bond_changes=forbidden_atom_bond_changes,
                                                                    forbidden_atom_any_connection_changes=forbidden_atom_any_connection_changes,
@@ -514,19 +514,19 @@ class Untangler():
                                                                 protein=True,waters=not allot_protein_independent_of_waters,
                                                                 altloc_subset=altloc_subset)   
                     #temp_path=working_model[:-4]+"_subsetOut.pdb"
-                    temp_path=Solver.MTSP_Solver.subset_model_path(working_model,altloc_subset)[:-4]+"Out.pdb"
+                    temp_path=Solver.LP_Input.subset_model_path(working_model,altloc_subset)[:-4]+"Out.pdb"
                     ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=working_model,out_path=temp_path)
-                    assess_geometry_wE(temp_path,Solver.MTSP_Solver.geo_log_out_folder())
+                    assess_geometry_wE(temp_path,Solver.LP_Input.geo_log_out_folder())
 
                     if conformer_stats:
-                        Solver.MTSP_Solver.prepare_geom_files(working_model,self.model_protein_altlocs,water_swaps=False)
+                        Solver.LP_Input.prepare_geom_files(working_model,self.model_protein_altlocs,water_swaps=False)
 
             if debug_prev_subset is not None:
                 raise Exception("End debug")
 
         print("=======End Altloc Allotment=============\n")
         return working_model, all_swaps
-    def candidate_models_from_swapper(self,swapper:Swapper,num_solutions,tensions,model_to_swap:str,allot_protein_independent_of_waters:bool,altloc_subset=None,need_to_prepare_geom_files=True,read_prior_run=False,
+    def candidate_models_from_swapper(self,swapper:Swapper,num_solutions,tensions,model_to_swap:str,restrained_refine_pdb_file_path:str,allot_protein_independent_of_waters:bool,altloc_subset=None,need_to_prepare_geom_files=True,read_prior_run=False,
                                       resnums=None,resnames=None,forbidden_atom_bond_changes=[],forbidden_atom_any_connection_changes=[],forbid_altloc_changes=[],
                                       MAIN_CHAIN_ONLY=False,SIDE_CHAIN_ONLY=False,NO_CB_CHANGES=False,num_sols_already_saved_this_loop=0): #TODO refactor as method of Swapper class
         # TODO should be running solver for altloc set partitioned into subsets, not a single subset. 
@@ -552,14 +552,14 @@ class Untangler():
         do_water_swaps=(self.model_protein_altlocs==self.model_solvent_altlocs) and num_altlocs==2
         if need_to_prepare_geom_files:
             self.prepare_pdb_and_read_altlocs(model_to_swap,model_to_swap,sep_chain_format=False) 
-            Solver.MTSP_Solver.prepare_geom_files(model_to_swap,[altloc_subset],
+            Solver.LP_Input.prepare_geom_files(model_to_swap,[altloc_subset],
                                                   waters = True,
                                                   water_swaps=do_water_swaps)
             need_to_prepare_geom_files=False
 
         swapper.clear_candidates()
         if not read_prior_run:
-            atoms, connections = Solver.MTSP_Solver(model_to_swap, tensions, self.symmetries, ignore_waters=False,altloc_subset=altloc_subset,resnums=resnums,resnames=resnames).calculate_paths(
+            atoms, connections = Solver.LP_Input(model_to_swap, restrained_refine_pdb_file_path, tensions, self.symmetries, ignore_waters=False,altloc_subset=altloc_subset,resnums=resnums,resnames=resnames).calculate_paths(
                 scoring_function=scoring_function,
                 clash_punish_thing=False,
                 nonbonds=True,   # Note this won't look at nonbonds with water if ignore_waters=True. 
@@ -609,7 +609,7 @@ class Untangler():
             swap_sequence = [swapGroup]
             if not DISABLE_WATER_ALTLOC_OPTIM and allot_protein_independent_of_waters:
                 ## Swap waters with protein altlocs fixed
-                atoms, connections = Solver.MTSP_Solver(working_model, tensions, self.symmetries,ignore_waters=False).calculate_paths(
+                atoms, connections = Solver.LP_Input(working_model, tensions, self.symmetries,ignore_waters=False).calculate_paths(
                 scoring_function=scoring_function,
                 clash_punish_thing=False,
                 nonbonds=True,
@@ -780,8 +780,8 @@ class Untangler():
                 kwargs_list.extend([{} for _ in altloc_subsets])
 
             else: # Focused swaps V2
-                #focused_subset_size =7 
-                focused_subset_size =self.altloc_subset_size 
+                focused_subset_size =7 
+                #focused_subset_size =self.altloc_subset_size 
                 num_focused_combinations=2
                 focused_subsets = self.get_altloc_subsets(focused_subset_size,num_focused_combinations)
                 for subset in focused_subsets:
@@ -812,7 +812,7 @@ class Untangler():
                                                                 waters=True,
                                                                 altloc_subset=altloc_subset)   
                     #temp_path=working_model[:-4]+"_subsetOut.pdb"
-                    out_path=Solver.MTSP_Solver.subset_model_path(full_model,altloc_subset)[:-4]+"Out.pdb"
+                    out_path=Solver.LP_Input.subset_model_path(full_model,altloc_subset)[:-4]+"Out.pdb"
                     ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=full_model,out_path=out_path)
                     return out_path
                 need_to_prepare_geom_models=True 
@@ -830,7 +830,7 @@ class Untangler():
                     need_to_prepare_geom_models=False 
                 ###############
 
-                loop_cand_models,loop_cand_swaps = self.candidate_models_from_swapper(self.swapper,num_best_solutions,tensions,working_model, allot_protein_independent_of_waters,
+                loop_cand_models,loop_cand_swaps = self.candidate_models_from_swapper(self.swapper,num_best_solutions,tensions,working_model,self.current_model, allot_protein_independent_of_waters,
                                         need_to_prepare_geom_files=need_to_prepare_geom_models,read_prior_run=skip_swaps,
                                         altloc_subset=altloc_subset,num_sols_already_saved_this_loop=num_sols_stored,**kwargs)
                 cand_models.extend(loop_cand_models)
@@ -873,7 +873,7 @@ class Untangler():
             forbidden_atom_any_connection_changes=[]
             if independent_sulfur_approach:
                 forbidden_atom_any_connection_changes.append("SG")
-            working_model,swaps = self.many_swapped(self.swapper,tensions,working_model,allot_protein_independent_of_waters,
+            working_model,swaps = self.many_swapped(self.swapper,tensions,working_model,self.current_model,allot_protein_independent_of_waters,
                                                     forbidden_atom_any_connection_changes=forbidden_atom_any_connection_changes,
                                                     altloc_subset_size=self.altloc_subset_size)
             if swaps_focused is not None:
@@ -933,8 +933,8 @@ class Untangler():
         )
         outcome,set_new_model="xXx Rejected xXx",False
         if random.random() < p_accept or self.debug_always_accept_proposed_model:
-            self.current_model = self.next_current_model_name()
-            #shutil.copy(working_model,self.current_model)
+            self.current_model = working_model
+            #accepted_path=self.get_out_path(f"Accepted{self.loop}")
             self.current_score = new_score
             if self.best_score.combined > self.current_score.combined:
                 print(f"previous_best: {self.best_score}")
@@ -942,11 +942,24 @@ class Untangler():
             outcome,set_new_model="oOo Accepted oOo",True
             shutil.copy(working_model,self.get_out_path(f"Accepted{self.loop}"))
         print(f"{outcome} proposed model change with score of {new_score} (P_accept: {p_accept:.2f}) ")
+        Untangler.copy_model_and_geo(self.current_model,self.next_current_model_name())
+        self.current_model = self.next_current_model_name()
         return set_new_model
+    @staticmethod
+    def copy_model_and_geo(source,dest):
+        shutil.copy(source,dest)
+        old_handle,new_handle = [UntangleFunctions.model_handle(f) for f in (source,dest)]
+        geo_dir=f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/"
 
+        for suffix in [".geo","_clashes.txt"]:
+            shutil.copy(f"{geo_dir}{old_handle}{suffix}",f"{geo_dir}{new_handle}{suffix}")
+
+
+    def current_model_name_at_loop(self,i):
+        return self.get_out_path(f"current{i}")
     def next_current_model_name(self):
-        return self.get_out_path(f"loopEnd{self.loop}")
-        #return Untangler.output_dir+f"{self.model_handle}_current_{self.loop}.pdb"
+        return self.current_model_name_at_loop(self.loop+1)
+        return Untangler.output_dir+f"{self.model_handle}_current_{self.loop}.pdb"
 
     def initial_refine(self,model_path,**kwargs)->str:
         # Try to get atoms as close to their true positions as possible
@@ -1478,9 +1491,9 @@ def main():
     Untangler(
         # max_num_best_swaps_considered=5,
         num_end_loop_refine_cycles=6,
-        max_num_best_swaps_considered=12,
-        starting_num_best_swaps_considered=12,
-        altloc_subset_size=2,
+        max_num_best_swaps_considered=20,
+        starting_num_best_swaps_considered=20,
+        altloc_subset_size=3,
         #refine_for_positions_geo_weight=0.03,
         refine_for_positions_geo_weight=0,
         num_unrestrained_macro_cycles_phenix=1,
@@ -1515,7 +1528,7 @@ def main():
             ConstraintsHandler.BondConstraint: 0.01,
             ConstraintsHandler.AngleConstraint: 80,#1,
             ConstraintsHandler.NonbondConstraint: 0.1,  # TODO experiment with this.
-            ConstraintsHandler.ClashConstraint: 10,
+            ConstraintsHandler.ClashConstraint: 1,
         },
         # weight_factors = {
         #     ConstraintsHandler.BondConstraint: 1,
