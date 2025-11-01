@@ -48,7 +48,14 @@ from LinearOptimizer.VariableID import *
 from LinearOptimizer.mon_lib_read import read_vdw_radii,read_lj_parameters,get_mon_lib_names
 
 
+
+def is_atom(atom:Atom,res_num,name,altloc):
+        if (atom.name==name and atom.get_altloc()==altloc and OrderedAtomLookup.atom_res_seq_num(atom)==res_num):
+            return True
+        return False
+
 #HYDROGEN_RESTRAINTS=False # If False, hydrogen restraints will be ignored.
+CLASH_OVERLAP_THRESHOLD=0.4
 IGNORE_HYDROGEN_CLASHES=True # Does not apply to CustomClashConstraint
 DISABLE2WATERFLIP=True 
 NEVER_FORBID_HYDROGEN_RESTRAINTS=True
@@ -479,7 +486,8 @@ class ConstraintsHandler:
             return 0, badness * self.weight # note a z-score doesnt make sense here.
 
         def badness(r, vdw_gap):
-            if r > vdw_gap:
+            #if r > (vdw_gap-CLASH_OVERLAP_THRESHOLD):
+            if r > (vdw_gap-0.4):
                 return 0
             return 3*((vdw_gap - r)/0.4)**2  # TODO how Holton calculates it?
         
@@ -546,7 +554,6 @@ class ConstraintsHandler:
             #return lj0(r,r0)-lj0(6,r0)
         @staticmethod  
         def badness(r,r0): # TODO implement properly as in untangle_score.csh. 
-            # negative when separation is greater than ideal.
             lj_energy = ConstraintsHandler.NonbondConstraint.lennard_jones(r,r0)
             if r > r0:
                 assert lj_energy <= 0, (r, r0, lj_energy)
@@ -584,6 +591,9 @@ class ConstraintsHandler:
             # if energy is None:
             #     return None
 
+            # if is_atom(a,62,"CD","A") and is_atom(b,128,"O","A"):
+            #     print(r,r0,energy)
+            #     asdads
             #return 0, energy * self.weight
             return np.sqrt(energy), energy * self.weight
         
@@ -740,7 +750,7 @@ class ConstraintsHandler:
         num_clashes_found=0
         if water_water_nonbond: 
             assert general_water_nonbond
-        if (general_water_nonbond or protein_protein_nonbonds) and ConstraintsHandler.NonbondConstraint not in constraints_to_skip: 
+        if (general_water_nonbond or protein_protein_nonbonds): 
             waters_outer_loop=water_water_nonbond
             atoms = ordered_atom_lookup.select_atoms_by(protein=True, waters=waters_outer_loop,exclude_H=IGNORE_HYDROGEN_CLASHES)
             other_atoms = ordered_atom_lookup.select_atoms_by(protein=protein_protein_nonbonds,waters=general_water_nonbond, exclude_H=IGNORE_HYDROGEN_CLASHES
@@ -783,7 +793,7 @@ class ConstraintsHandler:
                 if atom.get_name() in lj_mon_lib_energy_name_dict[OrderedAtomLookup.atom_res_name(atom)]:
                     lj_atom_symbol = two_key_read(lj_mon_lib_energy_name_dict,"lj_mon_lib_energy_name_dict",
                                                  OrderedAtomLookup.atom_res_name(atom),atom.get_name())
-                for other_atom in other_atoms:
+                for j,other_atom in enumerate(other_atoms):
                     
                     if OrderedAtomLookup.atom_res_seq_num(other_atom) == OrderedAtomLookup.atom_res_seq_num(atom):
                         continue
@@ -808,26 +818,27 @@ class ConstraintsHandler:
                     if (cross_conformation_clashes and (ConstraintsHandler.ClashConstraint not in constraints_to_skip) 
                         and not ((pdb_ids in clash_pdb_ids_added) or (pdb_ids_flipped in clash_pdb_ids_added))):
                         vdw_gap = vdw_radii[vdw_atom_symbol] + vdw_radii[vdw_other_atom_symbols[i]] 
-                        if vdw_gap - min_separation >= 0.4:  
+                        if vdw_gap - min_separation >= CLASH_OVERLAP_THRESHOLD:  
                             num_clashes_found+=1                            
                             clash_pdb_ids_added.append(pdb_ids)
                             self.add(ConstraintsHandler.ClashConstraint(pdb_ids,outlier_ok("CLASH",pdb_ids),vdw_gap,symmetries),None)
 
                     # Lennard-Jones (nonbonded)
-                    #if ((((B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)) and other_atom.name in ["C","N","CA","CB","O"])
-                    if ((atom.element == "H" or other_atom.element == "H") # Do not consider any LJ involving H.
-                    or (B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added) 
-                    or (pdb_ids in NB_pdb_ids_added) or (pdb_ids_flipped in NB_pdb_ids_added)):
-                        continue
+                    if ConstraintsHandler.NonbondConstraint not in constraints_to_skip:
+                        #if ((((B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)) and other_atom.name in ["C","N","CA","CB","O"])
+                        if ((atom.element == "H" or other_atom.element == "H") # Do not consider any LJ involving H.
+                        or (B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added) 
+                        or (pdb_ids in NB_pdb_ids_added) or (pdb_ids_flipped in NB_pdb_ids_added)):
+                            continue
 
-                    assert lj_atom_symbol is not None
-                    assert lj_other_atom_symbols[i] is not None
-                    
-                    
-                    E_min,R_min = two_key_read(lj_params,"lj_params",
-                                                lj_atom_symbol,lj_other_atom_symbols[i])
-                    self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),R_min,E_min,symmetries),None)
-                    NB_pdb_ids_added.append(pdb_ids)
+                        assert lj_atom_symbol is not None
+                        assert lj_other_atom_symbols[j] is not None
+                        
+                        
+                        E_min,R_min = two_key_read(lj_params,"lj_params",
+                                                    lj_atom_symbol,lj_other_atom_symbols[j])
+                        self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),R_min,E_min,symmetries),None)
+                        NB_pdb_ids_added.append(pdb_ids)
         print(f"Added {num_clashes_found} clashes")
      
         num_nonbonded_general = len(NB_pdb_ids_added)
