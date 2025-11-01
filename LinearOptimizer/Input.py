@@ -48,6 +48,8 @@ from LinearOptimizer.VariableID import *
 from LinearOptimizer.mon_lib_read import read_vdw_radii,read_lj_parameters,get_mon_lib_names
 
 
+MON_LIB_NONBOND=False  # If False, uses a single radius for each element taken from molprobity table. Molprobity radii are "less strict". 
+
 
 def is_atom(atom:Atom,res_num,name,altloc):
         if (atom.name==name and atom.get_altloc()==altloc and OrderedAtomLookup.atom_res_seq_num(atom)==res_num):
@@ -515,9 +517,8 @@ class ConstraintsHandler:
 
     class NonbondConstraint(Constraint):
         # TODO currently just looks at the smallest separation of all symmetries.
-        def __init__(self,atom_ids,outlier_ok,E_min_separation,E_min,symmetries,weight=1):
+        def __init__(self,atom_ids,outlier_ok,E_min_separation,symmetries,weight=1):
             super().__init__(atom_ids,outlier_ok,E_min_separation,weight,None)
-            self.E_min = E_min
             # if (DisorderedTag(17,"H") in self.site_tags) and (DisorderedTag(81,"O") in self.site_tags):
             self.symmetries=symmetries
         @staticmethod
@@ -594,6 +595,8 @@ class ConstraintsHandler:
             # if is_atom(a,62,"CD","A") and is_atom(b,128,"O","A"):
             #     print(r,r0,energy)
             #     asdads
+
+
             #return 0, energy * self.weight
             return np.sqrt(energy), energy * self.weight
         
@@ -765,17 +768,30 @@ class ConstraintsHandler:
 
             lj_other_atom_symbols = []
             vdw_other_atom_symbols = []
-            for other_atom in other_atoms:
-                lj_symbol = None
-                if other_atom.get_name() in lj_mon_lib_energy_name_dict[OrderedAtomLookup.atom_res_name(other_atom)]:
-                    
-                    lj_symbol=two_key_read(lj_mon_lib_energy_name_dict,"lj_mon_lib_energy_name_dict",
-                                           OrderedAtomLookup.atom_res_name(other_atom),other_atom.get_name()) 
 
-                vdw_symbol=two_key_read(vdw_mon_lib_energy_name_dict,"vdw_mon_lib_energy_name_dict",
-                                        OrderedAtomLookup.atom_res_name(other_atom),other_atom.get_name())
-                lj_other_atom_symbols.append(lj_symbol)
-                vdw_other_atom_symbols.append(vdw_symbol)
+            # e-cloud https://pmc.ncbi.nlm.nih.gov/articles/PMC5734394/
+            molprobity_vdw_radii= dict(
+                H=1.22,  #TODO polar hydrogens...
+                C=1.7,
+                N=1.55,
+                O=1.4,
+                P=1.8,
+                S=1.8,
+                Se=1.9,
+            )
+            for other_atom in other_atoms:
+                if MON_LIB_NONBOND:
+
+                    lj_symbol = None
+                    if other_atom.get_name() in lj_mon_lib_energy_name_dict[OrderedAtomLookup.atom_res_name(other_atom)]:
+                        
+                        lj_symbol=two_key_read(lj_mon_lib_energy_name_dict,"lj_mon_lib_energy_name_dict",
+                                            OrderedAtomLookup.atom_res_name(other_atom),other_atom.get_name()) 
+
+                    vdw_symbol=two_key_read(vdw_mon_lib_energy_name_dict,"vdw_mon_lib_energy_name_dict",
+                                            OrderedAtomLookup.atom_res_name(other_atom),other_atom.get_name())
+                    lj_other_atom_symbols.append(lj_symbol)
+                    vdw_other_atom_symbols.append(vdw_symbol)
 
             DEBUG_FIRST_200=False
             for i,atom in enumerate(atoms):
@@ -787,12 +803,12 @@ class ConstraintsHandler:
                     last_num_found_LJ=len(NB_pdb_ids_added)
                     last_num_found_clashes=num_clashes_found
 
-
-                vdw_atom_symbol = two_key_read(vdw_mon_lib_energy_name_dict,"vdw_mon_lib_energy_name_dict",
-                                            OrderedAtomLookup.atom_res_name(atom),atom.get_name())
-                if atom.get_name() in lj_mon_lib_energy_name_dict[OrderedAtomLookup.atom_res_name(atom)]:
-                    lj_atom_symbol = two_key_read(lj_mon_lib_energy_name_dict,"lj_mon_lib_energy_name_dict",
-                                                 OrderedAtomLookup.atom_res_name(atom),atom.get_name())
+                if MON_LIB_NONBOND:
+                    vdw_atom_symbol = two_key_read(vdw_mon_lib_energy_name_dict,"vdw_mon_lib_energy_name_dict",
+                                                OrderedAtomLookup.atom_res_name(atom),atom.get_name())
+                    if atom.get_name() in lj_mon_lib_energy_name_dict[OrderedAtomLookup.atom_res_name(atom)]:
+                        lj_atom_symbol = two_key_read(lj_mon_lib_energy_name_dict,"lj_mon_lib_energy_name_dict",
+                                                    OrderedAtomLookup.atom_res_name(atom),atom.get_name())
                 for j,other_atom in enumerate(other_atoms):
                     
                     if OrderedAtomLookup.atom_res_seq_num(other_atom) == OrderedAtomLookup.atom_res_seq_num(atom):
@@ -813,11 +829,16 @@ class ConstraintsHandler:
                     if ((atom.element=="H" and other_atom.element == "H") # Do not consider H-H clashes (expect to be more harmful than helpful due to H positions being poor.)
                         or (B_A_check in Bonds_added) or (B_A_check_flipped in Bonds_added)):
                         continue
-
+                    
+                    molprobity_vdw = molprobity_vdw_radii[atom.element]+molprobity_vdw_radii[other_atom.element]
                     # VDW overlap (clashes)
                     if (cross_conformation_clashes and (ConstraintsHandler.ClashConstraint not in constraints_to_skip) 
                         and not ((pdb_ids in clash_pdb_ids_added) or (pdb_ids_flipped in clash_pdb_ids_added))):
-                        vdw_gap = vdw_radii[vdw_atom_symbol] + vdw_radii[vdw_other_atom_symbols[i]] 
+                        if MON_LIB_NONBOND:
+                            vdw_gap = vdw_radii[vdw_atom_symbol] + vdw_radii[vdw_other_atom_symbols[i]] 
+                        else:
+                            vdw_gap = molprobity_vdw
+                            
                         if vdw_gap - min_separation >= CLASH_OVERLAP_THRESHOLD:  
                             num_clashes_found+=1                            
                             clash_pdb_ids_added.append(pdb_ids)
@@ -830,14 +851,15 @@ class ConstraintsHandler:
                         or (B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added) 
                         or (pdb_ids in NB_pdb_ids_added) or (pdb_ids_flipped in NB_pdb_ids_added)):
                             continue
-
-                        assert lj_atom_symbol is not None
-                        assert lj_other_atom_symbols[j] is not None
-                        
-                        
-                        E_min,R_min = two_key_read(lj_params,"lj_params",
-                                                    lj_atom_symbol,lj_other_atom_symbols[j])
-                        self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),R_min,E_min,symmetries),None)
+                                               
+                        if MON_LIB_NONBOND:
+                            assert lj_atom_symbol is not None
+                            assert lj_other_atom_symbols[j] is not None
+                            E_min,R_min = two_key_read(lj_params,"lj_params",
+                                                        lj_atom_symbol,lj_other_atom_symbols[j])
+                        else:
+                            R_min = molprobity_vdw
+                        self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),R_min,symmetries),None)
                         NB_pdb_ids_added.append(pdb_ids)
         print(f"Added {num_clashes_found} clashes")
      

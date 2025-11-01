@@ -31,7 +31,7 @@ TURN_OFF_BULK_SOLVENT=False
 CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=True
 PHENIX_ORDERED_SOLVENT=False
 TENSIONS=False  # Enables behaviours of re-enabling connection options involving high-tension sites, and, if option enabled, to scale cost by tensions
-PHENIX_FREEZE_WATER=True
+PHENIX_FREEZE_WATER=False
 PHENIX_DISABLE_CDL=False # TODO -> set True
 
 # TODO down weight swaps that were previously made but need to be made again (i.e. cases where it's not tangled and the density is pushing it a different way.)
@@ -56,7 +56,7 @@ class Untangler():
     debug_skip_holton_data_generation=False
     debug_always_accept_proposed_model=False
     auto_group_waters=False
-    debug_skip_to_loop=1
+    debug_skip_to_loop=0
     debug_skip_initial_holton_data_generation =debug_skip_initial_refine or (debug_skip_to_loop!=0)
     refmac_refine_water_occupancies_initial=False
     ##
@@ -100,13 +100,6 @@ class Untangler():
         self.model_solvent_altlocs=None
         self.weight_factors = weight_factors
         
-        if self.weight_factors is None:
-            self.weight_factors = {
-                ConstraintsHandler.BondConstraint: 1,
-                ConstraintsHandler.AngleConstraint: 1,
-                ConstraintsHandler.NonbondConstraint: 1,
-                ConstraintsHandler.ClashConstraint: 1,
-            }
         os.makedirs(UntangleFunctions.separated_conformer_pdb_dir(),exist_ok=True)
     def set_hyper_params(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=2,  # 8,
                  wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=5, # 20,
@@ -1491,8 +1484,8 @@ def main():
     Untangler(
         # max_num_best_swaps_considered=5,
         num_end_loop_refine_cycles=6,
-        max_num_best_swaps_considered=20,
-        starting_num_best_swaps_considered=20,
+        max_num_best_swaps_considered=10,
+        starting_num_best_swaps_considered=10,
         altloc_subset_size=3,
         #refine_for_positions_geo_weight=0.03,
         refine_for_positions_geo_weight=0,
@@ -1527,8 +1520,9 @@ def main():
         weight_factors = {
             ConstraintsHandler.BondConstraint: 0.01,
             ConstraintsHandler.AngleConstraint: 80,#1,
-            ConstraintsHandler.NonbondConstraint: 0.1,  # TODO experiment with this.
-            ConstraintsHandler.ClashConstraint: 1,
+            ConstraintsHandler.NonbondConstraint: 1,  # TODO experiment with this.
+            ConstraintsHandler.ClashConstraint: 0.1,
+            ConstraintsHandler.TwoAtomPenalty: 1,
         },
         # weight_factors = {
         #     ConstraintsHandler.BondConstraint: 1,
