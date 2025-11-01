@@ -556,6 +556,9 @@ class ConstraintsHandler:
         @staticmethod  
         def badness(r,r0): # TODO implement properly as in untangle_score.csh. 
             lj_energy = ConstraintsHandler.NonbondConstraint.lennard_jones(r,r0)
+            if not MON_LIB_NONBOND:
+                if r>r0*0.95:
+                    return 0
             if r > r0:
                 assert lj_energy <= 0, (r, r0, lj_energy)
                 # Logic: Expect atoms to be near bottom of potential if within a certain range. 
@@ -595,7 +598,9 @@ class ConstraintsHandler:
             # if is_atom(a,62,"CD","A") and is_atom(b,128,"O","A"):
             #     print(r,r0,energy)
             #     asdads
-
+            # if is_atom(a,62,"NH1","B") and is_atom(b,102,"O","B"):
+            #     print(r,r0,energy)
+            #     asdads
 
             #return 0, energy * self.weight
             return np.sqrt(energy), energy * self.weight
@@ -775,10 +780,29 @@ class ConstraintsHandler:
                 C=1.7,
                 N=1.55,
                 O=1.4,
+                HOH=1.4,
                 P=1.8,
                 S=1.8,
                 Se=1.9,
             )
+            override_vdw_dict={
+                ("N","O"):2.35,
+                ("N","HOH"):2.35,
+                ("O","O"):2.2,
+                ("O","HOH"):2.2,
+                ("HOH","HOH"):2.2,
+                ("N","N"):2.48,
+                ("O","C"):2.48,
+                ("C","C"):2.72, #2.76 # 2.8
+                ("C","N"):2.6,
+                ("S","C"):2.8,
+                ("S","N"):2.68,
+                ("S","HOH"):2.6,
+                # ("H","O"):1.85 or 2.62...,
+              
+            }
+
+
             for other_atom in other_atoms:
                 if MON_LIB_NONBOND:
 
@@ -794,6 +818,20 @@ class ConstraintsHandler:
                     vdw_other_atom_symbols.append(vdw_symbol)
 
             DEBUG_FIRST_200=False
+            def get_molprobity_vdw(name_A:str,name_B:str,waters:list[bool]):
+                # FIXME Assuming all single-char element symbols!
+                elem_A,elem_B = name_A[0],name_B[0] 
+                if waters[0]: elem_A = "HOH"
+                if waters[1]: elem_B = "HOH"
+                    
+                for elements,override in override_vdw_dict.items():
+                    if elements[0]==elements[1]:
+                        if elem_A==elem_B==elements[0]:
+                            return override 
+                    elif all(E in [elem_A,elem_B] for E in elements):
+                        return override   # No idea if there are more cases like this... need to look at mmtbx.validation...
+                return molprobity_vdw_radii[elem_A]+molprobity_vdw_radii[elem_B]
+            
             for i,atom in enumerate(atoms):
                 if DEBUG_FIRST_200 and i > 200:
                         break
@@ -824,13 +862,23 @@ class ConstraintsHandler:
                     B_A_check,B_A_check_flipped=(tmp1,tmp2),(tmp2,tmp1)   
 
                     min_separation = ConstraintsHandler.NonbondConstraint.symm_min_separation(atom,other_atom,symmetries)
+                    
+                    molprobity_vdw = get_molprobity_vdw(atom.get_name(),other_atom.get_name(), 
+                                                        waters=["HOH"==OrderedAtomLookup.atom_res_name(a) for a in [atom,other_atom]])
+
+
+
+                    if not MON_LIB_NONBOND:
+                        if min_separation > molprobity_vdw*0.95:
+                            continue
+
                     if min_separation > max_nonbond_sep:
                         continue
+                    
                     if ((atom.element=="H" and other_atom.element == "H") # Do not consider H-H clashes (expect to be more harmful than helpful due to H positions being poor.)
                         or (B_A_check in Bonds_added) or (B_A_check_flipped in Bonds_added)):
                         continue
                     
-                    molprobity_vdw = molprobity_vdw_radii[atom.element]+molprobity_vdw_radii[other_atom.element]
                     # VDW overlap (clashes)
                     if (cross_conformation_clashes and (ConstraintsHandler.ClashConstraint not in constraints_to_skip) 
                         and not ((pdb_ids in clash_pdb_ids_added) or (pdb_ids_flipped in clash_pdb_ids_added))):
@@ -867,8 +915,9 @@ class ConstraintsHandler:
         print(f"Added {num_nonbonded_general} nonbond constraints")
         
         skip_nonbonds_from_geo=True
+        test_nonbonds_from_geo=(not MON_LIB_NONBOND) # Test the values match what would be computed above
         for file in (nonbond_scores_files):
-            if (ConstraintsHandler.NonbondConstraint in constraints_to_skip) or skip_nonbonds_from_geo:
+            if (ConstraintsHandler.NonbondConstraint in constraints_to_skip) or (skip_nonbonds_from_geo and not test_nonbonds_from_geo):
                 break
 
             with open(file) as f:
@@ -901,11 +950,24 @@ class ConstraintsHandler:
 
                         separation = constraint[3].strip().split()[0]
                         ideal = constraint[3].strip().split()[1]
+                        ideal = float(ideal)
+
+                        if test_nonbonds_from_geo and not (name1[0]=="H" or name2[0]=="H") and not (name1[0]==name2[0]=="O"):
+                            #TODO
+                            molprobity_vdw_test=get_molprobity_vdw(name1,name2,waters=["HOH"==r for r in [resname1,resname2]])
+                            #assert molprobity_vdw_test==ideal, (pdb1,pdb2,ideal,molprobity_vdw_test)  
+                            #assert 0<=ideal-molprobity_vdw_test<=0.1, (pdb1,pdb2,ideal,molprobity_vdw_test)  
+                            assert ideal-molprobity_vdw_test>=0, (pdb1,pdb2,ideal,molprobity_vdw_test)  
+
+                        if skip_nonbonds_from_geo:
+                            continue
+
                         if separation > ideal:
                             continue 
                         altloc1 = pdb1.strip()[3]
                         altloc2 = pdb2.strip()[3]
                         broke=False
+                        
                         for a,r,n in zip((altloc1,altloc2),(resnum1,resnum2),(name1,name2)):
                             if r not in ordered_atom_lookup.better_dict or n not in ordered_atom_lookup.better_dict[r]: 
                                 break
@@ -917,7 +979,6 @@ class ConstraintsHandler:
                         pdb2 = f"{name2}     ARES     A      {resnum2}"
 
                             #continue
-                        ideal = float(ideal)
                         pdb_ids = (pdb1,pdb2)
                         pdb_ids_flipped = (pdb2,pdb1)
                         if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
@@ -957,14 +1018,15 @@ class ConstraintsHandler:
                     self.add(ConstraintsHandler.ClashConstraint(pdb_ids,outlier_ok("CLASH",pdb_ids)),None,altloc,badness)
 
         # If clash was present at end of last loop, prioritise finding a solution without a clash and/or punish solution that does not assign differing altlocs to the conformers.
-        for name, res_num, badness, altloc in original_clashes:
-            for n, r, a in zip(name,res_num,altloc):
-                if r not in ordered_atom_lookup.better_dict or n not in ordered_atom_lookup.better_dict[r]: 
-                    break
-            else:
-                pdb_ids = [f"{n}     ARES     A      {r}" for (n,r) in zip(name,res_num)]
-                #self.scale_constraint_weight(pdb_ids,ConstraintsHandler.ClashConstraint,10*badness)
-                self.add_custom_clash_constraint(ConstraintsHandler.TwoAtomPenalty(pdb_ids,outlier_ok("CLASH",pdb_ids)),None,altloc,100*badness)
+        if ConstraintsHandler.TwoAtomPenalty not in constraints_to_skip:
+            for name, res_num, badness, altloc in original_clashes:
+                for n, r, a in zip(name,res_num,altloc):
+                    if r not in ordered_atom_lookup.better_dict or n not in ordered_atom_lookup.better_dict[r]: 
+                        break
+                else:
+                    pdb_ids = [f"{n}     ARES     A      {r}" for (n,r) in zip(name,res_num)]
+                    #self.scale_constraint_weight(pdb_ids,ConstraintsHandler.ClashConstraint,10*badness)
+                    self.add_custom_clash_constraint(ConstraintsHandler.TwoAtomPenalty(pdb_ids,outlier_ok("CLASH",pdb_ids)),None,altloc,100*badness)
 
 # Ugh, never do inheritance. TODO refactor to composition.
 class AtomChunk(OrderedResidue):
@@ -1037,7 +1099,7 @@ class LP_Input:
             #ConstraintsHandler.AngleConstraint:3,
             ConstraintsHandler.BondConstraint:10,
             ConstraintsHandler.AngleConstraint:4,
-            ConstraintsHandler.NonbondConstraint:4,
+            #ConstraintsHandler.NonbondConstraint:4,
             # ConstraintsHandler.BondConstraint:2,
             # ConstraintsHandler.AngleConstraint:2,
             # ConstraintsHandler.BondConstraint:99,

@@ -1484,8 +1484,8 @@ def main():
     Untangler(
         # max_num_best_swaps_considered=5,
         num_end_loop_refine_cycles=6,
-        max_num_best_swaps_considered=10,
-        starting_num_best_swaps_considered=10,
+        max_num_best_swaps_considered=20,
+        starting_num_best_swaps_considered=20,
         altloc_subset_size=3,
         #refine_for_positions_geo_weight=0.03,
         refine_for_positions_geo_weight=0,
@@ -1521,8 +1521,10 @@ def main():
             ConstraintsHandler.BondConstraint: 0.01,
             ConstraintsHandler.AngleConstraint: 80,#1,
             ConstraintsHandler.NonbondConstraint: 1,  # TODO experiment with this.
-            ConstraintsHandler.ClashConstraint: 0.1,
-            ConstraintsHandler.TwoAtomPenalty: 1,
+            # ConstraintsHandler.ClashConstraint: 0.1,
+            # ConstraintsHandler.TwoAtomPenalty: 1,
+            ConstraintsHandler.ClashConstraint: 0,
+            ConstraintsHandler.TwoAtomPenalty: 0,
         },
         # weight_factors = {
         #     ConstraintsHandler.BondConstraint: 1,
