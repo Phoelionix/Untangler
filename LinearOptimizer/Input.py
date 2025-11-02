@@ -46,7 +46,8 @@ import scipy.stats as st
 from statistics import NormalDist
 from LinearOptimizer.VariableID import *
 from LinearOptimizer.mon_lib_read import read_vdw_radii,read_lj_parameters,get_mon_lib_names
-
+#from PhenixEnvScripts.cross_conformation_nonbonds import get_cross_conf_nonbonds
+from LinearOptimizer.get_cross_conf_nonbonds_wrapper import get_cross_conf_nonbonds
 
 MON_LIB_NONBOND=False  # If False, uses a single radius for each element taken from molprobity table. Molprobity radii are "less strict". 
 
@@ -58,6 +59,7 @@ def is_atom(atom:Atom,res_num,name,altloc):
 
 #HYDROGEN_RESTRAINTS=False # If False, hydrogen restraints will be ignored.
 CLASH_OVERLAP_THRESHOLD=0.4
+VDW_BUFFER=0.1
 IGNORE_HYDROGEN_CLASHES=True # Does not apply to CustomClashConstraint
 DISABLE2WATERFLIP=True 
 NEVER_FORBID_HYDROGEN_RESTRAINTS=True
@@ -377,7 +379,10 @@ class ConstraintsHandler:
             self.max_site_tension = 0
         @staticmethod
         def site_tags_from_pdb_ids(pdb_ids):
-            return [DisorderedTag(pdb.strip().split()[-1], pdb[:4].strip()) for pdb in pdb_ids]
+            return [DisorderedTag(pdb.strip()[-4:], pdb[:4].strip()) for pdb in pdb_ids]
+        @staticmethod
+        def ORDERED_site_tags_from_pdb_ids(pdb_ids):
+            return [OrderedTag(pdb.strip()[-4:],pdb[:4].strip(),pdb[4]) for pdb in pdb_ids]
         def get_tension(self):
             return self.tension
         def get_max_site_tension(self):
@@ -497,19 +502,16 @@ class ConstraintsHandler:
         def __init__(self,atom_ids,outlier_ok,weight=1):
             self.altlocs_clash_dict={}
             super().__init__(atom_ids,outlier_ok,None,weight,None)
-        def add_clash(self,altlocs,badness):
+        def add_ordered(self,altlocs,badness):
             assert len(altlocs)==2
             assert tuple(altlocs) not in self.altlocs_clash_dict
-            assert tuple(reversed(altlocs)) not in self.altlocs_clash_dict
             self.altlocs_clash_dict[tuple(altlocs)]=badness
         def get_distance(self,atoms:list[Atom],scoring_function):
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
             a,b = ordered_atoms
-            altlocs=(a.get_altloc(),b.get_altloc())
-            if altlocs not in self.altlocs_clash_dict:
-                altlocs=(b.get_altloc(),a.get_altloc())
+            altlocs=(a.get_altloc(),b.get_altloc())  # NOTE order matters!!
             if (altlocs in self.altlocs_clash_dict):
                 return 0, self.altlocs_clash_dict[altlocs]*self.weight
             return 0, 0  # TODO return None once LinearOptimizer.Solver behaves fine with it
@@ -517,10 +519,15 @@ class ConstraintsHandler:
 
     class NonbondConstraint(Constraint):
         # TODO currently just looks at the smallest separation of all symmetries.
-        def __init__(self,atom_ids,outlier_ok,E_min_separation,symmetries,weight=1):
-            super().__init__(atom_ids,outlier_ok,E_min_separation,weight,None)
+        def __init__(self,atom_ids,outlier_ok,symmetries,weight=1):
+            self.altlocs_vdw_dict={}
+            super().__init__(atom_ids,outlier_ok,None,weight,None)
             # if (DisorderedTag(17,"H") in self.site_tags) and (DisorderedTag(81,"O") in self.site_tags):
             self.symmetries=symmetries
+        def add_ordered(self,altlocs,vdw):
+            assert len(altlocs)==2
+            assert tuple(altlocs) not in self.altlocs_vdw_dict
+            self.altlocs_vdw_dict[tuple(altlocs)]=vdw
         @staticmethod
         def symm_min_separation(a:Atom,b:Atom,symmetries):
             coord_dict={"a":[],"b":[]}
@@ -557,7 +564,8 @@ class ConstraintsHandler:
         def badness(r,r0): # TODO implement properly as in untangle_score.csh. 
             lj_energy = ConstraintsHandler.NonbondConstraint.lennard_jones(r,r0)
             if not MON_LIB_NONBOND:
-                if r>r0*0.95:
+                #if r>r0*0.95:
+                if r>r0:
                     return 0
             if r > r0:
                 assert lj_energy <= 0, (r, r0, lj_energy)
@@ -590,7 +598,11 @@ class ConstraintsHandler:
                 return None
             a,b = ordered_atoms            
             r = ConstraintsHandler.NonbondConstraint.symm_min_separation(a,b,self.symmetries)
-            r0 = self.ideal
+            altlocs=(a.get_altloc(),b.get_altloc()) # NOTE order matters!!
+            if (altlocs not in self.altlocs_vdw_dict):
+                return 0, 0
+            
+            r0 = self.altlocs_vdw_dict[altlocs]
             energy = ConstraintsHandler.NonbondConstraint.badness(r,r0)
             # if energy is None:
             #     return None
@@ -632,7 +644,16 @@ class ConstraintsHandler:
         first_site = constraint.site_tags[0]
         for held_constraint in self.atom_constraints[first_site]:
             if held_constraint == constraint:
-                constraint.add_clash(altlocs,badness)
+                constraint.add_ordered(altlocs,badness)
+                found+=1
+        assert found == 1
+    def add_nonbond_constraint(self,constraint:NonbondConstraint,residual,altlocs,vdw_sum):
+        self.add(constraint,residual)
+        found=0
+        first_site = constraint.site_tags[0]
+        for held_constraint in self.atom_constraints[first_site]:
+            if held_constraint == constraint:
+                constraint.add_ordered(altlocs,vdw_sum)
                 found+=1
         assert found == 1
     def scale_constraint_weight(self,pdb_ids:list[str],constraint_type:Type,weight_factor:float):
@@ -664,7 +685,7 @@ class ConstraintsHandler:
             # if site == DisorderedTag(17,"N"):
             #     print(self.atom_constraints[site])
 
-    def load_all_constraints(self,constraints_file,nonbond_scores_files,clashes,original_clashes,ordered_atom_lookup:OrderedAtomLookup,symmetries, water_water_nonbond:bool,constraints_to_skip=[],potential_overrides_file=None):
+    def load_all_constraints(self,constraints_file,pdb_file_for_nonbonds,nonbond_scores_files,clashes,original_clashes,ordered_atom_lookup:OrderedAtomLookup,symmetries, water_water_nonbond:bool,constraints_to_skip=[],potential_overrides_file=None):
         print(f"Parsing constraints in {constraints_file}")
 
 
@@ -745,11 +766,27 @@ class ConstraintsHandler:
 
         vdw_mon_lib_energy_name_dict:dict[dict[str]] = {}
         lj_mon_lib_energy_name_dict:dict[dict[str]] = {}
-        for res in "HOH, ALA, ARG, ASN, ASP, CYS, GLU, GLN, GLY, HIS, ILE, LEU, LYS, MET, PHE, PRO, SER, THR, TRP, TYR, VAL".split(", "):
-            vdw_mon_lib_energy_name_dict[res],lj_mon_lib_energy_name_dict[res]=get_mon_lib_names(res)
+        if MON_LIB_NONBOND:
+            for res in "HOH, ALA, ARG, ASN, ASP, CYS, GLU, GLN, GLY, HIS, ILE, LEU, LYS, MET, PHE, PRO, SER, THR, TRP, TYR, VAL".split(", "):
+                vdw_mon_lib_energy_name_dict[res],lj_mon_lib_energy_name_dict[res]=get_mon_lib_names(res)
+            
+            vdw_radii = read_vdw_radii(with_H=not IGNORE_HYDROGEN_CLASHES)
+            lj_params = read_lj_parameters()
+        else:
+            phenix_vdw_distances_table={}
+            for pdb1, pdb2, vdw_sum in get_cross_conf_nonbonds(pdb_file_for_nonbonds):
+                conformer_tags = ConstraintsHandler.Constraint.ORDERED_site_tags_from_pdb_ids((pdb1,pdb2)) 
+                key = tuple(conformer_tags) # NOTE Order matters
+                # if IGNORE_HYDROGEN_CLASHES and any([t.element()=="H" for t in conformer_tags]):
+                #     continue
+                if key not in phenix_vdw_distances_table:
+                    phenix_vdw_distances_table[key]=vdw_sum
+                else:
+                    assert phenix_vdw_distances_table[key]==vdw_sum, f"vdw sums differ for {key}, {phenix_vdw_distances_table[key]} != {vdw_sum}"
         
-        vdw_radii = read_vdw_radii(with_H=not IGNORE_HYDROGEN_CLASHES)
-        lj_params = read_lj_parameters()
+
+
+        
 
         general_water_nonbond=True
         water_water_nonbond=False
@@ -774,34 +811,6 @@ class ConstraintsHandler:
             lj_other_atom_symbols = []
             vdw_other_atom_symbols = []
 
-            # e-cloud https://pmc.ncbi.nlm.nih.gov/articles/PMC5734394/
-            molprobity_vdw_radii= dict(
-                H=1.22,  #TODO polar hydrogens...
-                C=1.7,
-                N=1.55,
-                O=1.4,
-                HOH=1.4,
-                P=1.8,
-                S=1.8,
-                Se=1.9,
-            )
-            override_vdw_dict={
-                ("N","O"):2.35,
-                ("N","HOH"):2.35,
-                ("O","O"):2.2,
-                ("O","HOH"):2.2,
-                ("HOH","HOH"):2.2,
-                ("N","N"):2.48,
-                ("O","C"):2.48,
-                ("C","C"):2.72, #2.76 # 2.8
-                ("C","N"):2.6,
-                ("S","C"):2.8,
-                ("S","N"):2.68,
-                ("S","HOH"):2.6,
-                # ("H","O"):1.85 or 2.62...,
-              
-            }
-
 
             for other_atom in other_atoms:
                 if MON_LIB_NONBOND:
@@ -818,20 +827,15 @@ class ConstraintsHandler:
                     vdw_other_atom_symbols.append(vdw_symbol)
 
             DEBUG_FIRST_200=False
-            def get_molprobity_vdw(name_A:str,name_B:str,waters:list[bool]):
-                # FIXME Assuming all single-char element symbols!
-                elem_A,elem_B = name_A[0],name_B[0] 
-                if waters[0]: elem_A = "HOH"
-                if waters[1]: elem_B = "HOH"
-                    
-                for elements,override in override_vdw_dict.items():
-                    if elements[0]==elements[1]:
-                        if elem_A==elem_B==elements[0]:
-                            return override 
-                    elif all(E in [elem_A,elem_B] for E in elements):
-                        return override   # No idea if there are more cases like this... need to look at mmtbx.validation...
-                return molprobity_vdw_radii[elem_A]+molprobity_vdw_radii[elem_B]
+            def phenix_vdw(pdb1,pdb2):
+                conformer_tags = ConstraintsHandler.Constraint.ORDERED_site_tags_from_pdb_ids((pdb1,pdb2)) 
+                key = tuple(conformer_tags)
+                if key not in phenix_vdw_distances_table:
+                    return None
+                return phenix_vdw_distances_table[key]
             
+
+            # TODO  XXX XXX CRITICAL !!!!!!!!!! Loop through the phenix_vdw_distances_table instead.
             for i,atom in enumerate(atoms):
                 if DEBUG_FIRST_200 and i > 200:
                         break
@@ -847,14 +851,15 @@ class ConstraintsHandler:
                     if atom.get_name() in lj_mon_lib_energy_name_dict[OrderedAtomLookup.atom_res_name(atom)]:
                         lj_atom_symbol = two_key_read(lj_mon_lib_energy_name_dict,"lj_mon_lib_energy_name_dict",
                                                     OrderedAtomLookup.atom_res_name(atom),atom.get_name())
-                for j,other_atom in enumerate(other_atoms):
+                for j,other_atom in enumerate(other_atoms):  
                     
                     if OrderedAtomLookup.atom_res_seq_num(other_atom) == OrderedAtomLookup.atom_res_seq_num(atom):
                         continue
                     atom_resnum=OrderedAtomLookup.atom_res_seq_num(atom)
                     other_atom_resnum=OrderedAtomLookup.atom_res_seq_num(other_atom)
-                    pdb1 = f"{atom.name}     ARES     A      {atom_resnum}"
-                    pdb2 = f"{other_atom.name}     ARES     A      {other_atom_resnum}"
+                    # NOTE not exact match to format. Just good enough
+                    pdb1 = f"{atom.name.ljust(4)}{atom.altloc}RES     A      {atom_resnum}"
+                    pdb2 = f"{other_atom.name.ljust(4)}{other_atom.altloc}RES     A      {other_atom_resnum}"
                     pdb_ids = (pdb1,pdb2)
                     pdb_ids_flipped = (pdb2,pdb1)
                     # XXX stupid. Change the pdb_id thing to (name,resnum) and won't need to define another set of variables containing same information like this. 
@@ -863,18 +868,22 @@ class ConstraintsHandler:
 
                     min_separation = ConstraintsHandler.NonbondConstraint.symm_min_separation(atom,other_atom,symmetries)
                     
-                    molprobity_vdw = get_molprobity_vdw(atom.get_name(),other_atom.get_name(), 
-                                                        waters=["HOH"==OrderedAtomLookup.atom_res_name(a) for a in [atom,other_atom]])
-
-
-
-                    if not MON_LIB_NONBOND:
-                        if min_separation > molprobity_vdw*0.95:
-                            continue
-
-                    if min_separation > max_nonbond_sep:
+                    phenix_vdw_sum = phenix_vdw(pdb1,pdb2)
+                    if phenix_vdw_sum is None:
                         continue
-                    
+
+
+
+                   
+                    if MON_LIB_NONBOND:
+
+                        if min_separation > max_nonbond_sep:
+                            continue
+                    else:
+                        if min_separation > phenix_vdw_sum-VDW_BUFFER:
+                        #if min_separation > phenix_vdw_sum*0.95:
+                            continue
+                        
                     if ((atom.element=="H" and other_atom.element == "H") # Do not consider H-H clashes (expect to be more harmful than helpful due to H positions being poor.)
                         or (B_A_check in Bonds_added) or (B_A_check_flipped in Bonds_added)):
                         continue
@@ -885,7 +894,7 @@ class ConstraintsHandler:
                         if MON_LIB_NONBOND:
                             vdw_gap = vdw_radii[vdw_atom_symbol] + vdw_radii[vdw_other_atom_symbols[i]] 
                         else:
-                            vdw_gap = molprobity_vdw
+                            vdw_gap = phenix_vdw_sum
                             
                         if vdw_gap - min_separation >= CLASH_OVERLAP_THRESHOLD:  
                             num_clashes_found+=1                            
@@ -896,8 +905,8 @@ class ConstraintsHandler:
                     if ConstraintsHandler.NonbondConstraint not in constraints_to_skip:
                         #if ((((B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)) and other_atom.name in ["C","N","CA","CB","O"])
                         if ((atom.element == "H" or other_atom.element == "H") # Do not consider any LJ involving H.
-                        or (B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added) 
-                        or (pdb_ids in NB_pdb_ids_added) or (pdb_ids_flipped in NB_pdb_ids_added)):
+                        or (B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)): 
+                        #or (pdb_ids in NB_pdb_ids_added) or (pdb_ids_flipped in NB_pdb_ids_added)):
                             continue
                                                
                         if MON_LIB_NONBOND:
@@ -906,8 +915,10 @@ class ConstraintsHandler:
                             E_min,R_min = two_key_read(lj_params,"lj_params",
                                                         lj_atom_symbol,lj_other_atom_symbols[j])
                         else:
-                            R_min = molprobity_vdw
-                        self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),R_min,symmetries),None)
+                            R_min = phenix_vdw_sum
+                        altlocs = (atom.get_altloc(),other_atom.get_altloc())
+                        self.add_nonbond_constraint(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),symmetries),
+                                                    residual=None,altlocs=altlocs,vdw_sum=R_min)
                         NB_pdb_ids_added.append(pdb_ids)
         print(f"Added {num_clashes_found} clashes")
      
@@ -915,9 +926,8 @@ class ConstraintsHandler:
         print(f"Added {num_nonbonded_general} nonbond constraints")
         
         skip_nonbonds_from_geo=True
-        test_nonbonds_from_geo=(not MON_LIB_NONBOND) # Test the values match what would be computed above
         for file in (nonbond_scores_files):
-            if (ConstraintsHandler.NonbondConstraint in constraints_to_skip) or (skip_nonbonds_from_geo and not test_nonbonds_from_geo):
+            if (ConstraintsHandler.NonbondConstraint in constraints_to_skip) or skip_nonbonds_from_geo:
                 break
 
             with open(file) as f:
@@ -951,13 +961,6 @@ class ConstraintsHandler:
                         separation = constraint[3].strip().split()[0]
                         ideal = constraint[3].strip().split()[1]
                         ideal = float(ideal)
-
-                        if test_nonbonds_from_geo and not (name1[0]=="H" or name2[0]=="H") and not (name1[0]==name2[0]=="O"):
-                            #TODO
-                            molprobity_vdw_test=get_molprobity_vdw(name1,name2,waters=["HOH"==r for r in [resname1,resname2]])
-                            #assert molprobity_vdw_test==ideal, (pdb1,pdb2,ideal,molprobity_vdw_test)  
-                            #assert 0<=ideal-molprobity_vdw_test<=0.1, (pdb1,pdb2,ideal,molprobity_vdw_test)  
-                            assert ideal-molprobity_vdw_test>=0, (pdb1,pdb2,ideal,molprobity_vdw_test)  
 
                         if skip_nonbonds_from_geo:
                             continue
@@ -1050,6 +1053,7 @@ class AtomChunk(OrderedResidue):
     def unique_id(self):
         return f"{self.depth_tag}&{self.get_site_num()}.{self.get_altloc()}&{self.get_disordered_tag()}"
 
+
 class DisorderedTag():
     def __init__(self,res_num,atom_name):
         self._resnum, self._name = int(res_num),str(atom_name)
@@ -1073,6 +1077,22 @@ class DisorderedTag():
 
     def __eq__(self, other:'DisorderedTag'):
         return (self._resnum, self.atom_name()) == (other._resnum, other.atom_name())
+    def __ne__(self, other):
+        return not(self == other)
+
+class OrderedTag(DisorderedTag):
+    def __init__(self,res_num,atom_name,altloc):
+        super().__init__(res_num,atom_name)
+        self.altloc=altloc
+
+
+    def __repr__(self):
+        return f"{self.resnum()}.{self.atom_name()}.{self.altloc}"
+    def __hash__(self):
+        return hash((self._resnum, self.atom_name(),self.altloc))
+
+    def __eq__(self, other:'OrderedTag'):
+        return (self._resnum, self.atom_name(),self.altloc) == (other._resnum, other.atom_name(),other.altloc)
     def __ne__(self, other):
         return not(self == other)
 
@@ -1140,7 +1160,7 @@ class LP_Input:
             ConstraintsHandler.BondConstraint:99,
             #ConstraintsHandler.AngleConstraint:5,
             ConstraintsHandler.AngleConstraint:99,
-            ConstraintsHandler.NonbondConstraint:2,
+            #ConstraintsHandler.NonbondConstraint:2,
         } 
         min_tension_where_anything_goes={
             ConstraintsHandler.BondConstraint:8,
@@ -1634,7 +1654,7 @@ class LP_Input:
         constraints_to_skip = [kind for kind,value in constraint_weights.items() if value <= 0]
 
         potential_overrides = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}_potential_overrides.txt"
-        constraints_handler.load_all_constraints(constraints_file,nonbond_scores_files,clashes,original_clashes,self.ordered_atom_lookup,symmetries=self.symmetries,water_water_nonbond=water_water_nonbond,constraints_to_skip=constraints_to_skip,
+        constraints_handler.load_all_constraints(constraints_file,self.model_path,nonbond_scores_files,clashes,original_clashes,self.ordered_atom_lookup,symmetries=self.symmetries,water_water_nonbond=water_water_nonbond,constraints_to_skip=constraints_to_skip,
                                                  potential_overrides_file=potential_overrides)
         print("Nonordered constraint properties loaded.")
         #for n,atom in enumerate(self.ordered_atom_lookup.select_atoms_by(names=["CA","C","N"])):

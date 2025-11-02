@@ -694,15 +694,24 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     site_assignment_arrays:list[dict[VariableID,dict[str,str]]]=[]
     distances=[]
 
-    og_connections_str = ""
-    og_connections_str+="name, sigma, cost\n"
-    vals = [(constraint,var) for constraint,var in constraint_var_dict.values() if var.value()>0.5]
-    #vals.sort(key=lambda x: x[0].z_score,reverse=True)
-    vals.sort(key=lambda x: x[0].ts_distance,reverse=True)
-    for constraint, var in vals:
-        og_connections_str+=f"{var.name} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n"
-    with open(f"{out_dir}/xLO-OriginalConnections{out_handle}.txt",'w') as f:
-        f.write(og_connections_str)
+    def write_current_connections(out_file):
+        connections_str = ""
+        connections_str+="name, sigma, cost\n"
+        vals = [(constraint,var) for constraint,var in constraint_var_dict.values() if var.value()>0.5]
+        #vals.sort(key=lambda x: x[0].z_score,reverse=True)
+        vals.sort(key=lambda x: x[0].ts_distance,reverse=True)
+        vals_selection = []
+        ignore_zero_constraint_types = [ConstraintsHandler.ClashConstraint,ConstraintsHandler.NonbondConstraint,ConstraintsHandler.TwoAtomPenalty] 
+        for constraint,var in vals:
+            if constraint.ts_distance != 0 or (constraint.connection_type not in ignore_zero_constraint_types):
+                vals_selection.append((constraint,var))
+        vals = vals_selection
+
+        for constraint, var in vals:
+            connections_str+=f"{var.name} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n"
+        with open(out_file,'w') as f:
+            f.write(connections_str)
+    write_current_connections(f"{out_dir}/xLO-OriginalConnections{out_handle}.txt")
 
     create_initial_variable_files=True
     for l in range(num_solutions):
@@ -844,14 +853,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             break
 
         ##Active Connections##
-        out_str_active_conn=""
-        vals = [(constraint,var) for constraint,var in constraint_var_dict.values() if var.value()>0.5]
-        vals.sort(key=lambda x: x[0].ts_distance,reverse=True)
-        #vals.sort(key=lambda x: x[0].z_score)
-        for constraint, var in vals:
-            out_str_active_conn+=f"{var.name} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n"
-        with open(f"{out_dir}/xLO-ActiveConnections{out_handle}.txt",'w') as f:
-            f.write(out_str_active_conn)
+        write_current_connections(f"{out_dir}/xLO-ActiveConnections{out_handle}.txt")
         ####
 
         ### Changed Connections ###
@@ -872,7 +874,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             if no_change:
                 continue
 
-            if active_constraints[0][0].connection_type == ConstraintsHandler.ClashConstraint:
+            if active_constraints[0][0].connection_type in [ConstraintsHandler.ClashConstraint,ConstraintsHandler.NonbondConstraint,ConstraintsHandler.TwoAtomPenalty]:
                 original_constraints = [(constraint,var) for constraint,var in original_constraints if constraint.ts_distance!=0]
                 active_constraints = [(constraint,var) for constraint,var in active_constraints if constraint.ts_distance!=0]
 
@@ -900,7 +902,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         out_str+=f"Total distance = {total_distance} ({100*(diff):.3f}%)\n"
         out_str+="name, sigma, cost\n"
         for original_constraints,active_constraints,original_cost,active_cost in changed_disordered_connections:
-            out_str+=active_constraints[0][0].get_disordered_connection_id()+"\n"
+            Dordered_constr_ref=active_constraints if len(active_constraints)>0 else original_constraints
+            out_str+=Dordered_constr_ref[0][0].get_disordered_connection_id()+"\n"
             def add_disordered_block_to_str(constraints_vars:list[tuple[LP_Input.AtomChunkConnection,LpVariable]]):
                 nonlocal out_str
                 for constraint, var  in constraints_vars:

@@ -370,6 +370,8 @@ class Untangler():
                 create_score_file(initial_model,log_out_folder_path=self.output_dir)
             self.initial_score = Untangler.Score(*get_score(score_file_name(initial_model)))
         self.current_score = self.best_score = Untangler.Score.inf_bad_score()# i.e. force accept first solution
+        if self.first_loop>0:
+            self.current_score=self.best_score=self.initial_score
         # if initial_model!=self.current_model:
         #     shutil.copy(initial_model,self.current_model)
         
@@ -1520,7 +1522,7 @@ def main():
         weight_factors = {
             ConstraintsHandler.BondConstraint: 0.01,
             ConstraintsHandler.AngleConstraint: 80,#1,
-            ConstraintsHandler.NonbondConstraint: 1,  # TODO experiment with this.
+            ConstraintsHandler.NonbondConstraint: 0.1,  # TODO experiment with this.
             # ConstraintsHandler.ClashConstraint: 0.1,
             # ConstraintsHandler.TwoAtomPenalty: 1,
             ConstraintsHandler.ClashConstraint: 0,
