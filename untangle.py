@@ -33,6 +33,9 @@ PHENIX_ORDERED_SOLVENT=False
 TENSIONS=False  # Enables behaviours of re-enabling connection options involving high-tension sites, and, if option enabled, to scale cost by tensions
 PHENIX_FREEZE_WATER=False
 PHENIX_DISABLE_CDL=False # TODO -> set True
+PROPOSE_IGNORES_H=False
+
+assert not PROPOSE_IGNORES_H, "Comparison with previous best not implemented properly"
 
 # TODO down weight swaps that were previously made but need to be made again (i.e. cases where it's not tangled and the density is pushing it a different way.)
 # TODO Try forbid connection changes in sidechain. 
@@ -45,7 +48,7 @@ class Untangler():
     ####
     # Skip stages. Requires files to already have been generated (up to the point you are debugging).
     # If a model file hasn't been generated, will use the latest filename that exists and is expected to have been generated up to that point in the process.
-    debug_skip_refine = False
+    debug_skip_refine = False  # Note: Can set to True alongside debug_skip_first_swaps to skip to first proposal
     debug_phenix_ordered_solvent_on_initial=False
     debug_skip_initial_refine=True
     debug_skip_first_unrestrained_refine=True
@@ -83,7 +86,7 @@ class Untangler():
     def __init__(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=8,  #8,
                  wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=20, # 20,
                  max_num_best_swaps_considered=100,num_unrestrained_macro_cycles_phenix=3,
-                 num_loops_water_held=1,weight_factors=None,
+                 num_loops_water_held=0,weight_factors=None,
                  max_bond_changes=3,altloc_subset_size=4,refine_for_positions_geo_weight=0.1):
         self.set_hyper_params(acceptance_temperature,max_wE_frac_increase,num_end_loop_refine_cycles,
                               wc_anneal_start,wc_anneal_loops, starting_num_best_swaps_considered,
@@ -104,7 +107,7 @@ class Untangler():
     def set_hyper_params(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=2,  # 8,
                  wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=5, # 20,
                  max_num_best_swaps_considered=100,num_unrestrained_macro_cycles_phenix=3,
-                 num_loops_water_held=1,
+                 num_loops_water_held=0,
                  max_bond_changes=None,altloc_subset_size=3,refine_for_positions_geo_weight=0.1):
         # NOTE Currently max wE increase is percentage based, 
         # but TODO optimal method needs to be investigated.
@@ -656,7 +659,7 @@ class Untangler():
 
         global pooled_method # not sure if this is a good idea. Did this because it tries to pickle but fails if local. Try replacing with line: multiprocessing.set_start_method(‘fork’)
         def pooled_method(i):
-            create_score_file(models[i],self.output_dir)
+            create_score_file(models[i],self.output_dir,ignore_H=PROPOSE_IGNORES_H)
 
         with Pool(self.num_threads) as p:
             p.map(pooled_method,range(len(models)))
@@ -664,8 +667,8 @@ class Untangler():
 
         for model in models:
             print(model)
-            combined, wE,Rwork, Rfree = get_score(score_file_name(model))
-            print("Python read | model score wE Rwork Rfree | ",model,combined, wE, Rwork, Rfree)
+            combined, wE,Rwork, Rfree = get_score(score_file_name(model,ignore_H=PROPOSE_IGNORES_H))
+            #print("Python read | model score wE Rwork Rfree | ",model,combined, wE, Rwork, Rfree)
             if minimize_wE != minimize_R:
                 meas, tie_breaker_meas = (Rfree, wE) if minimize_R else (wE,Rfree) 
                 if ((meas < best)
@@ -688,7 +691,8 @@ class Untangler():
                     best = combined # this score is no longer used if a result is found where both wE and Rfree decrease
                     best_model = model
         assert best_model is not None
-        print("Best:",best_model)
+        best_untangler_score=Untangler.Score(*get_score(score_file_name(best_model,ignore_H=PROPOSE_IGNORES_H),verbose=False))
+        print(f"Best: {best_model} ({best_untangler_score})")
         return best_model
                 
 
@@ -908,10 +912,9 @@ class Untangler():
             f.writelines('\n'.join([str(swap) for swap in self.swaps_history]))
 
     def propose_model(self,working_model,score_file_needs_generation=True):
-        
-        if score_file_needs_generation:
-            create_score_file(working_model,log_out_folder_path=self.output_dir)
-        new_score = Untangler.Score(*get_score(score_file_name(working_model)))
+        if score_file_needs_generation or PROPOSE_IGNORES_H:
+            create_score_file(working_model,log_out_folder_path=self.output_dir,ignore_H=PROPOSE_IGNORES_H)
+        new_score = Untangler.Score(*get_score(score_file_name(working_model,ignore_H=PROPOSE_IGNORES_H)))
         
         #deltaE = new_wE-self.current_score.wE # geometry only
         if CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH:
@@ -930,7 +933,10 @@ class Untangler():
         if random.random() < p_accept or self.debug_always_accept_proposed_model:
             self.current_model = working_model
             #accepted_path=self.get_out_path(f"Accepted{self.loop}")
-            self.current_score = new_score
+            if PROPOSE_IGNORES_H:
+                self.current_score = Untangler.Score(*get_score(create_score_file(working_model,log_out_folder_path=self.output_dir)))
+            else:
+                self.current_score = new_score
             if self.best_score.combined > self.current_score.combined:
                 print(f"previous_best: {self.best_score}")
                 self.best_score = self.current_score
@@ -1486,8 +1492,8 @@ def main():
     Untangler(
         # max_num_best_swaps_considered=5,
         num_end_loop_refine_cycles=6,
-        max_num_best_swaps_considered=20,
-        starting_num_best_swaps_considered=20,
+        max_num_best_swaps_considered=10,
+        starting_num_best_swaps_considered=10,
         altloc_subset_size=3,
         #refine_for_positions_geo_weight=0.03,
         refine_for_positions_geo_weight=0,
@@ -1520,12 +1526,12 @@ def main():
         #     ConstraintsHandler.ClashConstraint: 0,
         # },
         weight_factors = {
-            ConstraintsHandler.BondConstraint: 0.01,
+            ConstraintsHandler.BondConstraint: 0.1,
             ConstraintsHandler.AngleConstraint: 80,#1,
             ConstraintsHandler.NonbondConstraint: 0.1,  # TODO experiment with this.
             # ConstraintsHandler.ClashConstraint: 0.1,
             # ConstraintsHandler.TwoAtomPenalty: 1,
-            ConstraintsHandler.ClashConstraint: 0,
+            ConstraintsHandler.ClashConstraint: 0,  #0 1
             ConstraintsHandler.TwoAtomPenalty: 0,
         },
         # weight_factors = {

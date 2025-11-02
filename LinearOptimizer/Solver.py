@@ -282,7 +282,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         def forbid_change_conditions():
             for ch in disordered_connection[0].atom_chunks:
                 if constraint_type==VariableKind.Bond: 
-                    if MAIN_CHAIN_ONLY and ch.name not in ["N","CA","CB","C","O"]:  # XXX tidy up and put in a separate python file for specifying what to optimize
+                    if MAIN_CHAIN_ONLY and (ch.name not in ["N","CA","CB","C","O"]) and ch.get_resname()!="CYS":  # XXX tidy up and put in a separate python file for specifying what to optimize
                         return True
                     if SIDE_CHAIN_ONLY and ch.name in ["N","CA","CB","C","O"]:
                         return True

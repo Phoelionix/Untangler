@@ -58,8 +58,8 @@ def is_atom(atom:Atom,res_num,name,altloc):
         return False
 
 #HYDROGEN_RESTRAINTS=False # If False, hydrogen restraints will be ignored.
-CLASH_OVERLAP_THRESHOLD=0.4
-VDW_BUFFER=0.1
+CLASH_OVERLAP_THRESHOLD=0.6 #0.8+0.4 # 0.4 0.6
+VDW_BUFFER=0 #0.8  # 0? 0.1
 IGNORE_HYDROGEN_CLASHES=True # Does not apply to CustomClashConstraint
 DISABLE2WATERFLIP=True 
 NEVER_FORBID_HYDROGEN_RESTRAINTS=True
@@ -707,8 +707,10 @@ class ConstraintsHandler:
                 return (kind,atom_strings) in outliers_to_ignore
 
         self.constraints: list[ConstraintsHandler.Constraint]=[]
-        Bonds_added=[]
+        bonds_added=[]
         AngleEnds_added=[]
+        end_point_angle_scale_factor=1
+        local_nb_scale_factor=1
         with open(constraints_file,"r") as f:
             lines = f.readlines()
             for i, line in enumerate(lines):
@@ -729,7 +731,9 @@ class ConstraintsHandler:
                     name2 = pdb2[0:4].strip()
                     resnum1 = int(pdb1.strip().split()[-1])
                     resnum2 = int(pdb2.strip().split()[-1])
-                    Bonds_added.append( ((name1,resnum1),(name2,resnum2)) )
+
+                    sites =  ConstraintsHandler.Constraint.site_tags_from_pdb_ids((pdb1,pdb2))
+                    bonds_added.append(frozenset(tuple(sites)))
                     self.add(ConstraintsHandler.BondConstraint(pdb_ids,outlier_ok("BOND",pdb_ids),ideal,weight,sigma),residual)
                 if line.startswith("angle"):
                     if ConstraintsHandler.AngleConstraint in constraints_to_skip:
@@ -746,10 +750,14 @@ class ConstraintsHandler:
                     pdb_ids = (pdb1,pdb2,pdb3)
 
                     name1 = pdb1[0:4].strip()
+                    name2 = pdb2[0:4].strip()
                     name3 = pdb3[0:4].strip()
                     resnum1 = int(pdb1.strip().split()[-1])
                     resnum3 = int(pdb3.strip().split()[-1])
                     AngleEnds_added.append( ((name1,resnum1),(name3,resnum3)) )
+                    # TODO try reducing any angles that involve a "tip/end-point/dead-end" atom like O
+                    if name1 == "O" or name2 == "O" or name3=="O":
+                        weight*=end_point_angle_scale_factor
                     self.add(ConstraintsHandler.AngleConstraint(pdb_ids,outlier_ok("ANGLE",pdb_ids),ideal,weight,sigma),residual)
                 
        
@@ -805,7 +813,6 @@ class ConstraintsHandler:
             max_nonbond_sep=4
             #TODO can speed up a lot by generating symmetric grid and assigning atoms to voxels and checking if in same or neighbouring voxels,
             # rather than calculating distances between every single atom and checking if within max_nonbond_sep...
-            last_num_found_LJ=last_num_found_clashes=0
 
 
             lj_other_atom_symbols = []
@@ -826,7 +833,6 @@ class ConstraintsHandler:
                     lj_other_atom_symbols.append(lj_symbol)
                     vdw_other_atom_symbols.append(vdw_symbol)
 
-            DEBUG_FIRST_200=False
             def phenix_vdw(pdb1,pdb2):
                 conformer_tags = ConstraintsHandler.Constraint.ORDERED_site_tags_from_pdb_ids((pdb1,pdb2)) 
                 key = tuple(conformer_tags)
@@ -835,15 +841,21 @@ class ConstraintsHandler:
                 return phenix_vdw_distances_table[key]
             
 
+            last_num_found_LJ=last_num_found_clashes=0
             # TODO  XXX XXX CRITICAL !!!!!!!!!! Loop through the phenix_vdw_distances_table instead.
+            DEBUG_FIRST_200=False
             for i,atom in enumerate(atoms):
                 if DEBUG_FIRST_200 and i > 200:
                         break
                 if i%100==0:
-                    print(f"Flagging cross-conformation nonbonds for{' protein' if not waters_outer_loop else ''} conformer {i}/{len(atoms)}")
-                    print(f"LJ potentials found: {len(NB_pdb_ids_added)-last_num_found_LJ} | Clashes found: {num_clashes_found-last_num_found_clashes}")
+                    if i !=0:
+                        if ConstraintsHandler.NonbondConstraint not in constraints_to_skip:
+                            print(f"LJ potentials found: {len(NB_pdb_ids_added)-last_num_found_LJ}")
+                        if ConstraintsHandler.ClashConstraint not in constraints_to_skip:
+                            print(f"Clashes found: {num_clashes_found-last_num_found_clashes}")
                     last_num_found_LJ=len(NB_pdb_ids_added)
                     last_num_found_clashes=num_clashes_found
+                    print(f"Flagging cross-conformation nonbonds for{' protein' if not waters_outer_loop else ''} conformer {i}/{len(atoms)}")
 
                 if MON_LIB_NONBOND:
                     vdw_atom_symbol = two_key_read(vdw_mon_lib_energy_name_dict,"vdw_mon_lib_energy_name_dict",
@@ -861,10 +873,7 @@ class ConstraintsHandler:
                     pdb1 = f"{atom.name.ljust(4)}{atom.altloc}RES     A      {atom_resnum}"
                     pdb2 = f"{other_atom.name.ljust(4)}{other_atom.altloc}RES     A      {other_atom_resnum}"
                     pdb_ids = (pdb1,pdb2)
-                    pdb_ids_flipped = (pdb2,pdb1)
-                    # XXX stupid. Change the pdb_id thing to (name,resnum) and won't need to define another set of variables containing same information like this. 
-                    tmp1,tmp2=(atom.name,atom_resnum),(other_atom.name,other_atom_resnum)
-                    B_A_check,B_A_check_flipped=(tmp1,tmp2),(tmp2,tmp1)   
+                    pdb_ids_flipped = (pdb2,pdb1) 
 
                     min_separation = ConstraintsHandler.NonbondConstraint.symm_min_separation(atom,other_atom,symmetries)
                     
@@ -872,7 +881,9 @@ class ConstraintsHandler:
                     if phenix_vdw_sum is None:
                         continue
 
-
+                    nb_weight=1
+                    if abs((atom_resnum-other_atom_resnum))<=2:
+                        nb_weight*=local_nb_scale_factor
 
                    
                     if MON_LIB_NONBOND:
@@ -884,8 +895,9 @@ class ConstraintsHandler:
                         #if min_separation > phenix_vdw_sum*0.95:
                             continue
                         
+                    sites = ConstraintsHandler.Constraint.site_tags_from_pdb_ids((pdb1,pdb2))
                     if ((atom.element=="H" and other_atom.element == "H") # Do not consider H-H clashes (expect to be more harmful than helpful due to H positions being poor.)
-                        or (B_A_check in Bonds_added) or (B_A_check_flipped in Bonds_added)):
+                        or frozenset(tuple(sites)) in bonds_added):
                         continue
                     
                     # VDW overlap (clashes)
@@ -895,18 +907,19 @@ class ConstraintsHandler:
                             vdw_gap = vdw_radii[vdw_atom_symbol] + vdw_radii[vdw_other_atom_symbols[i]] 
                         else:
                             vdw_gap = phenix_vdw_sum
-                            
+                        
                         if vdw_gap - min_separation >= CLASH_OVERLAP_THRESHOLD:  
                             num_clashes_found+=1                            
                             clash_pdb_ids_added.append(pdb_ids)
-                            self.add(ConstraintsHandler.ClashConstraint(pdb_ids,outlier_ok("CLASH",pdb_ids),vdw_gap,symmetries),None)
+                            self.add(ConstraintsHandler.ClashConstraint(pdb_ids,outlier_ok("CLASH",pdb_ids),vdw_gap,symmetries,weight=nb_weight),None)
 
                     # Lennard-Jones (nonbonded)
                     if ConstraintsHandler.NonbondConstraint not in constraints_to_skip:
                         #if ((((B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)) and other_atom.name in ["C","N","CA","CB","O"])
                         if ((atom.element == "H" or other_atom.element == "H") # Do not consider any LJ involving H.
-                        or (B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)): 
+                        #or (B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)): 
                         #or (pdb_ids in NB_pdb_ids_added) or (pdb_ids_flipped in NB_pdb_ids_added)):
+                        ):
                             continue
                                                
                         if MON_LIB_NONBOND:
@@ -917,7 +930,7 @@ class ConstraintsHandler:
                         else:
                             R_min = phenix_vdw_sum
                         altlocs = (atom.get_altloc(),other_atom.get_altloc())
-                        self.add_nonbond_constraint(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),symmetries),
+                        self.add_nonbond_constraint(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),symmetries,weight=nb_weight),
                                                     residual=None,altlocs=altlocs,vdw_sum=R_min)
                         NB_pdb_ids_added.append(pdb_ids)
         print(f"Added {num_clashes_found} clashes")
@@ -1099,6 +1112,7 @@ class OrderedTag(DisorderedTag):
 
 class LP_Input:
     MODE= "LOW_TOL" # "NONBOND_RESTRICTIONS" #"LOW_TOL" #"HIGH_TOL" #"NO_RESTRICTIONS" # PHENIX REFMAC
+    #MODE= "NO_RESTRICTIONS" # "NONBOND_RESTRICTIONS" #"LOW_TOL" #"HIGH_TOL" #"NO_RESTRICTIONS" # PHENIX REFMAC
 
     if MODE=="NO_RESTRICTIONS":
         max_sigmas=min_sigmas_where_anything_goes=min_tension_where_anything_goes={}
