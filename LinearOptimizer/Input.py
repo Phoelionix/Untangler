@@ -52,10 +52,25 @@ from LinearOptimizer.get_cross_conf_nonbonds_wrapper import get_cross_conf_nonbo
 MON_LIB_NONBOND=False  # If False, uses a single radius for each element taken from molprobity table. Molprobity radii are "less strict". 
 
 
-def is_atom(atom:Atom,res_num,name,altloc):
-        if (atom.name==name and atom.get_altloc()==altloc and OrderedAtomLookup.atom_res_seq_num(atom)==res_num):
+def is_atom(atom:Atom,resnum,name,altloc):
+        if (atom.name==name and atom.get_altloc()==altloc and OrderedAtomLookup.atom_res_seq_num(atom)==resnum):
             return True
         return False
+def atoms_in_LO_variable_string(variable:str,atoms:list[Atom]): # e.g. "30.C_B|31.CA_B" or "Nonbond_30.CA_A|31.N_A"
+    if not variable.split("_")[0].isnumeric():
+        variable = variable[variable.find("_")+1:]
+    atom_strings = variable.split("|")
+    
+    for a in atoms:
+        for atom_string in atom_strings:
+            resnum, name_altloc = atom_string.split('.')
+            resnum = int(resnum)
+            name, altloc = name_altloc.split("_")  
+            if is_atom(a,resnum,name,altloc):
+                break
+        else: # did not find a match
+            return False
+    return True
 
 #HYDROGEN_RESTRAINTS=False # If False, hydrogen restraints will be ignored.
 CLASH_OVERLAP_THRESHOLD=0.6 #0.8+0.4 # 0.4 0.6
@@ -90,7 +105,7 @@ class OrderedAtomLookup: #TODO pandas?
         self.altlocs=[]
         self.protein_altlocs=[]
         self.res_names:dict[int,str]={}
-        self.better_dict:dict[str,dict[str,dict[str,Atom]]] = {}
+        self.better_dict:dict[str,dict[str,dict[str,Atom]]] = {}  # res_num, atom name, altloc
         self.water_residue_nums:list[int]=[]
 
         self.waters_allowed=waters
@@ -236,7 +251,8 @@ class OrderedAtomLookup: #TODO pandas?
 
     def select_atoms_from(self,ordered_atoms:list[Atom], res_nums=None,serial_numbers=None,names=None,
                         disordered_serial_numbers=None,altlocs=None,
-                        waters=True, protein=True, exclude_H=False,exclude_atom_names=[])->list[Atom]:
+                        waters=True, protein=True, exclude_H=False,exclude_atom_names=[],
+                        only_protein_altlocs=True)->list[Atom]:
         atom_selection = []
         
 
@@ -253,6 +269,9 @@ class OrderedAtomLookup: #TODO pandas?
             if exclude_H and atom.element == "H":
                 continue
             if atom.get_name() in exclude_atom_names:
+                continue
+            if only_protein_altlocs and (atom.altloc not in self.protein_altlocs): 
+                 # Skip solvent atoms that aren't assigned a conformer label of the protein. 
                 continue
             
             for key, v in allowed_values.items():
@@ -366,7 +385,10 @@ class ConstraintsHandler:
 
     class Constraint():
         def __init__(self,pdb_ids:list[str],outlier_ok:bool,ideal:float,weight:float,sigma:float):
-            self.site_tags = ConstraintsHandler.Constraint.site_tags_from_pdb_ids(pdb_ids)
+            if type(pdb_ids[0])==OrderedTag:
+                self.site_tags = [ot.disordered_tag() for ot in pdb_ids]
+            elif type(pdb_ids[0])!=DisorderedTag:
+                self.site_tags = ConstraintsHandler.Constraint.site_tags_from_pdb_ids(pdb_ids)
             self.ideal = ideal
             self.weight = weight
             if NO_INDIV_WEIGHTS:
@@ -397,7 +419,7 @@ class ConstraintsHandler:
             return [site.atom_name() for site in self.site_tags]
         def residues(self):
             return [site.resnum() for site in self.site_tags]
-        def get_distance(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
+        def get_ordered_connection_stats(self,atoms:list[Atom],scoring_function)->tuple[float,float,float]:  # TODO this returns an ideal value, z_score, and a cost, but should make a class that holds this info and return that
             raise Exception("abstract method")
         def __repr__(self):
             return f"({ConstraintsHandler.Constraint.kind(type(self))} : {self.site_tags})"
@@ -439,14 +461,14 @@ class ConstraintsHandler:
         @staticmethod
         def separation(a:Atom,b:Atom):
             return np.sqrt(np.sum((a.get_coord()-b.get_coord())**2))
-        def get_distance(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
+        def get_ordered_connection_stats(self,atoms:list[Atom],scoring_function)->tuple[float,float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
             a,b = ordered_atoms      
             dev =  self.ideal-self.separation(a,b)     
             z_score=abs(dev/self.sigma) # XXX
-            return z_score, scoring_function(dev,self.sigma,self.ideal,self.num_bound_e) * self.weight
+            return self.ideal, z_score, scoring_function(dev,self.sigma,self.ideal,self.num_bound_e) * self.weight
             # badness = (self.ideal-self.separation(a,b))**2/self.ideal
             # return 0, badness
 
@@ -466,31 +488,40 @@ class ConstraintsHandler:
             v2_u = unit_vector(v2)
             return np.arccos(np.dot(v1_u, v2_u))*180/np.pi
             #return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
-        def get_distance(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
+        def get_ordered_connection_stats(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
             a,b,c = ordered_atoms
             dev = (self.ideal-self.angle(a,b,c))
             z_score=abs(dev/self.sigma) # XXX
-            return z_score, scoring_function(dev,self.sigma,self.ideal,self.num_bound_e) * self.weight
+            return self.ideal, z_score, scoring_function(dev,self.sigma,self.ideal,self.num_bound_e) * self.weight
         
             # badness = (self.ideal-self.angle(a,b,c))**2/self.ideal
             # return 0, badness
         
     class ClashConstraint(Constraint):
-        def __init__(self,atom_ids,outlier_ok,vdw_gap,symmetries,weight=1):
+        def __init__(self,atom_ids,outlier_ok,symmetries,weight=1):
+            self.altlocs_vdw_dict={}
             super().__init__(atom_ids,outlier_ok,None,weight,None)
-            self.vdw_gap = vdw_gap
             self.symmetries=symmetries
-        def get_distance(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
+        def add_ordered(self,altlocs,vdw):
+            assert len(altlocs)==2
+            assert tuple(altlocs) not in self.altlocs_vdw_dict
+            self.altlocs_vdw_dict[tuple(altlocs)]=vdw
+        def get_ordered_connection_stats(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
             a,b = ordered_atoms
-            badness = ConstraintsHandler.NonbondConstraint.symm_min_separation(a,b,self.symmetries)
-
-            return 0, badness * self.weight # note a z-score doesnt make sense here.
+            altlocs=(a.get_altloc(),b.get_altloc())  # NOTE order matters!!
+            if (altlocs not in self.altlocs_vdw_dict):
+                return -1, 0, 0
+            
+            r0=self.altlocs_vdw_dict[altlocs]
+            dev =  r0-ConstraintsHandler.NonbondConstraint.symm_min_separation(a,b,self.symmetries)
+            sigma=1
+            return r0, 0, scoring_function(dev,sigma,r0,self.num_bound_e) * self.weight # note a z-score doesnt make sense here.
 
         def badness(r, vdw_gap):
             #if r > (vdw_gap-CLASH_OVERLAP_THRESHOLD):
@@ -506,15 +537,15 @@ class ConstraintsHandler:
             assert len(altlocs)==2
             assert tuple(altlocs) not in self.altlocs_clash_dict
             self.altlocs_clash_dict[tuple(altlocs)]=badness
-        def get_distance(self,atoms:list[Atom],scoring_function):
+        def get_ordered_connection_stats(self,atoms:list[Atom],scoring_function):
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
             a,b = ordered_atoms
             altlocs=(a.get_altloc(),b.get_altloc())  # NOTE order matters!!
-            if (altlocs in self.altlocs_clash_dict):
-                return 0, self.altlocs_clash_dict[altlocs]*self.weight
-            return 0, 0  # TODO return None once LinearOptimizer.Solver behaves fine with it
+            if (altlocs not in self.altlocs_clash_dict):
+                return -1, 0, 0 #  TODO return None once LinearOptimizer.Solver behaves fine with it
+            return -1, 0, self.altlocs_clash_dict[altlocs]*self.weight
 
 
     class NonbondConstraint(Constraint):
@@ -592,7 +623,7 @@ class ConstraintsHandler:
         #         return 0
         #     return lj_energy-E_min
         #     #return abs(max(neg_badness_limit,ConstraintsHandler.NonbondConstraint.lennard_jones(r,r0,E_min)))
-        def get_distance(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
+        def get_ordered_connection_stats(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
@@ -600,7 +631,7 @@ class ConstraintsHandler:
             r = ConstraintsHandler.NonbondConstraint.symm_min_separation(a,b,self.symmetries)
             altlocs=(a.get_altloc(),b.get_altloc()) # NOTE order matters!!
             if (altlocs not in self.altlocs_vdw_dict):
-                return 0, 0
+                return -1, 0, 0
             
             r0 = self.altlocs_vdw_dict[altlocs]
             energy = ConstraintsHandler.NonbondConstraint.badness(r,r0)
@@ -615,7 +646,11 @@ class ConstraintsHandler:
             #     asdads
 
             #return 0, energy * self.weight
-            return np.sqrt(energy), energy * self.weight
+            #return np.sqrt(energy), energy * self.weight
+            sigma=1
+            z_score = dev = np.sqrt(energy) # Not a distance!
+            #return z_score, scoring_function(dev,sigma,r0,self.num_bound_e) * self.weight
+            return r0, np.sqrt(energy), energy * self.weight
         
 
     def __init__(self,constraints:list[Constraint]=[]):
@@ -638,7 +673,7 @@ class ConstraintsHandler:
             raise Exception(f"No constraints found for {site}")
         return ConstraintsHandler(self.atom_constraints[site])
 
-    def add_custom_clash_constraint(self,constraint:TwoAtomPenalty,residual,altlocs,badness):
+    def add_custom_clash_constraint(self,constraint:TwoAtomPenalty,residual,altlocs,badness): # TODO same function as add_nonbond_constraint
         self.add(constraint,residual)
         found=0
         first_site = constraint.site_tags[0]
@@ -647,7 +682,7 @@ class ConstraintsHandler:
                 constraint.add_ordered(altlocs,badness)
                 found+=1
         assert found == 1
-    def add_nonbond_constraint(self,constraint:NonbondConstraint,residual,altlocs,vdw_sum):
+    def add_nonbond_constraint(self,constraint:NonbondConstraint,residual,altlocs,vdw_sum): # or clash constraint.
         self.add(constraint,residual)
         found=0
         first_site = constraint.site_tags[0]
@@ -668,6 +703,7 @@ class ConstraintsHandler:
         if found < 1:
             print(f"Warning: could not scale non-existent constraint: {constraint_type} {site_tags}")
         
+    # For constraints that have same ideal and weight regardless of order of from conformer labels. (maybe this should never be used due to conformation-dependent library) 
     def add(self,constraint:Constraint,residual):
         if constraint not in self.constraints:
             self.constraints.append(constraint)
@@ -699,6 +735,7 @@ class ConstraintsHandler:
                     atom_ids = line.split("|")[-1].strip().split()
                     outliers_to_ignore.append((kind,atom_ids))
             def outlier_ok(kind:str,pdb_strings:list[str]):
+                assert False # need to work with OrderedSiteTag for pdb_strings variable (see how clashes and nonbond constraintsa are added )
                 atom_strings = []
                 for p in pdb_strings:
                     name = p[0:4].strip()
@@ -707,7 +744,7 @@ class ConstraintsHandler:
                 return (kind,atom_strings) in outliers_to_ignore
 
         self.constraints: list[ConstraintsHandler.Constraint]=[]
-        bonds_added=[]
+        bonds_added:list[DisorderedTag]=[]
         AngleEnds_added=[]
         end_point_angle_scale_factor=1
         local_nb_scale_factor=1
@@ -765,8 +802,7 @@ class ConstraintsHandler:
 
         print("WARNING: assuming residue numbers are all unique")
         print("WARNING: assuming elements all single character")
-        NB_pdb_ids_added = []
-        clash_pdb_ids_added=[]
+        NB_pairs_added = []
         num_nonbonded_from_geo = 0
 
 
@@ -775,13 +811,14 @@ class ConstraintsHandler:
         vdw_mon_lib_energy_name_dict:dict[dict[str]] = {}
         lj_mon_lib_energy_name_dict:dict[dict[str]] = {}
         if MON_LIB_NONBOND:
+            assert False
             for res in "HOH, ALA, ARG, ASN, ASP, CYS, GLU, GLN, GLY, HIS, ILE, LEU, LYS, MET, PHE, PRO, SER, THR, TRP, TYR, VAL".split(", "):
                 vdw_mon_lib_energy_name_dict[res],lj_mon_lib_energy_name_dict[res]=get_mon_lib_names(res)
             
             vdw_radii = read_vdw_radii(with_H=not IGNORE_HYDROGEN_CLASHES)
             lj_params = read_lj_parameters()
         else:
-            phenix_vdw_distances_table={}
+            phenix_vdw_distances_table:dict[tuple[OrderedTag,OrderedTag],float]={}
             for pdb1, pdb2, vdw_sum in get_cross_conf_nonbonds(pdb_file_for_nonbonds):
                 conformer_tags = ConstraintsHandler.Constraint.ORDERED_site_tags_from_pdb_ids((pdb1,pdb2)) 
                 key = tuple(conformer_tags) # NOTE Order matters
@@ -805,9 +842,9 @@ class ConstraintsHandler:
             assert general_water_nonbond
         if (general_water_nonbond or protein_protein_nonbonds): 
             waters_outer_loop=water_water_nonbond
-            atoms = ordered_atom_lookup.select_atoms_by(protein=True, waters=waters_outer_loop,exclude_H=IGNORE_HYDROGEN_CLASHES)
-            other_atoms = ordered_atom_lookup.select_atoms_by(protein=protein_protein_nonbonds,waters=general_water_nonbond, exclude_H=IGNORE_HYDROGEN_CLASHES
-                                                              )
+            # atoms = ordered_atom_lookup.select_atoms_by(protein=True, waters=waters_outer_loop,exclude_H=IGNORE_HYDROGEN_CLASHES)
+            # other_atoms = ordered_atom_lookup.select_atoms_by(protein=protein_protein_nonbonds,waters=general_water_nonbond, exclude_H=IGNORE_HYDROGEN_CLASHES
+            #                                                   )
                                                               #exclude_atom_names=["C","N","CA","CB"])
             
             max_nonbond_sep=4
@@ -815,27 +852,15 @@ class ConstraintsHandler:
             # rather than calculating distances between every single atom and checking if within max_nonbond_sep...
 
 
-            lj_other_atom_symbols = []
-            vdw_other_atom_symbols = []
 
-
-            for other_atom in other_atoms:
-                if MON_LIB_NONBOND:
-
-                    lj_symbol = None
-                    if other_atom.get_name() in lj_mon_lib_energy_name_dict[OrderedAtomLookup.atom_res_name(other_atom)]:
-                        
-                        lj_symbol=two_key_read(lj_mon_lib_energy_name_dict,"lj_mon_lib_energy_name_dict",
-                                            OrderedAtomLookup.atom_res_name(other_atom),other_atom.get_name()) 
-
-                    vdw_symbol=two_key_read(vdw_mon_lib_energy_name_dict,"vdw_mon_lib_energy_name_dict",
-                                            OrderedAtomLookup.atom_res_name(other_atom),other_atom.get_name())
-                    lj_other_atom_symbols.append(lj_symbol)
-                    vdw_other_atom_symbols.append(vdw_symbol)
-
-            def phenix_vdw(pdb1,pdb2):
+            def phenix_vdw_from_pdb_ids(pdb1:str,pdb2:str):
                 conformer_tags = ConstraintsHandler.Constraint.ORDERED_site_tags_from_pdb_ids((pdb1,pdb2)) 
                 key = tuple(conformer_tags)
+                if key not in phenix_vdw_distances_table:
+                    return None
+                return phenix_vdw_distances_table[key]
+            def phenix_vdw(confA:OrderedTag,confB:OrderedTag):
+                key = (confA,confB)
                 if key not in phenix_vdw_distances_table:
                     return None
                 return phenix_vdw_distances_table[key]
@@ -843,195 +868,93 @@ class ConstraintsHandler:
 
             last_num_found_LJ=last_num_found_clashes=0
             # TODO  XXX XXX CRITICAL !!!!!!!!!! Loop through the phenix_vdw_distances_table instead.
-            DEBUG_FIRST_200=False
-            for i,atom in enumerate(atoms):
-                if DEBUG_FIRST_200 and i > 200:
-                        break
-                if i%100==0:
+            for i, (confA,confB) in enumerate(phenix_vdw_distances_table): # iterate over conformers
+                if i%10000==0:
                     if i !=0:
                         if ConstraintsHandler.NonbondConstraint not in constraints_to_skip:
-                            print(f"LJ potentials found: {len(NB_pdb_ids_added)-last_num_found_LJ}")
+                            print(f"LJ potentials found: {len(NB_pairs_added)-last_num_found_LJ}")
                         if ConstraintsHandler.ClashConstraint not in constraints_to_skip:
                             print(f"Clashes found: {num_clashes_found-last_num_found_clashes}")
-                    last_num_found_LJ=len(NB_pdb_ids_added)
+                    last_num_found_LJ=len(NB_pairs_added)
                     last_num_found_clashes=num_clashes_found
-                    print(f"Flagging cross-conformation nonbonds for{' protein' if not waters_outer_loop else ''} conformer {i}/{len(atoms)}")
+                    #print(f"Flagging cross-conformation nonbonds for{' protein' if not waters_outer_loop else ''} conformer {i}/{len(phenix_vdw_distances_table)}")
+                    print(f"Flagging cross-conformation nonbonds {i}/{len(phenix_vdw_distances_table)}")
 
-                if MON_LIB_NONBOND:
-                    vdw_atom_symbol = two_key_read(vdw_mon_lib_energy_name_dict,"vdw_mon_lib_energy_name_dict",
-                                                OrderedAtomLookup.atom_res_name(atom),atom.get_name())
-                    if atom.get_name() in lj_mon_lib_energy_name_dict[OrderedAtomLookup.atom_res_name(atom)]:
-                        lj_atom_symbol = two_key_read(lj_mon_lib_energy_name_dict,"lj_mon_lib_energy_name_dict",
-                                                    OrderedAtomLookup.atom_res_name(atom),atom.get_name())
-                for j,other_atom in enumerate(other_atoms):  
+                if IGNORE_HYDROGEN_CLASHES and (confA.element()=="H" or confB.element=="H"):
+                    continue
+
+                if (((confA.element()=="H") and (confB.element() == "H")) # Do not consider H-H clashes (expect to be more harmful than helpful due to H positions being poor.)
+                    or frozenset((confA.disordered_tag(),confB.disordered_tag())) in bonds_added): # Nonbonded only!
+                    continue
+                if (confA.atom_name() == confB.atom_name()) and (confA.resnum()==confB.resnum()):
+                    continue
+                #protein=True, waters=waters_outer_loop,exclude_H=IGNORE_HYDROGEN_CLASHES
+                atomA = confA.lookup_atom(ordered_atom_lookup)
+                if not waters_outer_loop\
+                and UntangleFunctions.res_is_water(atomA.get_parent()):
+                    continue
+                #protein=protein_protein_nonbonds,waters=general_water_nonbond, exclude_H=IGNORE_HYDROGEN_CLASHES
+                atomB = confB.lookup_atom(ordered_atom_lookup)
+                if not general_water_nonbond\
+                and UntangleFunctions.res_is_water(atomB.get_parent()):
+                    continue
+                if not protein_protein_nonbonds\
+                and not UntangleFunctions.res_is_water(atomB.get_parent()):
+                    continue
+
                     
-                    if OrderedAtomLookup.atom_res_seq_num(other_atom) == OrderedAtomLookup.atom_res_seq_num(atom):
-                        continue
-                    atom_resnum=OrderedAtomLookup.atom_res_seq_num(atom)
-                    other_atom_resnum=OrderedAtomLookup.atom_res_seq_num(other_atom)
-                    # NOTE not exact match to format. Just good enough
-                    pdb1 = f"{atom.name.ljust(4)}{atom.altloc}RES     A      {atom_resnum}"
-                    pdb2 = f"{other_atom.name.ljust(4)}{other_atom.altloc}RES     A      {other_atom_resnum}"
-                    pdb_ids = (pdb1,pdb2)
-                    pdb_ids_flipped = (pdb2,pdb1) 
+                
+                min_separation = ConstraintsHandler.NonbondConstraint.symm_min_separation(
+                    atomA,
+                    atomB,
+                    symmetries)
+                
+                
+                #if atoms_in_LO_variable_string("Nonbond_30.C_B|31.CA_B",(atomA,atomB)):
+                # if atoms_in_LO_variable_string("Nonbond_1.C_A|2.CA_A",(atomA,atomB)):
+                #     print(min_separation)
+                #     print(phenix_vdw(confA,confB))
+                
+                phenix_vdw_sum = phenix_vdw(confA,confB)
+                if phenix_vdw_sum is None:
+                    assert False
 
-                    min_separation = ConstraintsHandler.NonbondConstraint.symm_min_separation(atom,other_atom,symmetries)
+                nb_weight=1
+                if abs((confA.resnum()-confB.resnum()))<=2: # XXX quite arbitrary
+                    nb_weight*=local_nb_scale_factor
+
+                
+        
+                if min_separation > phenix_vdw_sum-VDW_BUFFER:
+                    continue
                     
-                    phenix_vdw_sum = phenix_vdw(pdb1,pdb2)
-                    if phenix_vdw_sum is None:
-                        continue
-
-                    nb_weight=1
-                    if abs((atom_resnum-other_atom_resnum))<=2:
-                        nb_weight*=local_nb_scale_factor
-
-                   
-                    if MON_LIB_NONBOND:
-
-                        if min_separation > max_nonbond_sep:
-                            continue
-                    else:
-                        if min_separation > phenix_vdw_sum-VDW_BUFFER:
-                        #if min_separation > phenix_vdw_sum*0.95:
-                            continue
-                        
-                    sites = ConstraintsHandler.Constraint.site_tags_from_pdb_ids((pdb1,pdb2))
-                    if ((atom.element=="H" and other_atom.element == "H") # Do not consider H-H clashes (expect to be more harmful than helpful due to H positions being poor.)
-                        or frozenset(tuple(sites)) in bonds_added):
-                        continue
+                conf_pair=(confA,confB)
+                # VDW overlap (clashes)
+                altlocs = (confA.altloc(),confB.altloc())
+                if (cross_conformation_clashes and (ConstraintsHandler.ClashConstraint not in constraints_to_skip)):
+                    vdw_gap = phenix_vdw_sum
                     
-                    # VDW overlap (clashes)
-                    if (cross_conformation_clashes and (ConstraintsHandler.ClashConstraint not in constraints_to_skip) 
-                        and not ((pdb_ids in clash_pdb_ids_added) or (pdb_ids_flipped in clash_pdb_ids_added))):
-                        if MON_LIB_NONBOND:
-                            vdw_gap = vdw_radii[vdw_atom_symbol] + vdw_radii[vdw_other_atom_symbols[i]] 
-                        else:
-                            vdw_gap = phenix_vdw_sum
-                        
-                        if vdw_gap - min_separation >= CLASH_OVERLAP_THRESHOLD:  
-                            num_clashes_found+=1                            
-                            clash_pdb_ids_added.append(pdb_ids)
-                            self.add(ConstraintsHandler.ClashConstraint(pdb_ids,outlier_ok("CLASH",pdb_ids),vdw_gap,symmetries,weight=nb_weight),None)
+                    if vdw_gap - min_separation >= CLASH_OVERLAP_THRESHOLD:  
+                        num_clashes_found+=1                            
+                        self.add_nonbond_constraint(ConstraintsHandler.ClashConstraint(conf_pair,outlier_ok("CLASH",conf_pair),symmetries,weight=nb_weight),
+                                                    residual=None,altlocs=altlocs,vdw_sum=vdw_gap)
 
-                    # Lennard-Jones (nonbonded)
-                    if ConstraintsHandler.NonbondConstraint not in constraints_to_skip:
-                        #if ((((B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)) and other_atom.name in ["C","N","CA","CB","O"])
-                        if ((atom.element == "H" or other_atom.element == "H") # Do not consider any LJ involving H.
-                        #or (B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)): 
-                        #or (pdb_ids in NB_pdb_ids_added) or (pdb_ids_flipped in NB_pdb_ids_added)):
-                        ):
-                            continue
-                                               
-                        if MON_LIB_NONBOND:
-                            assert lj_atom_symbol is not None
-                            assert lj_other_atom_symbols[j] is not None
-                            E_min,R_min = two_key_read(lj_params,"lj_params",
-                                                        lj_atom_symbol,lj_other_atom_symbols[j])
-                        else:
-                            R_min = phenix_vdw_sum
-                        altlocs = (atom.get_altloc(),other_atom.get_altloc())
-                        self.add_nonbond_constraint(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),symmetries,weight=nb_weight),
-                                                    residual=None,altlocs=altlocs,vdw_sum=R_min)
-                        NB_pdb_ids_added.append(pdb_ids)
+                # Lennard-Jones (nonbonded)
+                if ConstraintsHandler.NonbondConstraint not in constraints_to_skip:
+                    #if ((((B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)) and other_atom.name in ["C","N","CA","CB","O"])
+                    if ((confA.element() == "H" or confB.element() == "H") # Do not consider any LJ involving H.
+                    #or (B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)): 
+                    ):
+                        continue    
+                    R_min = phenix_vdw_sum
+                    self.add_nonbond_constraint(ConstraintsHandler.NonbondConstraint(conf_pair,outlier_ok("NONBOND",conf_pair),symmetries,weight=nb_weight),
+                                                residual=None,altlocs=altlocs,vdw_sum=R_min)
+                    NB_pairs_added.append(conf_pair)
         print(f"Added {num_clashes_found} clashes")
      
-        num_nonbonded_general = len(NB_pdb_ids_added)
+        num_nonbonded_general = len(NB_pairs_added)
         print(f"Added {num_nonbonded_general} nonbond constraints")
         
-        skip_nonbonds_from_geo=True
-        for file in (nonbond_scores_files):
-            if (ConstraintsHandler.NonbondConstraint in constraints_to_skip) or skip_nonbonds_from_geo:
-                break
-
-            with open(file) as f:
-
-                lines = f.readlines()
-                for i, line in enumerate(lines):
-                    if line.startswith("nonbonded"):
-                        constraint = lines[i:i+4]
-                        #     pdb1 = f"{name}     ARES     A      {res_num}"
-                        pdb1=constraint[0].strip().split("\"")[1]
-                        pdb2=constraint[1].strip().split("\"")[1]
-                        name1 = pdb1[0:4].strip()
-                        name2 = pdb2[0:4].strip()
-                        resnum1 = int(pdb1.strip().split()[-1])
-                        resnum2 = int(pdb2.strip().split()[-1])
-                        resname1 = pdb1.strip().split()[1][1:]
-                        resname2 = pdb2.strip().split()[1][1:]
-                        both_waters = resname1 == resname2=="HOH"
-                        if both_waters and not water_water_nonbond:
-                            continue
-                            
-                        
-                        # Don't put constraint between H and its bonded atom. I mean, it shouldn't be a possible constraint. But just in case. 
-                        if resnum1 == resnum2:
-                            if name1[0] == "H":
-                                nonH_in_res = ordered_atom_lookup.select_atoms_by(res_nums=[resnum1],exclude_H=True)
-                                if nonH_in_res == name2:
-                                    continue
-
-
-                        separation = constraint[3].strip().split()[0]
-                        ideal = constraint[3].strip().split()[1]
-                        ideal = float(ideal)
-
-                        if skip_nonbonds_from_geo:
-                            continue
-
-                        if separation > ideal:
-                            continue 
-                        altloc1 = pdb1.strip()[3]
-                        altloc2 = pdb2.strip()[3]
-                        broke=False
-                        
-                        for a,r,n in zip((altloc1,altloc2),(resnum1,resnum2),(name1,name2)):
-                            if r not in ordered_atom_lookup.better_dict or n not in ordered_atom_lookup.better_dict[r]: 
-                                break
-                        if broke:
-                            continue
-                        
-                        #  Use pdb id string that is blind to altloc. TODO this is silly and confusing.
-                        pdb1 = f"{name1}     ARES     A      {resnum1}"
-                        pdb2 = f"{name2}     ARES     A      {resnum2}"
-
-                            #continue
-                        pdb_ids = (pdb1,pdb2)
-                        pdb_ids_flipped = (pdb2,pdb1)
-                        if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
-                            self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),ideal,None,symmetries),None)  
-                            NB_pdb_ids_added.append(pdb_ids)  
-            print(f"Added {len(NB_pdb_ids_added)-num_nonbonded_from_geo} nonbond constraints from {file}")
-            num_nonbonded_from_geo = len(NB_pdb_ids_added)-num_nonbonded_general
-        # if water_water_nonbond:  # TODO Symmetry clashes
-        #     waters = ordered_atom_lookup.select_atoms_by(protein=False)
-        #     ideal_water_separation=2.200
-        #     for atom in waters:
-        #         for other_atom in waters:
-        #             if other_atom == atom:
-        #                 continue
-        #             if ConstraintsHandler.NonbondConstraint.symm_min_separation(atom,other_atom,symmetries) < 8:
-        #                 pdb1 = f"{atom.name}     ARES     A      {OrderedAtomLookup.atom_res_seq_num(atom)}"
-        #                 pdb2 = f"{other_atom.name}     ARES     A      {OrderedAtomLookup.atom_res_seq_num(other_atom)}"
-        #                 pdb_ids = (pdb1,pdb2)
-        #                 pdb_ids_flipped = (pdb2,pdb1)
-        #                 if pdb_ids not in NB_pdb_ids_added and pdb_ids_flipped not in NB_pdb_ids_added:
-        #                     self.add(ConstraintsHandler.NonbondConstraint(pdb_ids,outlier_ok("NONBOND",pdb_ids),ideal_water_separation,symmetries),None)
-        #                     NB_pdb_ids_added.append(pdb_ids)     
-        #num_nonbonded_extra = len(NB_pdb_ids_added)-num_nonbonded_from_geo
-        
-        print(f"Nonbonded from geo: {num_nonbonded_from_geo}, extra: {num_nonbonded_general}")
-        if num_nonbonded_from_geo > 0:
-            print("WARNING: Bad nonbond possibilities between two different conformer labels are likely being missed")
-
-        if not cross_conformation_clashes and (ConstraintsHandler.ClashConstraint not in constraints_to_skip):
-            assert False, "Not refactored"
-            for name, res_num, badness, altloc in clashes:
-                for n, r, a in zip(name,res_num,altloc):
-                    if r not in ordered_atom_lookup.better_dict or n not in ordered_atom_lookup.better_dict[r]: 
-                        break
-                else:
-                    pdb_ids = [f"{n}     ARES     A      {r}" for (n,r) in zip(name,res_num)]
-                    self.add(ConstraintsHandler.ClashConstraint(pdb_ids,outlier_ok("CLASH",pdb_ids)),None,altloc,badness)
 
         # If clash was present at end of last loop, prioritise finding a solution without a clash and/or punish solution that does not assign differing altlocs to the conformers.
         if ConstraintsHandler.TwoAtomPenalty not in constraints_to_skip:
@@ -1042,10 +965,10 @@ class ConstraintsHandler:
                 else:
                     pdb_ids = [f"{n}     ARES     A      {r}" for (n,r) in zip(name,res_num)]
                     #self.scale_constraint_weight(pdb_ids,ConstraintsHandler.ClashConstraint,10*badness)
-                    self.add_custom_clash_constraint(ConstraintsHandler.TwoAtomPenalty(pdb_ids,outlier_ok("CLASH",pdb_ids)),None,altloc,100*badness)
+                    self.add_custom_clash_constraint(ConstraintsHandler.TwoAtomPenalty(pdb_ids,outlier_ok("PENALTY",pdb_ids)),None,altloc,100*badness)
 
 # Ugh, never do inheritance. TODO refactor to composition.
-class AtomChunk(OrderedResidue):
+class AtomChunk(OrderedResidue): 
     # Just an atom c:
     def __init__(self,site_num,altloc,resnum,referenceResidue,atom:Atom,is_water:bool,constraints_handler):
         self.name=atom.get_name()
@@ -1053,9 +976,9 @@ class AtomChunk(OrderedResidue):
         self.element = atom.element
         self.coord = atom.get_coord()
         super().__init__(altloc,resnum,referenceResidue,[atom],site_num)
-        self.generate_bonds(constraints_handler)
+        self.generate_uninitialized_constraints(constraints_handler)
         self.depth_tag="ATOM"
-    def generate_bonds(self,constraints_handler:ConstraintsHandler):
+    def generate_uninitialized_constraints(self,constraints_handler:ConstraintsHandler):
         self.constraints_holder:ConstraintsHandler = \
             constraints_handler.get_constraints(self.get_disordered_tag(),no_constraints_ok=self.is_water)
             
@@ -1096,16 +1019,20 @@ class DisorderedTag():
 class OrderedTag(DisorderedTag):
     def __init__(self,res_num,atom_name,altloc):
         super().__init__(res_num,atom_name)
-        self.altloc=altloc
-
-
+        self._altloc=altloc
+    def altloc(self):
+        return self._altloc
+    def lookup_atom(self,ordered_atom_lookup:OrderedAtomLookup)->Atom:
+        return ordered_atom_lookup.better_dict[self.resnum()][self.atom_name()][self.altloc()]
+    def disordered_tag(self):
+        return DisorderedTag(self.resnum(),self.atom_name())
     def __repr__(self):
         return f"{self.resnum()}.{self.atom_name()}.{self.altloc}"
     def __hash__(self):
         return hash((self._resnum, self.atom_name(),self.altloc))
 
     def __eq__(self, other:'OrderedTag'):
-        return (self._resnum, self.atom_name(),self.altloc) == (other._resnum, other.atom_name(),other.altloc)
+        return (self._resnum, self.atom_name(),self.altloc()) == (other._resnum, other.atom_name(),other.altloc())
     def __ne__(self, other):
         return not(self == other)
 
@@ -1171,9 +1098,8 @@ class LP_Input:
             ConstraintsHandler.AngleConstraint:2.5,
         }    
         min_sigmas_where_anything_goes={
-            ConstraintsHandler.BondConstraint:99,
-            #ConstraintsHandler.AngleConstraint:5,
-            ConstraintsHandler.AngleConstraint:99,
+            #ConstraintsHandler.BondConstraint:99,
+            #ConstraintsHandler.AngleConstraint:99,
             #ConstraintsHandler.NonbondConstraint:2,
         } 
         min_tension_where_anything_goes={
@@ -1183,6 +1109,20 @@ class LP_Input:
             #ConstraintsHandler.AngleConstraint:8,
             ConstraintsHandler.NonbondConstraint:8,
             ConstraintsHandler.ClashConstraint:8,
+        } 
+    elif MODE=="TENSIONS_TOL":
+        max_sigmas={
+            ConstraintsHandler.BondConstraint:2.5,
+            ConstraintsHandler.AngleConstraint:2.5,
+            ConstraintsHandler.NonbondConstraint:2.5,
+        }    
+        min_sigmas_where_anything_goes={
+        } 
+        min_tension_where_anything_goes={
+            ConstraintsHandler.BondConstraint:2.5,
+            ConstraintsHandler.AngleConstraint:2.5,
+            ConstraintsHandler.NonbondConstraint:2.5,
+            ConstraintsHandler.ClashConstraint:2.5,
         } 
     elif MODE=="PHENIX":
         max_sigmas={
@@ -1322,7 +1262,7 @@ class LP_Input:
 
     class AtomChunkConnection(): # TODO really need to have a disordered connection class to have some of these properties (e.g. max site tension, outlier_ok)
 
-        def __init__(self, atom_chunks:list[AtomChunk],ts_distance,connection_type,hydrogen_names,z_score,max_site_tension,outlier_ok):
+        def __init__(self, atom_chunks:list[AtomChunk],ts_distance,connection_type,hydrogen_names,ideal,z_score,max_site_tension,outlier_ok):
             assert hydrogen_names==None or len(hydrogen_names)==len(atom_chunks)
             self.atom_chunks = atom_chunks
             self.from_altlocs=[a.get_altloc() for a in atom_chunks]
@@ -1331,7 +1271,8 @@ class LP_Input:
             self.ts_distance=ts_distance  # NOTE As in the travelling salesman problem sense
             self.hydrogen_tag=""
             self.hydrogen_name_set=set([])
-            self.z_score=z_score
+            self.ideal=ideal
+            self.z_score=z_score # i.e. sigma
             ###
             self.max_site_tension=max_site_tension
             self.outlier_ok=outlier_ok
@@ -1561,7 +1502,7 @@ class LP_Input:
             tripletAtoms = "TODO"
 
         def atom_id_from_params(atom_name,atom_altloc,atom_res_seq_num):
-            return f"{atom_name,}.{atom_altloc}{atom_res_seq_num}"
+            return f"{atom_name}.{atom_altloc}{atom_res_seq_num}"
         atom_chunks:dict[str,AtomChunk] = {}
 
         def atom_id(atom:Atom):
@@ -1678,9 +1619,6 @@ class LP_Input:
         altloc_counts={}
         last_site=None
         for n,atom in enumerate(ordered_atoms):
-            if atom.get_altloc() not in self.ordered_atom_lookup.protein_altlocs:
-                # Skip solvent atoms that aren't assigned same conformer letter. (Really need a better way to track conformers than just altloc letters. Maybe a json format with hierarchy of conformer groups and subgroups is what is needed...)
-                continue
             if atom.get_altloc() not in altloc_counts:
                 altloc_counts[atom.get_altloc()]=0
             altloc_counts[atom.get_altloc()]+=1
@@ -1793,9 +1731,9 @@ class LP_Input:
                 # Don't have two alt locs of same atom in group
                 if len(set([res_name_num_dict[a] for a in atoms]))!= len(atoms):                     
                     continue
-                output = constraint.get_distance(atoms,scoring_function)
+                output = constraint.get_ordered_connection_stats(atoms,scoring_function)
                 if output is not None:
-                    z_score,distance = output
+                    ideal,z_score,distance = output
                     distance*=constraint_weights[type(constraint)]
 
                     # print(constraint.atom_id)
@@ -1826,7 +1764,7 @@ class LP_Input:
                                 [p.get_fullname() for p in possible_parents]
                             ).strip()
                             parent_atom = self.ordered_atom_lookup.better_dict[res_num][parent_name][altloc]
-                            # Commenting out for now because breaks plotting code.
+                            # Commenting out for now because breaks plotting code. #TODO should work now but need to test get same outcome.
                             # if parent_atom in atoms:
                             #     for p_a in self.ordered_atom_lookup.better_dict[res_num][parent_name]:
                             #         if p_a != parent_atom:
@@ -1858,7 +1796,7 @@ class LP_Input:
                     if contains_H:
                         distance*=hydrogen_restraint_scale
 
-                    connection = self.AtomChunkConnection(atom_chunks_selection,distance,type(constraint),hydrogens,z_score,constraint.get_max_site_tension(),constraint.outlier_ok)  # XXX putting max site tension in here is bad
+                    connection = self.AtomChunkConnection(atom_chunks_selection,distance,type(constraint),hydrogens,ideal,z_score,constraint.get_max_site_tension(),constraint.outlier_ok)  # XXX putting max site tension in here is bad
                     possible_connections.append(connection)
             if debug_print:
                 print("added:",len(list(possible_connections))-old_num_connections)

@@ -25,11 +25,10 @@
 # (for each angle, there will be n^3 connections.)
 # So it will be important to break down the problem in some way. Possibly a stochastic way.
 # Also need to look at exploring different branches of solutions in an intelligent way, and with parallel processing.  
+# Meaning of constraint is different in Input.py, where it refers to constraints between (disordered) atoms, and Solver.py, where it refers to constraints between conformers (ordered atoms).
 
 DEBUG_FIRST_100_SITES=False
-# If difference in cost from lowest costing ordered connection of the disordered connection is tiny, don't bother optimizing for it. (small fry)
-#required_cost_range_to_consider=1.0e-2
-required_cost_range_to_consider=0
+
 PLOTTING=True
 
 import pulp as pl
@@ -52,7 +51,6 @@ import matplotlib.pyplot as plt
 
 
 
-assert required_cost_range_to_consider>=0
 
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,LP_Input.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[LP_Input.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=True,
@@ -282,9 +280,10 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         def forbid_change_conditions():
             for ch in disordered_connection[0].atom_chunks:
                 if constraint_type==VariableKind.Bond: 
-                    if MAIN_CHAIN_ONLY and (ch.name not in ["N","CA","CB","C","O"]) and ch.get_resname()!="CYS":  # XXX tidy up and put in a separate python file for specifying what to optimize
+                    # TODO this allows water to change. But necessary.
+                    if MAIN_CHAIN_ONLY and (ch.name not in ["N","CA","CB","C","O"]) and (ch.get_resname() not in ["CYS","HOH"]):  # XXX tidy up and put in a separate python file for specifying what to optimize
                         return True
-                    if SIDE_CHAIN_ONLY and ch.name in ["N","CA","CB","C","O"]:
+                    if SIDE_CHAIN_ONLY and ch.name in ["N","CA","CB","C","O"] and ch.get_resname()!="HOH":
                         return True
                     if NO_CB_CHANGES and ch.name == "CB":
                         return True
@@ -322,9 +321,22 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         
         # If change is allowed and the difference is minor, don't bother optimizing for it
         small_fry = []
-        small_fry_threshold = min_score+required_cost_range_to_consider
-        #small_fry = [conn for conn in disordered_connection if conn.ts_distance - min_score < required_cost_range_to_consider]
+        
+        absolute_small_fry_scale = True
+        if absolute_small_fry_scale:
+            # If difference in cost from lowest costing ordered connection of the disordered connection is tiny, don't bother optimizing for it. (small fry)
+            # TODO forbid next-best solutions from reusing same set of non-small fry connections. 
+            #required_cost_range_to_consider=1.0e-2
+            required_cost_range_to_consider=0
+            assert required_cost_range_to_consider>=0
+            small_fry_threshold = min_score+required_cost_range_to_consider
+        else:
+            small_fry_factor = 0.1
+            assert small_fry_factor >=0
+            small_fry_threshold=min_score*(1+small_fry_factor)
         small_fry = [conn for conn in disordered_connection if conn.ts_distance < small_fry_threshold]
+        
+        #small_fry = [conn for conn in disordered_connection if conn.ts_distance - min_score < required_cost_range_to_consider]
         nonlocal num_small_fry_disordered_connections
         num_small_fry_disordered_connections+=len(small_fry)
         
@@ -341,8 +353,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         altlocs = None
 
         site_altlocs_same=True
-        for ch in disordered_connection[0].atom_chunks:
-            site = VariableID.Atom(ch)
+        sites = [VariableID.Atom(ch) for ch in disordered_connection[0].atom_chunks]
+        for site in sites:
             if not site_being_considered(site):
                     return # Don't add this constraint
             if altlocs is None:
@@ -350,7 +362,8 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             else:
                 if altlocs != set(site_var_dict[site].keys()):
                     site_altlocs_same=False
-                    assert False, "Missing altloc option for site"
+                    assert ((site.is_water or sites[0].is_water) and inert_water_sites), \
+                        f"{disordered_connection[0]}: Site {site} has altlocs {list(site_var_dict[site].keys())} but site {sites[0]} has altlocs {list(site_var_dict[sites[0]].keys())}"
                     #print(f"Warning: altlocs don't match, skipping {disordered_connection[0].get_disordered_connection_id()}")
                     #return
 
@@ -696,7 +709,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
 
     def write_current_connections(out_file):
         connections_str = ""
-        connections_str+="name, sigma, cost\n"
+        connections_str+="name, ideal, sigma, cost\n"
         vals = [(constraint,var) for constraint,var in constraint_var_dict.values() if var.value()>0.5]
         #vals.sort(key=lambda x: x[0].z_score,reverse=True)
         vals.sort(key=lambda x: x[0].ts_distance,reverse=True)
@@ -708,7 +721,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
         vals = vals_selection
 
         for constraint, var in vals:
-            connections_str+=f"{var.name} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n"
+            connections_str+=f"{var.name} {constraint.ideal} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n"
         with open(out_file,'w') as f:
             f.write(connections_str)
     write_current_connections(f"{out_dir}/xLO-OriginalConnections{out_handle}.txt")
@@ -878,8 +891,14 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
                 original_constraints = [(constraint,var) for constraint,var in original_constraints if constraint.ts_distance!=0]
                 active_constraints = [(constraint,var) for constraint,var in active_constraints if constraint.ts_distance!=0]
 
-                if len(original_constraints)==0 and len(active_constraints)==0:
-                    continue
+            unchanged = [ele for ele in original_constraints if ele in active_constraints]
+            for ele in unchanged:
+                original_constraints.remove(ele)
+                active_constraints.remove(ele)
+            
+            if len(original_constraints)==0 and len(active_constraints)==0:
+                continue
+
             original_cost = np.sum([constraint.ts_distance for constraint,_ in original_constraints])
             active_cost = np.sum([constraint.ts_distance for constraint,_ in active_constraints])
 
@@ -923,28 +942,31 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             f.write(out_str)
 
         if PLOTTING:
-            all_sigma_costs = np.array(all_sigma_costs,dtype=np.float32)
-            xlim_dict:dict[str,tuple[float]]={}
-            for i, name in enumerate(["sigma_i","costs_i","sigma_f","costs_f"]):
-                X=all_sigma_costs[...,i].flatten()
-                # Same x limits for initial and final (TODO same y limits... need to refactor)
-                variable_kind = name.split("_")[0] #XXX
-                if variable_kind not in xlim_dict:
-                    xlim=(np.quantile(X,0.95),np.max(X))
-                    xlim_dict[variable_kind]=xlim
-                else:
-                    xlim=xlim_dict[variable_kind]
+            try:
+                all_sigma_costs = np.array(all_sigma_costs,dtype=np.float32)
+                xlim_dict:dict[str,tuple[float]]={}
+                for i, name in enumerate(["sigma_i","costs_i","sigma_f","costs_f"]):
+                    X=all_sigma_costs[...,i].flatten()
+                    # Same x limits for initial and final (TODO same y limits... need to refactor)
+                    variable_kind = name.split("_")[0] #XXX
+                    if variable_kind not in xlim_dict:
+                        xlim=(np.quantile(X,0.95),np.max(X))
+                        xlim_dict[variable_kind]=xlim
+                    else:
+                        xlim=xlim_dict[variable_kind]
+                        
                     
-                
 
-                plt.hist(X,bins=20,range=xlim)
-                plt.yscale('log')
-                plt.ylim([0.9,None])
+                    plt.hist(X,bins=20,range=xlim)
+                    plt.yscale('log')
+                    plt.ylim([0.9,None])
 
-                plt.xlabel(name)
-                plt.ylabel("frequency")
-                plt.savefig(f"{name}.png")
-                plt.close()
+                    plt.xlabel(name)
+                    plt.ylabel("frequency")
+                    plt.savefig(f"{name}.png")
+                    plt.close()
+            except Exception as e:
+                print(f"Plotting failed. Error: {e}")
                 
         ##########
         
