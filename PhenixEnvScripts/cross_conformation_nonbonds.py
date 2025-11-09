@@ -31,22 +31,35 @@ import sys,os
 # #os.environ.setdefault("CCTBX_BUILD", os.path.join(phenix_root, "share"))
 # #os.environ["PHENIX_RESOURCES"] = os.path.join(phenix_root, "share")
 
-from cctbx.geometry_restraints import process_nonbonded_proxies,pair_proxies
+from cctbx.geometry_restraints import process_nonbonded_proxies,pair_proxies, manager
 import mmtbx.model
 import iotbx
 from libtbx.utils import null_out
+import cctbx.geometry_restraints.manager
+from cctbx import geometry_restraints
+from cctbx import uctbx, crystal
+import numpy as np
+#from cctbx.geometry_restraints import pair_proxies
+# import boost_adaptbx.boost.python as bp
+# ext = bp.import_ext("cctbx_geometry_restraints_ext")
+# from cctbx_geometry_restraints_ext import *
 
 
+holton_csda = 0.6
 
-
-def get_cross_conf_nonbonds(pdb_file_path,out_file=None,verbose=False):
-
+def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
+    if verbose is None:
+        verbose=False
+    if use_cdl is None:
+        use_cdl = False
 
     params = mmtbx.model.manager.get_default_pdb_interpretation_params()
     params.pdb_interpretation.allow_polymer_cross_special_position=True
-    params.pdb_interpretation.clash_guard.nonbonded_distance_threshold = None
+    params.pdb_interpretation.clash_guard.nonbonded_distance_threshold = 15
+    params.pdb_interpretation.nonbonded_distance_cutoff= 15
+    params.pdb_interpretation.restraints_library.cdl = use_cdl
+    params.pdb_interpretation.const_shrink_donor_acceptor=holton_csda
     #pdb_inp = iotbx.pdb.input(lines=raw_records.split("\n"), source_info=None)
-
 
     tmp_pdb_file = os.path.join(os.path.abspath(os.path.join(__file__ ,"../")),"tmp_samealtloc.pdb")
 
@@ -59,6 +72,8 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file=None,verbose=False):
             if any([line.startswith(k) for k in valid_record_types]):
                 max_resnum= max(max_resnum,int(line[22:26]))
                 altloc = line[16]
+                if len(conformation_number)>0:  # single altloc
+                    continue
                 if altloc not in conformation_number:
                     num_altlocs+=1
                     conformation_number[altloc]=num_altlocs
@@ -67,17 +82,29 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file=None,verbose=False):
             if any([line.startswith(k) for k in valid_record_types]):
                 resnum = int(line[22:26])
                 altloc = line[16]
+                #new_chain="X"
+                new_chain=old_chain=line[21]
+                if altloc not in conformation_number:
+                    continue
                 new_resnum=resnum+(-1+conformation_number[altloc])*max_resnum
-                w.write(line[:16]+"x"+line[17:22]+ f"{new_resnum}".rjust(4)+line[26:])
+                w.write(line[:16]+"A"+line[17:21]+new_chain+ f"{new_resnum}".rjust(4)+line[26:])
             else:
                 w.write(line)
             #same_altloc_labels.append(flex.std_string([new_str]))
+    single_conformation_pdb_inp = iotbx.pdb.input(tmp_pdb_file)
 
 
-    pdb_inp = iotbx.pdb.input(tmp_pdb_file)
+    #pdb_inp = iotbx.pdb.input(pdb_file_path)
+
+    # Don't consider nonbonds between unit cells. #FIXME. Require more involved solution to catch cases where sometimes the clash is due to same ASU vs neighbouring ASUs. 
+    unreasonably_large_unit_cell = uctbx.unit_cell(parameters=[1000,1000,1000,90,90,90]) 
+
     model = mmtbx.model.manager(
-        model_input = pdb_inp,
-        log         = null_out()
+        model_input = single_conformation_pdb_inp,
+        log         = null_out(),
+        # crystal_symmetry=crystal.symmetry(
+        #         unit_cell=unreasonably_large_unit_cell,
+        #         space_group_symbol="P1")
     )
     model.process(pdb_interpretation_params=params,
         make_restraints=True)
@@ -91,7 +118,9 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file=None,verbose=False):
     # xrs = pnp_manager.model.get_xray_structure()
     # sites_cart  = pnp_manager.model.get_sites_cart()
 
+    grm: cctbx.geometry_restraints.manager.manager
     grm = model.get_restraints_manager().geometry
+    grm = grm.discard_symmetry(unreasonably_large_unit_cell)
     xrs = model.get_xray_structure()
     sites_cart  = model.get_sites_cart()
     site_labels = xrs.scatterers().extract_labels()
@@ -100,11 +129,14 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file=None,verbose=False):
 
 
 
+    pair_proxies: geometry_restraints.pair_proxies
+    
 
+    #grm.crystal_symmetry=None
     pair_proxies = grm.pair_proxies(
                         sites_cart  = sites_cart,
                         site_labels = site_labels)
-    proxies_info_nonbonded = pair_proxies.nonbonded_proxies.get_sorted(
+    proxies_info_nonbonded = pair_proxies.nonbonded_proxies.get_sorted( # returns C++ nonbonded_sorted_asu_proxies
         by_value    = "delta",
         sites_cart  = sites_cart,
         site_labels = site_labels)
@@ -119,32 +151,74 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file=None,verbose=False):
         model_input = iotbx.pdb.input(pdb_file_path),
         log         = null_out()
     ).get_xray_structure().scatterers().extract_labels()
+    og_sites_cart  = mmtbx.model.manager(
+        model_input = iotbx.pdb.input(pdb_file_path),
+        log         = null_out()
+    ).get_sites_cart()
+    #og_site_labels=site_labels
+
+    ordered_atom_sites_dict={}
+    def sep(X,Y):
+        return np.sqrt(np.sum((np.array(X)-np.array(Y))**2))
+    for site_label,xyz in zip(og_site_labels,og_sites_cart):
+        key = site_label[:9]+site_label[10:]
+        
+        if key not in ordered_atom_sites_dict:
+            ordered_atom_sites_dict[key]=[]
+        ordered_atom_sites_dict[key].append((site_label,xyz))
+        #print(key,site_label,xyz)
+
+        
 
     num_skipped=0
     out_data=[]
-    for item in nonbonded_list:
+    for i, item in enumerate(nonbonded_list):
+        if i%100000==0:
+            print(f"{i}/{len(nonbonded_list)}")
         i_seq          = item[1]
         j_seq          = item[2]
-        model_distance = item[3]
+        #model_distance = item[3]
         vdw_sum        = item[4]
         symop_str      = item[5] 
         symop          = item[6]
 
-        # Skip if same atom but different altloc
-        if og_site_labels[i_seq][:9]+og_site_labels[i_seq][10:]==og_site_labels[j_seq][:9]+og_site_labels[j_seq][10:]:
-            num_skipped+=1    
-            continue
-        out_data.append([
-            og_site_labels[i_seq].split('"')[1], #pdb1 (pdb entry 1)
-            og_site_labels[j_seq].split('"')[1], #pdb2 (pdb entry 2)
-            vdw_sum,
-        ])
-        if verbose:
-            print(og_site_labels[i_seq],og_site_labels[j_seq],float(vdw_sum))
+
+        keyA,keyB = [site_label[:9]+site_label[10:] for site_label in [site_labels[i_seq],site_labels[j_seq]]]
+        # if keyA=='pdb=" C  VAL A   1 "':
+        #     if keyB[-4:-2]==" 2":
+        #         print(keyA,keyB)
+        #         print(site_labels[i_seq],site_labels[j_seq])
+        distance_cutoff = 4
+        for (conformer_site_label_A,coordA) in ordered_atom_sites_dict[keyA]:
+            for (conformer_site_label_B,coordB) in ordered_atom_sites_dict[keyB]:
+                model_distance=sep(coordA,coordB)
+                if sep(coordA,coordB) > distance_cutoff:
+                    continue
+                # if keyA=='pdb=" C  GLY A  59 "':
+                #     if keyB[-5:-2]==" 60":
+                #         print(model_distance,vdw_sum)
+                #         print(conformer_site_label_A,conformer_site_label_B)
+                #         print(site_labels[i_seq],site_labels[j_seq])
+                out_data.append([
+                    conformer_site_label_A.split('"')[1], #pdb1 (pdb entry 1)
+                    conformer_site_label_B.split('"')[1], #pdb2 (pdb entry 2)
+                    vdw_sum,
+                ])
+                #if verbose and len(out_data) < 100:
+                # if verbose:
+                #     #if all([(site_labels[idx].split('"')[1].strip()[0:2].strip(),site_labels[idx].split('"')[1].strip()[-4:].strip()) in (("C","30"),("CA","31")) for idx in (i_seq,j_seq)]):
+                #         # print(conformer_site_label_A,conformer_site_label_B,float(vdw_sum),float(model_distance))
+                #         # print(keyA,keyB)
+                #         # print(site_labels[i_seq],site_labels[j_seq])
+                #     #print(site_labels[i_seq],site_labels[j_seq],float(vdw_sum))
+                #     print("--")
+                #     print(site_labels[i_seq],site_labels[j_seq],float(vdw_sum))
+                #     print(conformer_site_label_A,conformer_site_label_B,model_distance)
+            
     if out_file is not None:
         with open(out_file,"w") as f:
             f.write('\n'.join(['|'.join([str(i) for i in items]) for items in out_data]))
-    print(f"number of cross-conformer nonbonds: {len(nonbonded_list)-num_skipped}")
+    print(f"number of cross-conformer nonbonds: {len(out_data)}")
     if verbose:
         pair_proxies.nonbonded_proxies.show_histogram_of_model_distances(
             sites_cart=sites_cart,
@@ -152,7 +226,7 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file=None,verbose=False):
     return out_data
 if __name__=="__main__":
     assert len(sys.argv)>=2
-    args = [sys.argv[1],None,None]
+    args = [sys.argv[1],None,None,None]
     for i, arg in enumerate(sys.argv[1:]):
         args[i]=arg
     get_cross_conf_nonbonds(*args)

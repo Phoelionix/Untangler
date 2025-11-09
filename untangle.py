@@ -84,12 +84,12 @@ class Untangler():
 
     # TODO keep refining while Rfree decreasing.
     def __init__(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=8,  #8,
-                 wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=20, # 20,
+                 default_wc=1,wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=20, # 20,
                  max_num_best_swaps_considered=100,num_unrestrained_macro_cycles_phenix=3,
                  num_loops_water_held=0,weight_factors=None,
-                 max_bond_changes=3,altloc_subset_size=4,refine_for_positions_geo_weight=0.1):
+                 max_bond_changes=9999,altloc_subset_size=3,refine_for_positions_geo_weight=0.1):
         self.set_hyper_params(acceptance_temperature,max_wE_frac_increase,num_end_loop_refine_cycles,
-                              wc_anneal_start,wc_anneal_loops, starting_num_best_swaps_considered,
+                              default_wc,wc_anneal_start,wc_anneal_loops, starting_num_best_swaps_considered,
                               max_num_best_swaps_considered,num_unrestrained_macro_cycles_phenix, 
                               num_loops_water_held,max_bond_changes,altloc_subset_size,refine_for_positions_geo_weight)
         self.previously_swapped = []
@@ -105,7 +105,7 @@ class Untangler():
         
         os.makedirs(UntangleFunctions.separated_conformer_pdb_dir(),exist_ok=True)
     def set_hyper_params(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=2,  # 8,
-                 wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=5, # 20,
+                 default_wc=1,wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=5, # 20,
                  max_num_best_swaps_considered=100,num_unrestrained_macro_cycles_phenix=3,
                  num_loops_water_held=0,
                  max_bond_changes=None,altloc_subset_size=3,refine_for_positions_geo_weight=0.1):
@@ -118,6 +118,7 @@ class Untangler():
         self.acceptance_temperature=acceptance_temperature
         self.num_end_loop_refine_cycles=num_end_loop_refine_cycles
         self.num_loops_water_held=num_loops_water_held
+        self.default_wc=default_wc
         self.wc_anneal_start = wc_anneal_start
         self.wc_anneal_loops=wc_anneal_loops
         self.max_bond_changes=max_bond_changes
@@ -779,8 +780,8 @@ class Untangler():
                 kwargs_list.extend([{} for _ in altloc_subsets])
 
             else: # Focused swaps V2
-                focused_subset_size =7 
-                #focused_subset_size =self.altloc_subset_size 
+                #focused_subset_size =7 
+                focused_subset_size =self.altloc_subset_size 
                 num_focused_combinations=2
                 focused_subsets = self.get_altloc_subsets(focused_subset_size,num_focused_combinations)
                 for subset in focused_subsets:
@@ -943,17 +944,10 @@ class Untangler():
             outcome,set_new_model="oOo Accepted oOo",True
             shutil.copy(working_model,self.get_out_path(f"Accepted{self.loop}"))
         print(f"{outcome} proposed model change with score of {new_score} (P_accept: {p_accept:.2f}) ")
-        Untangler.copy_model_and_geo(self.current_model,self.next_current_model_name())
+        UntangleFunctions.copy_model_and_geo(self.current_model,self.next_current_model_name())
         self.current_model = self.next_current_model_name()
         return set_new_model
-    @staticmethod
-    def copy_model_and_geo(source,dest):
-        shutil.copy(source,dest)
-        old_handle,new_handle = [UntangleFunctions.model_handle(f) for f in (source,dest)]
-        geo_dir=f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/"
 
-        for suffix in [".geo","_clashes.txt"]:
-            shutil.copy(f"{geo_dir}{old_handle}{suffix}",f"{geo_dir}{new_handle}{suffix}")
 
 
     def current_model_name_at_loop(self,i):
@@ -1132,7 +1126,7 @@ class Untangler():
                 f"loopEnd{self.loop}",
                 model_path=model_path,
                 num_macro_cycles=self.num_end_loop_refine_cycles,
-                wc= self.wc_anneal_start if self.wc_anneal_loops==0 else min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
+                wc= self.wc_anneal_start if self.wc_anneal_loops==0 else min(self.default_wc,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(self.default_wc-self.wc_anneal_start)),
                 hold_water_positions=self.holding_water(),
                 #refine_occupancies=False,
                 #ordered_solvent=False,
@@ -1279,10 +1273,12 @@ class Untangler():
 
             
     def get_refine_params_phenix(self, out_tag=None, model_path=None,num_macro_cycles=None, # mandatory
-                          wc=1,wu=1., shake=0., optimize_R=False,
+                          wc=None,wu=1., shake=0., optimize_R=False,
                           hold_water_positions=False,hold_protein_positions=False,
                           refine_occupancies=False,turn_off_bulk_solvent=TURN_OFF_BULK_SOLVENT,ordered_solvent=False,
                           no_restrain_movement=False,max_sigma_movement_waters=0.1,refine_hydrogens=False):  # restraining movement refers to the reference_coordinate_restraints option
+        if wc is None:
+            wc = self.default_wc
         ### Override next_model with formatted one.
         #next_model = model_path[:-4]+"_fmtd.pdb"
 
@@ -1491,6 +1487,7 @@ def main():
     xray_data = sys.argv[2]
     Untangler(
         # max_num_best_swaps_considered=5,
+        default_wc=1,
         num_end_loop_refine_cycles=6,
         max_num_best_swaps_considered=10,
         starting_num_best_swaps_considered=10,
@@ -1531,7 +1528,7 @@ def main():
             ConstraintsHandler.NonbondConstraint: 0.1,  # TODO experiment with this.
             # ConstraintsHandler.ClashConstraint: 0.1,
             # ConstraintsHandler.TwoAtomPenalty: 1,
-            ConstraintsHandler.ClashConstraint: 0,  #0 1
+            ConstraintsHandler.ClashConstraint: 0,  #0 1 100
             ConstraintsHandler.TwoAtomPenalty: 0,
         },
         # weight_factors = {

@@ -11,7 +11,7 @@ import matplotlib
 from time import sleep
 import numpy as np
 matplotlib.use('AGG')
-
+import shutil
 
 ATOMS = ('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr'
        +' Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe').split()
@@ -63,24 +63,27 @@ def save_structure(structure:Structure,header_reference_file_path,out_path,comme
             f2.write(f.read())
     os.remove(tmp_path)
 
-def get_score(score_file,phenixgeometry_only=False):
+def get_score(score_file,phenixgeometry_only=False,verbose=True):
     with open(score_file,'r') as f:
         for line in f: 
             if line.strip().strip('\n') != "":
-                print(line.strip('\n'))
+                if verbose:
+                    print(line.strip('\n'))
                 combined_score,wE_score,Rwork, Rfree = [float(v) for v in line.split()[:4]]
-                if phenixgeometry_only:
-                    print(f"Python read wE (quick): {wE_score}")
-                else:
-                    print(f"Python read wE: {wE_score}")
-                print()
+                if verbose:
+                    if phenixgeometry_only:
+                        print(f"Python read wE (quick): {wE_score}")
+                    else:
+                        print(f"Python read wE: {wE_score}")
+                if verbose:
+                    print()
                 return combined_score,wE_score,Rwork, Rfree
 
 
 def batch_create_score_files(pdb_file_path,log_out_folder_path):
     assert False, "Unimplemented"
 
-def create_score_file(pdb_file_path,log_out_folder_path):
+def create_score_file(pdb_file_path,log_out_folder_path,ignore_H=False,turn_off_cdl=False):
     holton_folder_path = UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/"
 
     #generate_holton_data_shell_file=self.holton_folder_path+'GenerateHoltonData.sh'
@@ -89,7 +92,7 @@ def create_score_file(pdb_file_path,log_out_folder_path):
     #generate_holton_data_shell_file=self.holton_folder_path+'GenerateHoltonDataOriginal.sh' # for testing...
     generate_holton_data_shell_file=holton_folder_path+'GenerateHoltonData.sh'
 
-    score_file=score_file_name(pdb_file_path)
+    score_file=score_file_name(pdb_file_path,ignore_H=ignore_H)
     if os.path.exists(score_file):
         os.remove(score_file)
 
@@ -98,6 +101,8 @@ def create_score_file(pdb_file_path,log_out_folder_path):
     i=0
     # Sometimes get seg faults
     while i < max_attempts and not os.path.exists(score_file):
+        if i >0:
+            print("Error, retrying")
         i+=1 
         sleep(1)
         print("--==--")
@@ -105,6 +110,10 @@ def create_score_file(pdb_file_path,log_out_folder_path):
         rel_path = os.path.relpath(pdb_file_path,start=holton_folder_path)
         #with open(log_out_folder_path+f"{handle}_log.txt","w") as log:
         args = ["bash", f"{generate_holton_data_shell_file}",f"{rel_path}"]
+        if ignore_H:
+            args.append("-H")
+        if turn_off_cdl:
+            args.append("-C")
         print (f"|+ Running: {' '.join(args)}")
         subprocess.run(args)
     if os.path.exists(score_file):
@@ -115,6 +124,14 @@ def create_score_file(pdb_file_path,log_out_folder_path):
 
 
     return score_file
+
+def copy_model_and_geo(source,dest):
+    shutil.copy(source,dest)
+    old_handle,new_handle = [model_handle(f) for f in (source,dest)]
+    geo_dir=f"{UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/"
+
+    for suffix in [".geo","_clashes.txt","_score.txt"]:
+        shutil.copy(f"{geo_dir}{old_handle}{suffix}",f"{geo_dir}{new_handle}{suffix}")
 
 def clear_geo(excluded_suffixes=["_start.geo","_fmtd.geo"]):
     holton_folder_path = os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration","")
@@ -127,10 +144,10 @@ def clear_geo(excluded_suffixes=["_start.geo","_fmtd.geo"]):
             else: 
                 os.remove(os.path.join(geo_path,filename))
 
-def score_file_name(pdb_file_path):
+def score_file_name(pdb_file_path,ignore_H=False):
     holton_folder_path = os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration","")
     assert pdb_file_path[-4:]==".pdb"
-    handle = os.path.basename(pdb_file_path)[:-4]
+    handle = os.path.basename(pdb_file_path)[:-4]+("_ignoreH" if ignore_H else "")
     return holton_folder_path+f'HoltonOutputs/{handle}_score.txt'
 def geo_file_name(pdb_file_path):
     holton_folder_path = os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration","")
@@ -138,9 +155,9 @@ def geo_file_name(pdb_file_path):
     handle = os.path.basename(pdb_file_path)[:-4]
     return holton_folder_path+f'HoltonOutputs/{handle}.geo'
 
-def assess_geometry_wE(pdb_file_path,log_out_folder_path):
-    score_file = create_score_file(pdb_file_path,log_out_folder_path)
-    assert score_file == score_file_name(pdb_file_path)
+def assess_geometry_wE(pdb_file_path,log_out_folder_path,ignore_H=False):
+    score_file = create_score_file(pdb_file_path,log_out_folder_path,ignore_H=ignore_H)
+    assert score_file == score_file_name(pdb_file_path,ignore_H=ignore_H)
     return get_score(score_file)
 
             
