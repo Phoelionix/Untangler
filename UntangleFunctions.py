@@ -155,8 +155,8 @@ def geo_file_name(pdb_file_path):
     handle = os.path.basename(pdb_file_path)[:-4]
     return holton_folder_path+f'HoltonOutputs/{handle}.geo'
 
-def assess_geometry_wE(pdb_file_path,log_out_folder_path,ignore_H=False):
-    score_file = create_score_file(pdb_file_path,log_out_folder_path,ignore_H=ignore_H)
+def assess_geometry_wE(pdb_file_path,log_out_folder_path,ignore_H=False,turn_off_cdl=False):
+    score_file = create_score_file(pdb_file_path,log_out_folder_path,ignore_H=ignore_H,turn_off_cdl=turn_off_cdl)
     assert score_file == score_file_name(pdb_file_path,ignore_H=ignore_H)
     return get_score(score_file)
 

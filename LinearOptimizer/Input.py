@@ -1429,12 +1429,12 @@ class LP_Input:
         return UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/HoltonOutputs/"
     
     @staticmethod
-    def prepare_geom_files_for_one_subset(model_path,water_swaps=True):
-        UntangleFunctions.assess_geometry_wE(model_path,LP_Input.geo_log_out_folder()) 
+    def prepare_geom_files_for_one_subset(model_path,water_swaps=True,turn_off_cdl=False):
+        UntangleFunctions.assess_geometry_wE(model_path,LP_Input.geo_log_out_folder(),turn_off_cdl=turn_off_cdl) 
         model_water_swapped_path=UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{LP_Input.water_swapped_handle(model_path)}.pdb"
         if water_swaps and not DISABLE2WATERFLIP:
             Swapper.MakeSwapWaterFile(model_path,model_water_swapped_path)
-            UntangleFunctions.assess_geometry_wE(model_water_swapped_path,LP_Input.geo_log_out_folder()) 
+            UntangleFunctions.assess_geometry_wE(model_water_swapped_path,LP_Input.geo_log_out_folder(),turn_off_cdl=turn_off_cdl) 
 
     @staticmethod 
     def water_swapped_handle(model_path):
