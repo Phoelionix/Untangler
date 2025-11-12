@@ -96,8 +96,6 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
 
     #pdb_inp = iotbx.pdb.input(pdb_file_path)
 
-    # Don't consider nonbonds between unit cells. #FIXME. Require more involved solution to catch cases where sometimes the clash is due to same ASU vs neighbouring ASUs. 
-    unreasonably_large_unit_cell = uctbx.unit_cell(parameters=[1000,1000,1000,90,90,90]) 
 
     model = mmtbx.model.manager(
         model_input = single_conformation_pdb_inp,
@@ -120,7 +118,6 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
 
     grm: cctbx.geometry_restraints.manager.manager
     grm = model.get_restraints_manager().geometry
-    grm = grm.discard_symmetry(unreasonably_large_unit_cell)
     xrs = model.get_xray_structure()
     sites_cart  = model.get_sites_cart()
     site_labels = xrs.scatterers().extract_labels()
@@ -199,10 +196,12 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
                 #         print(model_distance,vdw_sum)
                 #         print(conformer_site_label_A,conformer_site_label_B)
                 #         print(site_labels[i_seq],site_labels[j_seq])
+                crystal_packing_contact= "true" if symop_str.strip()!="" else "false"
                 out_data.append([
                     conformer_site_label_A.split('"')[1], #pdb1 (pdb entry 1)
                     conformer_site_label_B.split('"')[1], #pdb2 (pdb entry 2)
                     vdw_sum,
+                    crystal_packing_contact,
                 ])
                 #if verbose and len(out_data) < 100:
                 # if verbose:

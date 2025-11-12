@@ -419,7 +419,7 @@ class ConstraintsHandler:
             return [site.atom_name() for site in self.site_tags]
         def residues(self):
             return [site.resnum() for site in self.site_tags]
-        def get_ordered_connection_stats(self,atoms:list[Atom],scoring_function)->tuple[float,float,float]:  # TODO this returns an ideal value, z_score, and a cost, but should make a class that holds this info and return that
+        def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float,float]:  # TODO this returns an ideal value, z_score, and a cost, but should make a class that holds this info and return that
             raise Exception("abstract method")
         def __repr__(self):
             return f"({ConstraintsHandler.Constraint.kind(type(self))} : {self.site_tags})"
@@ -461,7 +461,7 @@ class ConstraintsHandler:
         @staticmethod
         def separation(a:Atom,b:Atom):
             return np.sqrt(np.sum((a.get_coord()-b.get_coord())**2))
-        def get_ordered_connection_stats(self,atoms:list[Atom],scoring_function)->tuple[float,float,float]:
+        def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
@@ -488,7 +488,7 @@ class ConstraintsHandler:
             v2_u = unit_vector(v2)
             return np.arccos(np.dot(v1_u, v2_u))*180/np.pi
             #return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
-        def get_ordered_connection_stats(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
+        def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
@@ -505,11 +505,16 @@ class ConstraintsHandler:
             self.altlocs_vdw_dict={}
             super().__init__(atom_ids,outlier_ok,None,weight,None)
             self.symmetries=symmetries
-        def add_ordered(self,altlocs,vdw):
+        def add_ordered(self,altlocs,vdw,is_symm):
             assert len(altlocs)==2
             assert tuple(altlocs) not in self.altlocs_vdw_dict
-            self.altlocs_vdw_dict[tuple(altlocs)]=vdw
-        def get_ordered_connection_stats(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
+            
+            key = tuple(altlocs)
+            if key not in self.altlocs_vdw_dict:
+                self.altlocs_vdw_dict[key]=[None,None] # (same-asu contacts, crystal-packing contacts) 
+            sep_idx = 1 if is_symm else 0
+            self.altlocs_vdw_dict[key][sep_idx]=vdw
+        def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
@@ -518,8 +523,16 @@ class ConstraintsHandler:
             if (altlocs not in self.altlocs_vdw_dict):
                 return -1, 0, 0
             
-            r0=self.altlocs_vdw_dict[altlocs]
-            dev =  r0-ConstraintsHandler.NonbondConstraint.symm_min_separation(a,b,self.symmetries)
+            r0,r0_symm = self.altlocs_vdw_dict[altlocs]
+            r, r_symm = ConstraintsHandler.NonbondConstraint.symm_min_separation(a,b,self.symmetries)
+            assert any([r is not None for r in (r0,r0_symm)])
+            dev = 0
+            if r0 is not None:
+                 dev += max(0,r0-r)
+            if r0_symm is not None:
+                dev += max(0,r0_symm-r_symm)
+            #TODO consider making it a sum of scoring_function(dev,...) + scoring_function(dev_sym,...)
+
             sigma=1
             return r0, 0, scoring_function(dev,sigma,r0,self.num_bound_e) * self.weight # note a z-score doesnt make sense here.
 
@@ -537,7 +550,7 @@ class ConstraintsHandler:
             assert len(altlocs)==2
             assert tuple(altlocs) not in self.altlocs_clash_dict
             self.altlocs_clash_dict[tuple(altlocs)]=badness
-        def get_ordered_connection_stats(self,atoms:list[Atom],scoring_function):
+        def get_cost(self,atoms:list[Atom],scoring_function):
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
@@ -555,13 +568,21 @@ class ConstraintsHandler:
             super().__init__(atom_ids,outlier_ok,None,weight,None)
             # if (DisorderedTag(17,"H") in self.site_tags) and (DisorderedTag(81,"O") in self.site_tags):
             self.symmetries=symmetries
-        def add_ordered(self,altlocs,vdw):
+        def add_ordered(self,altlocs,vdw,is_symm):
             assert len(altlocs)==2
             assert tuple(altlocs) not in self.altlocs_vdw_dict
-            self.altlocs_vdw_dict[tuple(altlocs)]=vdw
+            
+            key = tuple(altlocs)
+            if key not in self.altlocs_vdw_dict:
+                self.altlocs_vdw_dict[key]=[None,None] # (same-asu contacts, crystal-packing contacts) 
+            idx = 1 if is_symm else 0
+            self.altlocs_vdw_dict[key][idx]=vdw
         @staticmethod
         def symm_min_separation(a:Atom,b:Atom,symmetries):
             coord_dict={"a":[],"b":[]}
+            assert (np.array([2,2,2])==UntangleFunctions.get_sym_xfmed_point(np.array([2,2,2]),symmetries[0])).all()
+            symmetries = symmetries[1:] 
+            #TODO FIXME neighbouring unit cells
             for atom, key in zip([a,b],coord_dict):
                 for symm in symmetries:
                     coord_dict[key].append(
@@ -569,15 +590,20 @@ class ConstraintsHandler:
                             atom.get_coord(),
                             symm)
                     )
-            min_separation = np.inf
+            min_separation_symm = np.inf
+            #for coord_a in coord_dict["a"]:
+                # for coord_b in coord_dict["b"]:
+                #     min_separation_symm = min(min_separation_symm,np.sqrt(np.sum((coord_a-coord_b)**2)))
             for coord_a in coord_dict["a"]:
-                for coord_b in coord_dict["b"]:
-                    min_separation = min(min_separation,np.sqrt(np.sum((coord_a-coord_b)**2)))
-            assert min_separation != np.inf, (coord_dict,symmetries)
+                min_separation_symm = min(min_separation_symm,np.sqrt(np.sum((coord_a-b.get_coord())**2)))
+            for coord_b in coord_dict["b"]:
+                min_separation_symm = min(min_separation_symm,np.sqrt(np.sum((a.get_coord()-coord_b)**2)))
+            assert min_separation_symm != np.inf, (coord_dict,symmetries)
+            separation_nonsymm=np.sqrt(np.sum((a.get_coord()-b.get_coord())**2))
             # if min_separation < ConstraintsHandler.BondConstraint.separation(a,b):
             #     print(f"Symmetry nonbond found for {a,b}")
 
-            return min_separation
+            return separation_nonsymm,min_separation_symm
         
         @staticmethod
         def lennard_jones(r,r0):
@@ -623,18 +649,23 @@ class ConstraintsHandler:
         #         return 0
         #     return lj_energy-E_min
         #     #return abs(max(neg_badness_limit,ConstraintsHandler.NonbondConstraint.lennard_jones(r,r0,E_min)))
-        def get_ordered_connection_stats(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
+        def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
             ordered_atoms = self.get_ordered_atoms(atoms)
             if ordered_atoms is None:
                 return None
             a,b = ordered_atoms            
-            r = ConstraintsHandler.NonbondConstraint.symm_min_separation(a,b,self.symmetries)
             altlocs=(a.get_altloc(),b.get_altloc()) # NOTE order matters!!
             if (altlocs not in self.altlocs_vdw_dict):
                 return -1, 0, 0
             
-            r0 = self.altlocs_vdw_dict[altlocs]
-            energy = ConstraintsHandler.NonbondConstraint.badness(r,r0)
+            r0,r0_symm = self.altlocs_vdw_dict[altlocs]
+            r, r_min_symm = ConstraintsHandler.NonbondConstraint.symm_min_separation(a,b,self.symmetries)
+            assert any([r is not None for r in (r0,r0_symm)])
+            energy = 0
+            if r0 is not None:
+                 energy += ConstraintsHandler.NonbondConstraint.badness(r,r0)
+            if r0_symm is not None:
+                energy+= ConstraintsHandler.NonbondConstraint.badness(r_min_symm,r0_symm)
             # if energy is None:
             #     return None
 
@@ -682,13 +713,13 @@ class ConstraintsHandler:
                 constraint.add_ordered(altlocs,badness)
                 found+=1
         assert found == 1
-    def add_nonbond_constraint(self,constraint:NonbondConstraint,residual,altlocs,vdw_sum): # or clash constraint.
+    def add_nonbond_constraint(self,constraint:NonbondConstraint,residual,altlocs,vdw_sum:float,is_symm:bool): # or clash constraint.
         self.add(constraint,residual)
         found=0
         first_site = constraint.site_tags[0]
         for held_constraint in self.atom_constraints[first_site]:
             if held_constraint == constraint:
-                constraint.add_ordered(altlocs,vdw_sum)
+                constraint.add_ordered(altlocs,vdw_sum,is_symm)
                 found+=1
         assert found == 1
     def scale_constraint_weight(self,pdb_ids:list[str],constraint_type:Type,weight_factor:float):
@@ -818,10 +849,10 @@ class ConstraintsHandler:
             vdw_radii = read_vdw_radii(with_H=not IGNORE_HYDROGEN_CLASHES)
             lj_params = read_lj_parameters()
         else:
-            phenix_vdw_distances_table:dict[tuple[OrderedTag,OrderedTag],float]={}
-            for pdb1, pdb2, vdw_sum in get_cross_conf_nonbonds(pdb_file_for_nonbonds):
+            phenix_vdw_distances_table:dict[tuple[OrderedTag,OrderedTag,bool],float]={}
+            for pdb1, pdb2, vdw_sum,is_symm in get_cross_conf_nonbonds(pdb_file_for_nonbonds):
                 conformer_tags = ConstraintsHandler.Constraint.ORDERED_site_tags_from_pdb_ids((pdb1,pdb2)) 
-                key = tuple(conformer_tags) # NOTE Order matters
+                key = tuple(conformer_tags)+(is_symm,) # NOTE Order matters
                 # if IGNORE_HYDROGEN_CLASHES and any([t.element()=="H" for t in conformer_tags]):
                 #     continue
                 if key not in phenix_vdw_distances_table:
@@ -859,8 +890,8 @@ class ConstraintsHandler:
                 if key not in phenix_vdw_distances_table:
                     return None
                 return phenix_vdw_distances_table[key]
-            def phenix_vdw(confA:OrderedTag,confB:OrderedTag):
-                key = (confA,confB)
+            def phenix_vdw(confA:OrderedTag,confB:OrderedTag,is_symm:bool):
+                key = (confA,confB,is_symm)
                 if key not in phenix_vdw_distances_table:
                     return None
                 return phenix_vdw_distances_table[key]
@@ -868,7 +899,7 @@ class ConstraintsHandler:
 
             last_num_found_LJ=last_num_found_clashes=0
             # TODO  XXX XXX CRITICAL !!!!!!!!!! Loop through the phenix_vdw_distances_table instead.
-            for i, (confA,confB) in enumerate(phenix_vdw_distances_table): # iterate over conformers
+            for i, (confA,confB,is_symm) in enumerate(phenix_vdw_distances_table): # iterate over conformers
                 if i%10000==0:
                     if i !=0:
                         if ConstraintsHandler.NonbondConstraint not in constraints_to_skip:
@@ -903,11 +934,11 @@ class ConstraintsHandler:
                     continue
 
                     
-                
+                sep_idx = 1 if is_symm else 0
                 min_separation = ConstraintsHandler.NonbondConstraint.symm_min_separation(
                     atomA,
                     atomB,
-                    symmetries)
+                    symmetries)[sep_idx]
                 
                 
                 #if atoms_in_LO_variable_string("Nonbond_30.C_B|31.CA_B",(atomA,atomB)):
@@ -915,7 +946,7 @@ class ConstraintsHandler:
                 #     print(min_separation)
                 #     print(phenix_vdw(confA,confB))
                 
-                phenix_vdw_sum = phenix_vdw(confA,confB)
+                phenix_vdw_sum = phenix_vdw(confA,confB,is_symm)
                 if phenix_vdw_sum is None:
                     assert False
 
@@ -937,7 +968,7 @@ class ConstraintsHandler:
                     if vdw_gap - min_separation >= CLASH_OVERLAP_THRESHOLD:  
                         num_clashes_found+=1                            
                         self.add_nonbond_constraint(ConstraintsHandler.ClashConstraint(conf_pair,outlier_ok("CLASH",conf_pair),symmetries,weight=nb_weight),
-                                                    residual=None,altlocs=altlocs,vdw_sum=vdw_gap)
+                                                    residual=None,altlocs=altlocs,vdw_sum=vdw_gap,is_symm=is_symm)
 
                 # Lennard-Jones (nonbonded)
                 if ConstraintsHandler.NonbondConstraint not in constraints_to_skip:
@@ -948,7 +979,7 @@ class ConstraintsHandler:
                         continue    
                     R_min = phenix_vdw_sum
                     self.add_nonbond_constraint(ConstraintsHandler.NonbondConstraint(conf_pair,outlier_ok("NONBOND",conf_pair),symmetries,weight=nb_weight),
-                                                residual=None,altlocs=altlocs,vdw_sum=R_min)
+                                                residual=None,altlocs=altlocs,vdw_sum=R_min,is_symm=is_symm)
                     NB_pairs_added.append(conf_pair)
         print(f"Added {num_clashes_found} clashes")
      
@@ -1731,7 +1762,7 @@ class LP_Input:
                 # Don't have two alt locs of same atom in group
                 if len(set([res_name_num_dict[a] for a in atoms]))!= len(atoms):                     
                     continue
-                output = constraint.get_ordered_connection_stats(atoms,scoring_function)
+                output = constraint.get_cost(atoms,scoring_function)
                 if output is not None:
                     ideal,z_score,distance = output
                     distance*=constraint_weights[type(constraint)]
