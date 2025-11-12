@@ -534,7 +534,8 @@ class ConstraintsHandler:
             #TODO consider making it a sum of scoring_function(dev,...) + scoring_function(dev_sym,...)
 
             sigma=1
-            return r0, 0, scoring_function(dev,sigma,r0,self.num_bound_e) * self.weight # note a z-score doesnt make sense here.
+            multiplicity_correction = 0.5 if len(set(altlocs))==1 else 1
+            return r0, 0, scoring_function(dev,sigma,r0,self.num_bound_e) * self.weight * multiplicity_correction # note a z-score doesnt make sense here.
 
         def badness(r, vdw_gap):
             #if r > (vdw_gap-CLASH_OVERLAP_THRESHOLD):
@@ -681,7 +682,8 @@ class ConstraintsHandler:
             sigma=1
             z_score = dev = np.sqrt(energy) # Not a distance!
             #return z_score, scoring_function(dev,sigma,r0,self.num_bound_e) * self.weight
-            return r0, np.sqrt(energy), energy * self.weight
+            multiplicity_correction = 0.5 if len(set(altlocs))==1 else 1
+            return r0, np.sqrt(energy), energy * self.weight *multiplicity_correction
         
 
     def __init__(self,constraints:list[Constraint]=[]):
