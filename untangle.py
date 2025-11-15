@@ -1043,6 +1043,7 @@ class Untangler():
                     #wc=0.25,
                     hold_water_positions=True,
                     refine_hydrogens=True, # XXX
+                    disable_NQH_flips=True,
                 )
                 next_model = self.refine(
                     refine_params,
@@ -1312,7 +1313,7 @@ class Untangler():
                           hold_water_positions=False,hold_protein_positions=False,
                           refine_occupancies=False,turn_off_bulk_solvent=TURN_OFF_BULK_SOLVENT,ordered_solvent=False,
                           no_restrain_movement=False,max_sigma_movement_waters=0.1,refine_hydrogens=False, # restraining movement refers to the reference_coordinate_restraints option
-                          altloc_subset=None):
+                          altloc_subset=None,disable_NQH_flips=False):
         if altloc_subset is not None:
             altloc_subset = ''.join(altloc_subset)  
         if wc is None:
@@ -1354,7 +1355,8 @@ class Untangler():
             args+= ["-a",altloc_subset]
         for bool_param, flag in ([P.hold_water_positions,"-h"],[P.refine_hydrogens,"-H"],[P.optimize_R,"-r"],
                                  [P.hold_protein_positions,"-p"],[P.refine_occupancies,"-O"],[P.turn_off_bulk_solvent,"-t"],
-                                 [P.ordered_solvent,"-S"],[P.no_restrain_movement,"-R"],[P.disable_CDL,"-C"]):
+                                 [P.ordered_solvent,"-S"],[P.no_restrain_movement,"-R"],[P.disable_CDL,"-C"],
+                                 [P.disable_NQH_flips,"-N"]):
             if bool_param:
                 args.append(flag)
         return P, args

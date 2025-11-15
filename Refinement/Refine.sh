@@ -35,13 +35,14 @@ refine_occupancies='false'
 ordered_solvent='false'
 disable_ADP='false'
 disable_CDL='false' # Disable conformation-dependent library
+disable_nqh_flips='false'
 altlocs_to_refine=''
 
 max_sigma_movement_water=0.1
 
 refine_hydrogens='false'
 
-while getopts ":a:o:u:c:n:s:q:whprgtzACHORS" flag; do
+while getopts ":a:o:u:c:n:s:q:whprgtzACHNORS" flag; do
  case $flag in
     a) altlocs_to_refine=$OPTARG
     ;;
@@ -77,6 +78,8 @@ while getopts ":a:o:u:c:n:s:q:whprgtzACHORS" flag; do
     C) disable_CDL='true'
     ;;
     H) refine_hydrogens='true'
+    ;;
+    N) disable_nqh_flips='true'
     ;;
     O) refine_occupancies='true'
     ;;
@@ -260,6 +263,10 @@ if ! $restrain_movement; then
     mv tmp.$$ $paramFile
 fi 
 
+if $disable_nqh_flips; then 
+  sed "s/nqh_flips = True/nqh_flips = False/g" $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
+fi
 
 
 
