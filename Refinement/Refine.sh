@@ -35,13 +35,16 @@ refine_occupancies='false'
 ordered_solvent='false'
 disable_ADP='false'
 disable_CDL='false' # Disable conformation-dependent library
+altlocs_to_refine=''
 
-max_sigma_movement=0.1
+max_sigma_movement_water=0.1
 
 refine_hydrogens='false'
 
-while getopts ":o:u:c:n:s:q:whpragtzACHORS" flag; do
+while getopts ":a:o:u:c:n:s:q:whprgtzACHORS" flag; do
  case $flag in
+    a) altlocs_to_refine=$OPTARG
+    ;;
     o) out_handle=$OPTARG
        out_handle_override='true'
     ;;
@@ -53,7 +56,7 @@ while getopts ":o:u:c:n:s:q:whpragtzACHORS" flag; do
     ;;
     s) shake=$OPTARG
     ;;
-    q) max_sigma_movement=$OPTARG
+    q) max_sigma_movement_water=$OPTARG
     ;;
     w) calc_wE='true'
     ;;
@@ -90,6 +93,9 @@ done
 
 if ! $out_handle_override; then
   out_handle=${xyz_handle}-${hkl_handle}
+  if [ $altlocs_to_refine != "" ]; then
+    out_handle=${out_handle}-${altlocs_to_refine}
+  fi
 fi 
 
 echo $xyz_path $hkl_path $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R $generate_r_free $refine_no_hold $turn_off_bulk_solvent $restrain_movement $refine_hydrogens $refine_occupancies 
@@ -109,6 +115,7 @@ fi
 
 #paramFileTemplate=refine_water_bond_length_hold_template.eff
 paramFileTemplate=refine_no_hold_template.eff
+#paramFileTemplate=refine_hold_altlocs.eff
 if $optimize_R; then 
   #paramFileTemplate=refine_water_bond_length_hold_optimize_R_template.eff
   paramFileTemplate=refine_no_hold_optimize_R_template.eff
@@ -134,10 +141,14 @@ echo  $paramFileTemplate
 #paramFileTemplate=refine_water_bond_length_hold_template.eff
 #paramFileTemplate=refine_water_hold_template_free_necessary_waters.eff
 
-paramFile=${out_handle}_initial_refine.eff
+paramFile=${out_handle}_in.eff
 
-xyz_path=$(realpath -s --relative-to="$(dirname "$0")" "$xyz_path" )
-hkl_path=$(realpath -s --relative-to="$(dirname "$0")" "$hkl_path" )
+
+
+#xyz_path=$(realpath -s --relative-to="$(dirname "$0")" "$xyz_path" )
+#hkl_path=$(realpath -s --relative-to="$(dirname "$0")" "$hkl_path" )
+xyz_path=$(realpath "$xyz_path" )
+hkl_path=$(realpath "$hkl_path" )
 
 cd $(dirname "$0")
 mkdir -p tmp_refinement
@@ -155,9 +166,26 @@ cd tmp_refinement/$out_handle
 
 
 
-sed "s/XYZ_TEMPLATE/${xyz_handle}/g" $paramFile > tmp.$$
+xyz_subset_handle=$xyz_handle
+if [ $altlocs_to_refine != "" ]; then
+  xyz_subset_handle=${xyz_handle}-${altlocs_to_refine}
+
+  echo "Masking out other altlocs"
+  # (Approximately) remove contributions of other altlocs from Fobs. 
+  new_hkl_path=$(realpath "altlocs_masked.mtz")
+  tmp_dir=$(realpath "mask_out/")
+  rm -rf $tmp_dir; mkdir -p $tmp_dir
+  bash $(dirname "$0")/mask_altlocs.sh ${xyz_handle}.pdb $hkl_path $altlocs_to_refine $new_hkl_path $tmp_dir &> /dev/null
+  # Get structure file of the atoms with the specified altloc labels
+  bash $(dirname "$0")/make_altloc_subset.sh ${xyz_handle}.pdb $altlocs_to_refine ${xyz_subset_handle}.pdb &> /dev/null
+ 
+fi
+
+
+
+sed "s/XYZ_TEMPLATE/${xyz_subset_handle}/g" $paramFile > tmp.$$
 mv tmp.$$ $paramFile
-sed  "s/HKL_TEMPLATE/${hkl_handle}/g" $paramFile  > tmp.$$
+sed  "s@HKL_TEMPLATE_PATH@${hkl_path}@g" $paramFile  > tmp.$$
 mv tmp.$$ $paramFile
 sed  "s/PREFIX_TEMPLATE/${out_handle}/g" $paramFile  > tmp.$$
 mv tmp.$$ $paramFile
@@ -175,7 +203,7 @@ sed  "s/wxc_scale = 0.5/wxc_scale = ${wxc_scale}/g" $paramFile  > tmp.$$
 mv tmp.$$ $paramFile
 sed  "s/SHAKE_TEMPLATE/${shake}/g" $paramFile  > tmp.$$ 
 mv tmp.$$ $paramFile
-sed  "s/      sigma = 0.1/      sigma = ${max_sigma_movement}/g" $paramFile  > tmp.$$ 
+sed  "s/      sigma = 0.1/      sigma = ${max_sigma_movement_water}/g" $paramFile  > tmp.$$ 
 mv tmp.$$ $paramFile
 
 if $no_mlhl; then
@@ -247,16 +275,29 @@ mkdir -p $TMPDIR
 
 # env -i PATH=/usr/local/phenix-2/build/bin:/usr/bin:/bin \
 #   PHENIX=/usr/local/phenix-2 \
+echo "Refining $out_handle"
 phenix.refine $paramFile > $logs_path/${out_handle}.log
 unset TMPDIR
 
-cp ${out_handle}_${serial}.pdb ../../../output/${out_handle}.pdb  
+final_structure=${out_handle}_${serial}.pdb
+
+if [[ $altlocs_to_refine != "" ]]; then
+  # Add back in the conformations we didn't refine.
+  final_structure=${xyz_handle}_updated.pdb  
+  bash $(dirname "$0")/update_altloc_subset.sh $xyz_handle.pdb ${out_handle}_${serial}.pdb  $final_structure
+fi
+
+out_path=$(realpath ../../../output/${out_handle}.pdb  )
+
+cp $final_structure $out_path 
 
 cd ../.. 
 
 if $calc_wE; then
+  echo "Calculating wE for $out_path"
   cd ../StructureGeneration
-  bash GenerateHoltonData.sh ../output/${out_handle}.pdb  > HoltonScores/${out_handle}.log
+  echo $(realpath -s --relative-to="./" "$out_path" )
+  bash GenerateHoltonData.sh $(realpath -s --relative-to="./" "$out_path" )  > HoltonScores/${out_handle}.log
 fi
 
 

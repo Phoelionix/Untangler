@@ -7,7 +7,7 @@ set -u
 handle="8conf_waterSep_unrestrained0"
 model="$handle.pdb"
 mtz="$handle.mtz"
-altlocs_to_keep="C"
+altlocs_to_keep="AB"
 
 #https://phenix-online.org/documentation/reference/reciprocal_space_arrays.html
 
@@ -41,6 +41,7 @@ subtract_altlocs.com $altlocs_to_keep model.pdb recip.mtz outfile=$out_path FP=F
 #altlocs="${altlocs[@]}""
 altlocs_array_string=$(echo "$altlocs_to_keep" | grep -o .)
 echo $altlocs_array_string
+
 awk -v altlocs_string="$altlocs_array_string" '
 
 BEGIN {
@@ -62,8 +63,8 @@ BEGIN {
 
 
 
-bash ~/Untangler/Refinement/Refine.sh $(realpath model_subset.pdb) $out_path -n 0 -o mask_altlocs_test
-bash ~/Untangler/Refinement/Refine.sh $(realpath model_subset.pdb) $mtz -n 0 -o mask_altlocs_control
+bash ~/Untangler/Refinement/Refine.sh $(realpath model_subset.pdb) $out_path -n 10 -o mask_altlocs_test
+bash ~/Untangler/Refinement/Refine.sh $(realpath model_subset.pdb) $mtz -n 10 -o mask_altlocs_control
 
 # phenix.mtz.dump file
 # phenix.mtz.dump --show_column_data file

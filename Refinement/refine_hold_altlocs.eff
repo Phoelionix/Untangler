@@ -144,7 +144,7 @@ refinement {
                  *individual_adp group_adp tls occupancies group_anomalous \
                  den
     sites {
-      individual = None
+      individual = altloc A or altloc B
       torsion_angles = None
       rigid_body = None
     }
@@ -253,7 +253,7 @@ refinement {
         scale_adp = None
       }
       sites {
-        atom_selection = not water
+        atom_selection = None
         shake = SHAKE_TEMPLATE
         switch_rotamers = max_distant min_distant exact_match fix_outliers
         translate = 0 0 0
@@ -585,8 +585,8 @@ refinement {
     reference_coordinate_restraints {
       enabled = True
       exclude_outliers = False
-      selection = not water
-      sigma = 0.01
+      selection = water
+      sigma = 0.1
     }
     automatic_linking {
       link_all = False
@@ -869,7 +869,7 @@ geometry_restraints.edits {
     dist_min_altloc = 0.03
     refine_oat = False
     refine_adp = True
-    refine_occupancies = False
+    refine_occupancies = True
     new_solvent = *isotropic anisotropic
     b_iso_min = 1.0
     b_iso_max = 80.0
