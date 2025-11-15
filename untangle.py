@@ -688,7 +688,7 @@ class Untangler():
 
         best_model_idx=None
         for i, model_for_scoring in enumerate(models_for_scoring):
-            print(model)
+            print(models[i])
             combined, wE, Rwork, Rfree = get_score(score_file_name(model_for_scoring,ignore_H=PROPOSE_IGNORES_H))
             #print("Python read | model score wE Rwork Rfree | ",model,combined, wE, Rwork, Rfree)
             if minimize_wE != minimize_R:
@@ -713,7 +713,7 @@ class Untangler():
                     best = combined # this score is no longer used if a result is found where both wE and Rfree decrease
                     best_model_idx = i
         best_model = models[best_model_idx]
-        best_untangler_score=Untangler.Score(*get_score(score_file_name(models_for_scoring[i],ignore_H=PROPOSE_IGNORES_H),verbose=False))
+        best_untangler_score=Untangler.Score(*get_score(score_file_name(models_for_scoring[best_model_idx],ignore_H=PROPOSE_IGNORES_H),verbose=False))
         print(f"Best: {best_model} ({best_untangler_score})")
         return best_model
                 
@@ -867,27 +867,34 @@ class Untangler():
             refined_model_dir = self.regular_batch_refine(cand_models,altloc_subsets_list=altloc_subsets_list,
                                                           debug_skip=self.debug_skip_refine)
             #working_model = self.determine_best_model(refined_model_dir)
+            
+            minimize_wE = CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH
+            minimize_R=True
+            if altloc_subsets is None or all([v is None for v in altloc_subsets]):
+                minimize_R=False
+                minimize_wE=True
             working_model = self.determine_best_model(refined_model_dir,altloc_subsets_list=altloc_subsets_list, 
-                                                      minimize_wE=CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH,
-                                                      regenerate_R=False)
+                                                      minimize_R=minimize_R,minimize_wE=minimize_wE) 
             
             #### TODO Sucks make better ####
-            best_model_that_was_refined = os.path.basename(working_model).split("_")[-1]
+            best_model_before_refined = os.path.basename(working_model).split("_")[-1]
             candidate_model_dir = f"{self.output_dir}/{self.model_handle}_swapOptions_{self.loop}/"
-            best_model_that_was_refined = candidate_model_dir+best_model_that_was_refined
-            swaps = cand_swaps[cand_models.index(best_model_that_was_refined)]
+            best_model_before_refined = candidate_model_dir+best_model_before_refined
+            swaps = cand_swaps[cand_models.index(best_model_before_refined)]
+            if measure_preswap_postswap:
+                postswap_score = Untangler.Score(*assess_geometry_wE(best_model_before_refined,self.output_dir))
+                print("Score preswap:",preswap_score) 
+                print("Score postswap:",postswap_score) 
             ################################
             
             print("Refining all conformers for best model")
+            score_file_needs_generation=False
             if altloc_subsets is None or all([v is None for v in altloc_subsets]):
                 shutil.copy(working_model,self.get_out_path(f"loopEnd{self.loop}"))
             else:
                 working_model=self.regular_refine(working_model,num_loops_override=1, debug_skip=self.debug_skip_refine)
-            score_file_needs_generation=False
-            if measure_preswap_postswap:
-                postswap_score = Untangler.Score(*assess_geometry_wE(best_model_that_was_refined,self.output_dir))
-                print("Score preswap:",preswap_score) 
-                print("Score postswap:",postswap_score) 
+                score_file_needs_generation=True
+
         elif strategy == Untangler.Strategy.SwapManyPairs:
             tensions = get_tensions(self.current_model,working_model) if TENSIONS else None
 
@@ -1038,12 +1045,13 @@ class Untangler():
                     num_macro_cycles=1,
                     #wc=0,
                     wc=self.refine_for_positions_geo_weight,
-                    max_sigma_movement_waters=0.1,#0.001, 
                     #wu=0,
                     #wc=0.25,
                     hold_water_positions=True,
                     refine_hydrogens=True, # XXX
                     disable_NQH_flips=True,
+                    max_sigma_movement_of_selected=0.1, # applies to protein if restrain_protein_movement is True. But unsure if it is doing anything (as in recip space?)
+                    restrain_protein_movement=True, 
                 )
                 next_model = self.refine(
                     refine_params,
@@ -1093,10 +1101,10 @@ class Untangler():
                     #ordered_solvent=False,
                     ordered_solvent=PHENIX_ORDERED_SOLVENT,
                     refine_occupancies=False,
-                    #max_sigma_movement_waters=0.05,
-                    max_sigma_movement_waters=0.1,
+                    #max_sigma_movement_of_selected=0.05,
+                    max_sigma_movement_of_selected=0.1,
                     altloc_subset=altloc_subset,
-                    #max_sigma_movement_waters=0.07,
+                    #max_sigma_movement_of_selected=0.07,
                     )
             elif self.refinement == self.REFMAC:
                 refine_params=self.get_refine_params_refmac(
@@ -1165,10 +1173,10 @@ class Untangler():
                 #ordered_solvent=False,
                 ordered_solvent=PHENIX_ORDERED_SOLVENT,
                 refine_occupancies=False,
-                #max_sigma_movement_waters=0.05,
-                max_sigma_movement_waters=0.1,
+                #max_sigma_movement_of_selected=0.05,
+                max_sigma_movement_of_selected=0.1,
                 altloc_subset=altloc_subset,
-                #max_sigma_movement_waters=0.07,
+                #max_sigma_movement_of_selected=0.07,
 
             )
         elif self.refinement == self.REFMAC:
@@ -1312,8 +1320,8 @@ class Untangler():
                           wc=None,wu=1., shake=0., optimize_R=False,
                           hold_water_positions=False,hold_protein_positions=False,
                           refine_occupancies=False,turn_off_bulk_solvent=TURN_OFF_BULK_SOLVENT,ordered_solvent=False,
-                          no_restrain_movement=False,max_sigma_movement_waters=0.1,refine_hydrogens=False, # restraining movement refers to the reference_coordinate_restraints option
-                          altloc_subset=None,disable_NQH_flips=False):
+                          no_restrain_movement=False,max_sigma_movement_of_selected=0.1,refine_hydrogens=False, # restraining movement refers to the reference_coordinate_restraints option
+                          altloc_subset=None,disable_NQH_flips=False,restrain_protein_movement=False):
         if altloc_subset is not None:
             altloc_subset = ''.join(altloc_subset)  
         if wc is None:
@@ -1349,14 +1357,15 @@ class Untangler():
             "-n",f"{P.num_macro_cycles}",
             "-o",f"{self.model_handle}_{P.out_tag}",
             "-s",f"{P.shake}",
-            "-q",f"{P.max_sigma_movement_waters}",
+            "-q",f"{P.max_sigma_movement_of_selected}",
         ]
         if altloc_subset is not None:
             args+= ["-a",altloc_subset]
+        # TODO make a dict...
         for bool_param, flag in ([P.hold_water_positions,"-h"],[P.refine_hydrogens,"-H"],[P.optimize_R,"-r"],
                                  [P.hold_protein_positions,"-p"],[P.refine_occupancies,"-O"],[P.turn_off_bulk_solvent,"-t"],
                                  [P.ordered_solvent,"-S"],[P.no_restrain_movement,"-R"],[P.disable_CDL,"-C"],
-                                 [P.disable_NQH_flips,"-N"]):
+                                 [P.disable_NQH_flips,"-N"],[P.restrain_protein_movement,"-P"]):
             if bool_param:
                 args.append(flag)
         return P, args

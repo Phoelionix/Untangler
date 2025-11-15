@@ -30,7 +30,7 @@ refine_no_hold='false'
 no_mlhl=true
 generate_r_free='false'
 turn_off_bulk_solvent='false'
-restrain_movement='true'
+disable_movement_restraint='false'
 refine_occupancies='false'
 ordered_solvent='false'
 disable_ADP='false'
@@ -38,11 +38,14 @@ disable_CDL='false' # Disable conformation-dependent library
 disable_nqh_flips='false'
 altlocs_to_refine=''
 
-max_sigma_movement_water=0.1
+max_sigma_movement_restraint=0.1
 
 refine_hydrogens='false'
 
-while getopts ":a:o:u:c:n:s:q:whprgtzACHNORS" flag; do
+restrain_movement_of_protein='false' # Note this does nothing when True if disable_movement_restraint is True
+
+
+while getopts ":a:o:u:c:n:s:q:whprgtzACHNOPRS" flag; do
  case $flag in
     a) altlocs_to_refine=$OPTARG
     ;;
@@ -57,7 +60,7 @@ while getopts ":a:o:u:c:n:s:q:whprgtzACHNORS" flag; do
     ;;
     s) shake=$OPTARG
     ;;
-    q) max_sigma_movement_water=$OPTARG
+    q) max_sigma_movement_restraint=$OPTARG
     ;;
     w) calc_wE='true'
     ;;
@@ -83,7 +86,9 @@ while getopts ":a:o:u:c:n:s:q:whprgtzACHNORS" flag; do
     ;;
     O) refine_occupancies='true'
     ;;
-    R) restrain_movement='false' 
+    P) restrain_movement_of_protein='true'
+    ;;
+    R) disable_movement_restraint='true' 
     ;;
     S) ordered_solvent='true'
     ;;
@@ -101,7 +106,7 @@ if ! $out_handle_override; then
   fi
 fi 
 
-echo $xyz_path $hkl_path $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R $generate_r_free $refine_no_hold $turn_off_bulk_solvent $restrain_movement $refine_hydrogens $refine_occupancies 
+echo $xyz_path $hkl_path $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R $generate_r_free $refine_no_hold $turn_off_bulk_solvent $disable_movement_restraint $refine_hydrogens $refine_occupancies 
 
 
 expected_path=$xyz_path
@@ -206,7 +211,7 @@ sed  "s/wxc_scale = 0.5/wxc_scale = ${wxc_scale}/g" $paramFile  > tmp.$$
 mv tmp.$$ $paramFile
 sed  "s/SHAKE_TEMPLATE/${shake}/g" $paramFile  > tmp.$$ 
 mv tmp.$$ $paramFile
-sed  "s/      sigma = 0.1/      sigma = ${max_sigma_movement_water}/g" $paramFile  > tmp.$$ 
+sed  "s/      sigma = 0.1/      sigma = ${max_sigma_movement_restraint}/g" $paramFile  > tmp.$$ 
 mv tmp.$$ $paramFile
 
 if $no_mlhl; then
@@ -258,10 +263,15 @@ fi
 logs_path="../../../output/refine_logs"
 mkdir -p $logs_path
 
-if ! $restrain_movement; then 
-    sed 's/reference_coordinate_restraints {\n      enabled = True/reference_coordinate_restraints {\n      enabled = False/g' $paramFile  > tmp.$$ 
-    mv tmp.$$ $paramFile
+if $disable_movement_restraint; then 
+  sed 's/reference_coordinate_restraints {\n      enabled = True/reference_coordinate_restraints {\n      enabled = False/g' $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
 fi 
+
+if $restrain_movement_of_protein; then 
+  sed "s/selection = water/selection = all/g" $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
+fi
 
 if $disable_nqh_flips; then 
   sed "s/nqh_flips = True/nqh_flips = False/g" $paramFile  > tmp.$$ 
