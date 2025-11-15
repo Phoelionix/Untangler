@@ -49,6 +49,7 @@ import matplotlib.pyplot as plt
 #import pulp as pl
 # just for residues for now
 
+MAX_BOND_CHANGES_SECOND_HALF_ONLY=True
 
 
 
@@ -501,7 +502,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             # that if variable is active, all atoms will be assigned to the same altloc.
             
             if allowed and (ordered_connection_option not in small_fry):
-                assert ordered_connection_option.ts_distance>=0
+                assert ordered_connection_option.ts_distance>=0, (ordered_connection_option,ordered_connection_option.ts_distance)
                 distance_vars.append(ordered_connection_option.ts_distance*var_active)
             num_allowed_connections+=allowed 
             num_forbidden_connections+=not allowed 
@@ -566,6 +567,7 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
     print(f"Num allowed connections: {num_allowed_connections} | num forbidden connections: {num_forbidden_connections}")
     print(f"Num small fry: {num_small_fry_disordered_connections}")
 
+    max_bond_changes_tuple=None
     if max_bond_changes is not None:
         sys.setrecursionlimit(int(1e4)) 
         no_change_vars=[]
@@ -590,10 +592,20 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             #no_change_vars.append(no_change_var)
             no_change_vars.append(no_change_var)
         
-        lp_problem += (
+        max_bond_changes_tuple = (
             lpSum(no_change_vars)>=(len(no_change_vars)-max_bond_changes),
             f"Max{max_bond_changes}BondChanges"
         )
+        def limit_bond_changes():
+            nonlocal lp_problem
+            nonlocal max_bond_changes_tuple
+            print(f"limiting num bond changes to {max_bond_changes}")
+            lp_problem += max_bond_changes_tuple
+            max_bond_changes_tuple=None
+        if not MAX_BOND_CHANGES_SECOND_HALF_ONLY:
+            limit_bond_changes()
+
+
 
     # for disordered_connection_var_dict in mega_connection_var_dict.values():
     #     active_constraints=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if var.value()>0]
@@ -1042,6 +1054,13 @@ def solve(chunk_sites: dict[str,AtomChunk],disordered_connections:dict[str,list[
             # require at least one flip to be different
             lp_problem += pulp.lpSum(flipped_flip_variables) >= 1, f"force_next_best_solution_{l}"
         
+        if max_bond_changes_tuple is not None:
+            assert MAX_BOND_CHANGES_SECOND_HALF_ONLY
+            assert l <= int(num_solutions/2) 
+            if l == int(num_solutions/2):
+                limit_bond_changes()
+
+
     del lp_problem
     del solver
     gc.collect()

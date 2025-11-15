@@ -52,7 +52,7 @@ class Untangler():
     # If a model file hasn't been generated, will use the latest filename that exists and is expected to have been generated up to that point in the process.
     debug_skip_refine = False  # Note: Can set to True alongside debug_skip_first_swaps to skip to first proposal
     debug_phenix_ordered_solvent_on_initial=False
-    debug_skip_initial_refine=True
+    debug_skip_initial_refine=False
     debug_skip_first_unrestrained_refine=False
     never_do_unrestrained=False
     debug_skip_first_swaps=False
@@ -680,7 +680,8 @@ class Untangler():
 
         def pooled_method(i):
             create_score_file(models_for_scoring[i],self.output_dir,ignore_H=PROPOSE_IGNORES_H,
-                              reflections_for_R = self.hkl_path if regenerate_R else None)
+                              reflections_for_R = self.hkl_path if regenerate_R else None,
+                              skip_fail=True)
 
         with Pool(self.num_threads) as p:
             p.map(pooled_method,range(len(models)))
@@ -689,7 +690,10 @@ class Untangler():
         best_model_idx=None
         for i, model_for_scoring in enumerate(models_for_scoring):
             print(models[i])
-            combined, wE, Rwork, Rfree = get_score(score_file_name(model_for_scoring,ignore_H=PROPOSE_IGNORES_H))
+            score_file=score_file_name(model_for_scoring,ignore_H=PROPOSE_IGNORES_H)
+            if not os.path.exists(score_file):
+                continue
+            combined, wE, Rwork, Rfree = get_score(score_file)
             #print("Python read | model score wE Rwork Rfree | ",model,combined, wE, Rwork, Rfree)
             if minimize_wE != minimize_R:
                 meas, tie_breaker_meas = (Rfree, wE) if minimize_R else (wE,Rfree) 
@@ -796,14 +800,14 @@ class Untangler():
             # Limited options
             if (self.loop+2)%3!=0: # All options
                 subset_size=self.altloc_subset_size
-                num_combinations=1
+                num_combinations=3
                 altloc_subsets.extend(self.get_altloc_subsets(subset_size,num_combinations))
                 kwargs_list.extend([{} for _ in altloc_subsets])
 
             else: # Focused swaps V2
                 #focused_subset_size =7 
                 focused_subset_size =self.altloc_subset_size 
-                num_focused_combinations=2
+                num_focused_combinations=3
                 focused_subsets = self.get_altloc_subsets(focused_subset_size,num_focused_combinations)
                 for subset in focused_subsets:
                     #for key in ["NO_CB_CHANGES","MAIN_CHAIN_ONLY"]:
@@ -892,7 +896,9 @@ class Untangler():
             if altloc_subsets is None or all([v is None for v in altloc_subsets]):
                 shutil.copy(working_model,self.get_out_path(f"loopEnd{self.loop}"))
             else:
+                working_model=self.regular_refine(working_model,num_loops_override=1, disable_nqh_flips=True,refine_H=True,debug_skip=self.debug_skip_refine,)
                 working_model=self.regular_refine(working_model,num_loops_override=1, debug_skip=self.debug_skip_refine)
+                working_model=self.regular_refine(working_model,num_loops_override=1, disable_nqh_flips=True,debug_skip=self.debug_skip_refine)
                 score_file_needs_generation=True
 
         elif strategy == Untangler.Strategy.SwapManyPairs:
@@ -994,7 +1000,7 @@ class Untangler():
 
     def initial_refine(self,model_path,**kwargs)->str:
         # Try to get atoms as close to their true positions as possible
-        for wc, wu, n_cycles in zip([1,0.5,0.2,0.1],[1,0,0,0],[2,4,5,5]):
+        for wc, wu, n_cycles, phenix_shake in zip([1,0.5,0.2,0.1],[1,0,0,0],[2,4,5,5],[0.1,0,0,0]):
         #for wc, wu, n_cycles in zip([1,0.5],[1,0],[8,4]):
         #for wc, wu, n_cycles in zip([1],[1],[self.num_end_loop_refine_cycles]):
             if self.refinement==self.PHENIX:
@@ -1007,7 +1013,7 @@ class Untangler():
                     hold_water_positions=self.holding_water(),
                     refine_occupancies=False,
                     ordered_solvent=PHENIX_ORDERED_SOLVENT or self.debug_phenix_ordered_solvent_on_initial,
-                    shake=0,
+                    shake=phenix_shake,
                     refine_hydrogens=True, # XXX
                 )
             elif self.refinement == self.REFMAC:
@@ -1087,6 +1093,7 @@ class Untangler():
         
     #TODO regular_batch_refine and regular_refine should get refine params from same source 
     def regular_batch_refine(self,model_paths:list[str],altloc_subsets_list=None, **kwargs):
+        shutil.rmtree(f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/Refinement/tmp_refinement/")
         param_set = []
         for i, model in enumerate(model_paths):
             altloc_subset = None if (altloc_subsets_list is None) else altloc_subsets_list[i]
@@ -1160,7 +1167,7 @@ class Untangler():
             return model_path
 
 
-    def regular_refine(self,model_path,altloc_subset=None,num_loops_override=None,**kwargs)->str:
+    def regular_refine(self,model_path,altloc_subset=None,num_loops_override=None,refine_H=False,disable_nqh_flips=False,**kwargs)->str:
         print("Performing post-reallotment restrained refinement ")
         if self.refinement==self.PHENIX:
             refine_params = self.get_refine_params_phenix(
@@ -1173,9 +1180,11 @@ class Untangler():
                 #ordered_solvent=False,
                 ordered_solvent=PHENIX_ORDERED_SOLVENT,
                 refine_occupancies=False,
+                disable_NQH_flips=disable_nqh_flips,
                 #max_sigma_movement_of_selected=0.05,
                 max_sigma_movement_of_selected=0.1,
                 altloc_subset=altloc_subset,
+                refine_hydrogens=refine_H,
                 #max_sigma_movement_of_selected=0.07,
 
             )
@@ -1522,11 +1531,11 @@ def main():
         # max_num_best_swaps_considered=5,
         default_wc=1,
         num_end_loop_refine_cycles=6,
-        max_num_best_swaps_considered=15,
-        starting_num_best_swaps_considered=15,
+        max_num_best_swaps_considered=20,
+        starting_num_best_swaps_considered=20,
         altloc_subset_size=2,
         #refine_for_positions_geo_weight=0.03,
-        refine_for_positions_geo_weight=0,
+        refine_for_positions_geo_weight=0.05,
         num_refine_for_positions_macro_cycles_phenix=1,
         # weight_factors = {
         #     ConstraintsHandler.BondConstraint: 150,
@@ -1536,7 +1545,7 @@ def main():
         #     ConstraintsHandler.ClashConstraint: 10,
         # },
         #max_bond_changes=2,
-        max_bond_changes=9999,
+        max_bond_changes=3,
         # weight_factors = {
         #     ConstraintsHandler.BondConstraint: 1,
         #     ConstraintsHandler.AngleConstraint: 1, #80
