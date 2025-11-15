@@ -6,8 +6,16 @@ cd $(dirname "$0")
 
 cdl='true'
 keep_hydrogens='true'
-while getopts ":CH" flag; do
+Rwork_override='false'
+Rfree_override='false'
+while getopts ":F:W:CH" flag; do
  case $flag in
+    F) Rfree=$OPTARG
+       Rfree_override='true'
+    ;;
+    W) Rwork=$OPTARG
+       Rwork_override='true'
+    ;;
     C) cdl='false'
     ;;
     H) keep_hydrogens='false'
@@ -19,7 +27,7 @@ while getopts ":CH" flag; do
  esac
 done
 
-wxray=1 #10
+wxray=1 #50 #1 #10
 
 #auto_ignore_geometries='true'
 auto_ignore_geometries='false'
@@ -49,6 +57,13 @@ if ! $keep_hydrogens; then
     out_handle=${handle}_ignoreH
     args="${args} keep_hydrogens=$keep_hydrogens outprefix=$out_handle"
 fi
+if $Rwork_override; then
+    args="${args} Rwork=$Rwork"
+fi 
+if $Rfree_override; then
+    args="${args} Rfree=$Rfree"
+fi 
+
 
 args="${args} wxray=$wxray cdl=$cdl"
 

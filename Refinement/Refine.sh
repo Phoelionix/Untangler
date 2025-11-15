@@ -93,7 +93,7 @@ done
 
 if ! $out_handle_override; then
   out_handle=${xyz_handle}-${hkl_handle}
-  if [ $altlocs_to_refine != "" ]; then
+  if [ -n "$altlocs_to_refine" ]; then
     out_handle=${out_handle}-${altlocs_to_refine}
   fi
 fi 
@@ -167,7 +167,7 @@ cd tmp_refinement/$out_handle
 
 
 xyz_subset_handle=$xyz_handle
-if [ $altlocs_to_refine != "" ]; then
+if [ -n "$altlocs_to_refine" ]; then
   xyz_subset_handle=${xyz_handle}-${altlocs_to_refine}
 
   echo "Masking out other altlocs"
@@ -281,7 +281,13 @@ unset TMPDIR
 
 final_structure=${out_handle}_${serial}.pdb
 
-if [[ $altlocs_to_refine != "" ]]; then
+if [ ! -f $final_structure ]; then 
+  echo "$final_structure missing, refinement failed for unknown reason"
+  exit
+fi
+
+
+if [ -n "$altlocs_to_refine" ]; then
   # Add back in the conformations we didn't refine.
   final_structure=${xyz_handle}_updated.pdb  
   bash $(dirname "$0")/update_altloc_subset.sh $xyz_handle.pdb ${out_handle}_${serial}.pdb  $final_structure

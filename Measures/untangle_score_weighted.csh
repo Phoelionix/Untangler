@@ -54,6 +54,9 @@ set ciffiles = ""
 set rstfile = ""
 set topfile = ""
 
+set Rwork=""
+set Rfree=""
+
 set tempfile = /dev/shm/${USER}/tempfile_$$_
 
 set overridefile = ""
@@ -1374,9 +1377,11 @@ awk '{print $0,"M"}' ${outprefix}_stats.txt >! ${t}Mstats.txt
 
 echo $energy |\
 cat - ${t}movement.txt ${t}Rstats.txt ${t}Mstats.txt |\
-awk -v wxray=$wxray 'NR==1{energy=$1;next}\
+awk -v wxray=$wxray -v Rwork_override=$Rwork -v Rfree_override=$Rfree 'NR==1{energy=$1;next}\
     $NF=="d"{dxyz=$3;dB=$7;next}\
     $NF=="R"{Rw=$2;Rf=$3;bond=$7;ang=$9;vdw=$13;\
+       if (Rwork_override){Rw=Rwork_override*100};\
+       if (Rfree_override){Rf=Rfree_override*100};\
        rE=((Rf-2.0)/2.0)^2*wxray;\
        rstats=$2" "$3" "$7" "$9" "$11" "$13;next}\
     $NF=="M"{Mp=$1;Cl=$2; score=rE+energy;\

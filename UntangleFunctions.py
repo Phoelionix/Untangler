@@ -64,26 +64,30 @@ def save_structure(structure:Structure,header_reference_file_path,out_path,comme
     os.remove(tmp_path)
 
 def get_score(score_file,phenixgeometry_only=False,verbose=True):
+    assert os.path.exists(score_file)
     with open(score_file,'r') as f:
         for line in f: 
-            if line.strip().strip('\n') != "":
-                if verbose:
-                    print(line.strip('\n'))
-                combined_score,wE_score,Rwork, Rfree = [float(v) for v in line.split()[:4]]
-                if verbose:
-                    if phenixgeometry_only:
-                        print(f"Python read wE (quick): {wE_score}")
-                    else:
-                        print(f"Python read wE: {wE_score}")
-                if verbose:
-                    print()
-                return combined_score,wE_score,Rwork, Rfree
+            if line.strip().strip('\n') == "":
+                continue
+            if verbose:
+                print(line.strip('\n'))
+            combined_score,wE_score,Rwork, Rfree = [float(v) for v in line.split()[:4]]
+            if verbose:
+                if phenixgeometry_only:
+                    print(f"Python read wE (quick): {wE_score}")
+                else:
+                    print(f"Python read wE: {wE_score}")
+            if verbose:
+                print()
+            return combined_score,wE_score,Rwork, Rfree
 
 
 def batch_create_score_files(pdb_file_path,log_out_folder_path):
     assert False, "Unimplemented"
 
-def create_score_file(pdb_file_path,log_out_folder_path,ignore_H=False,turn_off_cdl=False):
+def create_score_file(pdb_file_path,log_out_folder_path,ignore_H=False,turn_off_cdl=False,reflections_for_R:str=None): 
+    # model_and_reflections_for_R overrides the R and R free values in the pdb path.
+
     holton_folder_path = UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/"
 
     #generate_holton_data_shell_file=self.holton_folder_path+'GenerateHoltonData.sh'
@@ -114,6 +118,9 @@ def create_score_file(pdb_file_path,log_out_folder_path,ignore_H=False,turn_off_
             args.append("-H")
         if turn_off_cdl:
             args.append("-C")
+        if reflections_for_R is not None:
+            Rwork,Rfree=get_R(pdb_file_path,reflections_for_R)
+            args+= ["-W",str(Rwork),"F",str(Rfree)]
         print (f"|+ Running: {' '.join(args)}")
         subprocess.run(args)
     if os.path.exists(score_file):
