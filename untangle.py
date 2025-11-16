@@ -39,6 +39,8 @@ PROPOSE_IGNORES_H=False
 
 assert not PROPOSE_IGNORES_H, "Comparison with previous best not implemented properly"
 
+TIMEOUT_MINS_FACTOR=1
+
 # TODO:
 # down weight swaps that were previously made but need to be made again (i.e. cases where it's not tangled and the density is pushing it a different way.)
 # Try forbid connection changes in sidechain. 
@@ -55,7 +57,7 @@ class Untangler():
     debug_skip_refine = False  # Note: Can set to True alongside debug_skip_first_swaps to skip to first proposal
     debug_phenix_ordered_solvent_on_initial=False
     debug_skip_initial_refine=True
-    debug_skip_first_unrestrained_refine=False
+    debug_skip_first_unrestrained_refine=True
     never_do_unrestrained=False # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
     debug_skip_first_swaps=False
     debug_skip_first_batch_refine=False
@@ -676,17 +678,17 @@ class Untangler():
         global pooled_method # not sure if this is a good idea. Did this because it tries to pickle but fails if local. Try replacing with line: multiprocessing.set_start_method(‘fork’)
         
         models_for_scoring=[]
-        for i, model in enumerate(models):
-            if altloc_subset is None:
-                modified_model = models[i]
+        for model in models:
+            if altloc_subset is None or altloc_subset == "full":
+                modified_model = model
             else:
-                struct=PDBParser().get_structure("struct",models[i])
+                struct=PDBParser().get_structure("struct",model)
                 ordered_atom_lookup = OrderedAtomLookup(struct.get_atoms(),
                                                             protein=True,waters=True,
                                                             altloc_subset=altloc_subset)   
                 #temp_path=working_model[:-4]+"_subsetOut.pdb"
-                temp_path=Solver.LP_Input.subset_model_path(models[i],altloc_subset)[:-4]+"Out.pdb"
-                ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=models[i],out_path=temp_path)
+                temp_path=Solver.LP_Input.subset_model_path(model,altloc_subset)[:-4]+"Out.pdb"
+                ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=model,out_path=temp_path)
                 modified_model=temp_path
             models_for_scoring.append(modified_model)
 
@@ -740,7 +742,7 @@ class Untangler():
                     best_model_idx = i
         best_model = models[best_model_idx]
         best_untangler_score=Untangler.Score(*get_score(score_file_name(models_for_scoring[best_model_idx],ignore_H=PROPOSE_IGNORES_H),verbose=False))
-        print(f"Best: {best_model} ({best_untangler_score})")
+        print(f"Best: {os.path.basename(best_model)} ({best_untangler_score})")
         return best_model
                 
 
@@ -829,7 +831,7 @@ class Untangler():
                 num_combinations=3 
                 altloc_subsets.extend(self.get_altloc_subsets(subset_size,num_combinations))
                 kwargs_list.extend([{} for _ in altloc_subsets])
-
+            
             else: # Focused swaps V2
                 #focused_subset_size =7 
                 focused_subset_size =self.altloc_subset_size 
@@ -1088,7 +1090,7 @@ class Untangler():
                 )
             model_path = self.refine(
                 refine_params,
-                timeout_mins=10,
+                timeout_mins=15,
                 **kwargs
             )
         return model_path
@@ -1302,6 +1304,7 @@ class Untangler():
         if timeout_mins is None:
             timeout_mins=3*self.altloc_subset_size
         # assert model_path[-4:]==".pdb", model_path
+        timeout_mins*=TIMEOUT_MINS_FACTOR
         P, args = refine_params
         out_path = self.get_out_path(P.out_tag)
         assert os.path.exists(refine_params[0].model_path)
@@ -1318,8 +1321,8 @@ class Untangler():
                 print (f"|+ Running: {' '.join(args)}")
                 try:
                     subprocess.run(args,timeout=60*timeout_mins)#,stdout=log)
-                except:
-                    print("timeout")
+                except Exception as e:
+                    print(f"Error: {e}")
 
                 if os.path.exists(out_path): #TODO replace with direct way to check for success
                     break
@@ -1337,7 +1340,7 @@ class Untangler():
                 os.remove(refine_params[0].model_path)
             if remove_tmpdir_on_end:
                 handle = os.path.basename(out_path)[:-4]
-                tmp_refine_subdir=f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/Refinement/tmp_refinement/{handle}"
+                tmp_refine_subdir=f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/Refinement/tmp_refinement/{handle}/"
                 if os.path.isdir(tmp_refine_subdir):
                     shutil.rmtree(tmp_refine_subdir)
 
@@ -1626,13 +1629,13 @@ def main():
     Untangler(
         # max_num_best_swaps_considered=5,
         default_wc=1,
-        num_end_loop_refine_cycles=3,
+        num_end_loop_refine_cycles=6,
         max_num_best_swaps_considered=20,
         starting_num_best_swaps_considered=20,
         altloc_subset_size=2,
         unrestrained_damp=0,
         #refine_for_positions_geo_weight=0.03,
-        refine_for_positions_geo_weight=0,
+        refine_for_positions_geo_weight=0.05,
         num_refine_for_positions_macro_cycles_phenix=1,
         # weight_factors = {
         #     ConstraintsHandler.BondConstraint: 150,
