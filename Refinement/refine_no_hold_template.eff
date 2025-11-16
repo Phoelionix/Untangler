@@ -587,8 +587,6 @@ refinement {
       exclude_outliers = False
       selection = water
       sigma = 0.1
-      limit = 0.3
-      top_out = True
     }
     automatic_linking {
       link_all = False
