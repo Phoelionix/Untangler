@@ -186,6 +186,7 @@ if [ -n "$altlocs_to_refine" ]; then
   bash $(dirname "$0")/mask_altlocs.sh ${xyz_handle}.pdb $hkl_path $altlocs_to_refine $new_hkl_path $tmp_dir &> /dev/null
   # Get structure file of the atoms with the specified altloc labels
   bash $(dirname "$0")/make_altloc_subset.sh ${xyz_handle}.pdb $altlocs_to_refine ${xyz_subset_handle}.pdb &> /dev/null
+  hkl_path=$new_hkl_path
  
 fi
 
