@@ -23,6 +23,7 @@ import psutil
 from LinearOptimizer.Tension import GeoXrayTension
 from matplotlib import pyplot as plt
 from StructureGeneration.CombineUpdateEnsembles import combine_update_ensembles
+from StructureGeneration.interp_coords import interp_coords
 #import create_delta_constraints_file
 
 
@@ -54,7 +55,7 @@ class Untangler():
     debug_skip_refine = False  # Note: Can set to True alongside debug_skip_first_swaps to skip to first proposal
     debug_phenix_ordered_solvent_on_initial=False
     debug_skip_initial_refine=True
-    debug_skip_first_unrestrained_refine=True
+    debug_skip_first_unrestrained_refine=False
     never_do_unrestrained=False # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
     debug_skip_first_swaps=False
     debug_skip_first_batch_refine=False
@@ -95,11 +96,12 @@ class Untangler():
                  default_wc=1,wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=20, # 20,
                  max_num_best_swaps_considered=100,num_refine_for_positions_macro_cycles_phenix=3,
                  num_loops_water_held=0,weight_factors=None,
-                 max_bond_changes=9999,altloc_subset_size=3,refine_for_positions_geo_weight=0.1):
+                 max_bond_changes=9999,altloc_subset_size=3,refine_for_positions_geo_weight=0.1,
+                 unrestrained_damp=0.5):
         self.set_hyper_params(acceptance_temperature,max_wE_frac_increase,num_end_loop_refine_cycles,
                               default_wc,wc_anneal_start,wc_anneal_loops, starting_num_best_swaps_considered,
                               max_num_best_swaps_considered,num_refine_for_positions_macro_cycles_phenix, 
-                              num_loops_water_held,max_bond_changes,altloc_subset_size,refine_for_positions_geo_weight)
+                              num_loops_water_held,max_bond_changes,altloc_subset_size,refine_for_positions_geo_weight,unrestrained_damp)
         self.previously_swapped = []
         self.model_handle=None
         self.current_model=None
@@ -116,7 +118,8 @@ class Untangler():
                  default_wc=1,wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=5, # 20,
                  max_num_best_swaps_considered=100,num_refine_for_positions_macro_cycles_phenix=3,
                  num_loops_water_held=0,
-                 max_bond_changes=None,altloc_subset_size=3,refine_for_positions_geo_weight=0.1):
+                 max_bond_changes=None,altloc_subset_size=3,refine_for_positions_geo_weight=0.1,
+                 unrestrained_damp=0.5):
         # NOTE Currently max wE increase is percentage based, 
         # but TODO optimal method needs to be investigated.
         self.n_best_swap_start=starting_num_best_swaps_considered
@@ -132,6 +135,7 @@ class Untangler():
         self.max_bond_changes=max_bond_changes
         self.altloc_subset_size=altloc_subset_size
         self.refine_for_positions_geo_weight=refine_for_positions_geo_weight
+        self.unrestrained_damp=unrestrained_damp
 
     def delete_zero_occupancy_waters(self,pdb_path,out_path):
         assert os.path.abspath(pdb_path) != os.path.abspath(out_path)
@@ -769,7 +773,10 @@ class Untangler():
             if (self.loop+1)%10==0 and not skip_unrestrained: # XXX
                 self.working_model = self.nice_long_refine(working_model)
 
-            working_model = self.refine_for_positions(working_model,debug_skip=skip_unrestrained) 
+            positions_refined_model = self.refine_for_positions(working_model,debug_skip=skip_unrestrained) 
+                
+
+            working_model = positions_refined_model
             if skip_unrestrained and not os.path.exists(working_model):
                 working_model = self.current_model
 
@@ -937,11 +944,14 @@ class Untangler():
                 shutil.copy(working_model,self.get_out_path(f"loopEnd{self.loop}"))
             else:
                 print("Refining all conformers for best model")
-                working_model=self.regular_refine(working_model,num_loops_override=5, disable_nqh_flips=True,refine_H=True,runtag="E1",debug_skip=self.debug_skip_refine,
+                working_model=self.regular_refine(working_model,num_loops_override=5, disable_nqh_flips=True,refine_H=True,
+                                                  runtag="E1",debug_skip=self.debug_skip_refine,
                                                   timeout_mins=20)
-                working_model=self.regular_refine(working_model,num_loops_override=2, disable_nqh_flips=False, runtag="E2",delete_old_model_when_done=True,debug_skip=self.debug_skip_refine,
+                working_model=self.regular_refine(working_model,num_loops_override=2, disable_nqh_flips=False, ordered_solvent=False,
+                                                  runtag="E2",delete_old_model_when_done=False,debug_skip=self.debug_skip_refine,
                                                   timeout_mins=20)
-                working_model=self.regular_refine(working_model,num_loops_override=1, disable_nqh_flips=True,runtag=None,delete_old_model_when_done=True,debug_skip=self.debug_skip_refine,
+                working_model=self.regular_refine(working_model,num_loops_override=5, disable_nqh_flips=True,
+                                                  runtag=None,delete_old_model_when_done=False,debug_skip=self.debug_skip_refine,
                                                   timeout_mins=10)
                 score_file_needs_generation=True
 
@@ -1089,8 +1099,24 @@ class Untangler():
 
         next_model=model_path
         # No idea why need to do this loop. But otherwise it jumps at 1_xyzrec
+        def damp(last_model,next_model):
+            print(last_model,next_model)
+            if self.unrestrained_damp > 0:
+                preinterp_path = next_model[:-4]+"preinterp.pdb"
+                if not ("debug_skip" in kwargs and kwargs["debug_skip"]==True):
+                    shutil.move(next_model,preinterp_path)
+
+                print("Interpolating unrestrained.")
+                print(f"Initial: {get_R(last_model,self.hkl_path)}")
+                print(f"Before: {get_R(preinterp_path,self.hkl_path)}")
+                interp_coords(next_model,last_model,preinterp_path,weightA=self.unrestrained_damp)
+                print(f"After: {get_R(next_model,self.hkl_path)}")
         if self.refinement==self.PHENIX:
             for n in range(self.num_refine_for_positions_macro_cycles_phenix):
+                if n > 0:
+                    moved_path=f"{next_model[:-4]}_last.pdb"
+                    shutil.move(next_model,moved_path)
+                    next_model=moved_path
                 refine_params = self.get_refine_params_phenix(
                     #f"unrestrained-mc{self.loop}-{n}",
                     f"unrestrained{self.loop}",
@@ -1106,10 +1132,12 @@ class Untangler():
                     max_sigma_movement_of_selected=0.1, # applies to protein if restrain_protein_movement is True. But unsure if it is doing anything (as in recip space?)
                     restrain_protein_movement=True, 
                 )
+                last_model=next_model
                 next_model = self.refine(
                     refine_params,
                     **kwargs
                 )
+                damp(last_model,next_model)
         elif self.refinement == self.REFMAC:
             refine_params=self.get_refine_params_refmac(
                 f"unrestrained{self.loop}",
@@ -1130,19 +1158,18 @@ class Untangler():
                 min_trials=1,
                 max_trials=3,
             )
+            last_model=next_model
             next_model = self.refine(
                 refine_params,
                 **kwargs
             )
+            damp(last_model,next_model)
 
         return next_model
     
         
     #TODO regular_batch_refine and regular_refine should get refine params from same source 
     def regular_batch_refine(self,model_paths:list[str],altloc_subsets_list=None, **kwargs):
-        tmp_refine_dir=f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/Refinement/tmp_refinement/"
-        if os.path.isdir(tmp_refine_dir):
-            shutil.rmtree(tmp_refine_dir)
         param_set:list[tuple[SimpleNamespace,list[str]]] = []
         for i, model in enumerate(model_paths):
             altloc_subset = None if (altloc_subsets_list is None) else altloc_subsets_list[i]
@@ -1216,7 +1243,7 @@ class Untangler():
             return model_path
 
 
-    def regular_refine(self,model_path,altloc_subset=None,num_loops_override=None,refine_H=False,disable_nqh_flips=False,runtag=None,**kwargs)->str:
+    def regular_refine(self,model_path,altloc_subset=None,num_loops_override=None,refine_H=False,disable_nqh_flips=False,runtag=None,ordered_solvent=None,**kwargs)->str:
         print("Performing post-reallotment restrained refinement ")
         tag = "" if runtag is None else f"-{runtag}"
         if self.refinement==self.PHENIX:
@@ -1228,7 +1255,7 @@ class Untangler():
                 hold_water_positions=self.holding_water(),
                 #refine_occupancies=False,
                 #ordered_solvent=False,
-                ordered_solvent=PHENIX_ORDERED_SOLVENT,
+                ordered_solvent=PHENIX_ORDERED_SOLVENT if ordered_solvent is None else ordered_solvent,
                 refine_occupancies=False,
                 disable_NQH_flips=disable_nqh_flips,
                 #max_sigma_movement_of_selected=0.05,
@@ -1271,7 +1298,7 @@ class Untangler():
         return self.loop<self.num_loops_water_held
     def get_out_path(self,out_tag):
         return f"{Untangler.output_dir}{self.model_handle}_{out_tag}.pdb"
-    def refine(self,refine_params:(tuple[SimpleNamespace,list[str]]),debug_skip=False,show_python_params=False,timeout_mins=None, skip_fail=False,delete_old_model_when_done=False)->str:
+    def refine(self,refine_params:(tuple[SimpleNamespace,list[str]]),debug_skip=False,show_python_params=False,timeout_mins=None, skip_fail=False,delete_old_model_when_done=False,remove_tmpdir_on_end=False)->str:
         if timeout_mins is None:
             timeout_mins=3*self.altloc_subset_size
         # assert model_path[-4:]==".pdb", model_path
@@ -1279,7 +1306,7 @@ class Untangler():
         out_path = self.get_out_path(P.out_tag)
         assert os.path.exists(refine_params[0].model_path)
         if not debug_skip:
-            max_attempts=3
+            max_attempts=6
             attempt=0
             backup_path = out_path+'#'
             if os.path.abspath(refine_params[0].model_path)!=os.path.abspath(out_path): # So as not to disrupt multiple refines using same file output name
@@ -1296,7 +1323,7 @@ class Untangler():
 
                 if os.path.exists(out_path): #TODO replace with direct way to check for success
                     break
-                elif attempt < max_attempts:
+                elif attempt+1 < max_attempts:
                     attempt+=1
                     print(f"Warning: refinement failed for unknown reason! Retrying...")
                     sleep(2)
@@ -1308,6 +1335,11 @@ class Untangler():
 
             if delete_old_model_when_done:
                 os.remove(refine_params[0].model_path)
+            if remove_tmpdir_on_end:
+                handle = os.path.basename(out_path)[:-4]
+                tmp_refine_subdir=f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/Refinement/tmp_refinement/{handle}"
+                if os.path.isdir(tmp_refine_subdir):
+                    shutil.rmtree(tmp_refine_subdir)
 
             # NOTE if somethin goes wrong here, the out_path is a file copied from Refinement/tmp_refinement/, so it can be recovered.
             self.prepare_pdb_and_read_altlocs(out_path,out_path+"tmp",sep_chain_format=False) 
@@ -1440,7 +1472,7 @@ class Untangler():
                 args.append(flag)
         return P, args
 
-    def batch_refine(self,batch_tag,refine_arg_sets:list[tuple[SimpleNamespace,list[str]]],debug_skip=False)->str:
+    def batch_refine(self,batch_tag,refine_arg_sets:list[tuple[SimpleNamespace,list[str]]],debug_skip=False,remove_tmpdir_on_end=True)->str:
         out_directory = f"{self.output_dir}/{self.model_handle}_{batch_tag}/"
         if not debug_skip:
             if os.path.isdir(out_directory):
@@ -1462,7 +1494,7 @@ class Untangler():
             def pooled_method(i):
                 sleep(2*(i%self.num_threads)) # Desperate attempt to reduce phenix seg faults.
                 print(f"Refining {i+1}/{len(refine_arg_sets)}")
-                out_path = self.refine(refine_arg_sets[i],skip_fail=True)
+                out_path = self.refine(refine_arg_sets[i],skip_fail=True,remove_tmpdir_on_end=remove_tmpdir_on_end)
 
                 altloc_subset=refine_arg_sets[i][0].altloc_subset
                 if out_path is not None and os.path.exists(out_path):
@@ -1598,6 +1630,7 @@ def main():
         max_num_best_swaps_considered=20,
         starting_num_best_swaps_considered=20,
         altloc_subset_size=2,
+        unrestrained_damp=0,
         #refine_for_positions_geo_weight=0.03,
         refine_for_positions_geo_weight=0,
         num_refine_for_positions_macro_cycles_phenix=1,
