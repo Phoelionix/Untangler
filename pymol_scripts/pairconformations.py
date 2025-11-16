@@ -8,17 +8,32 @@ License:
 
 from pymol import cmd, CmdException
 
-
 # For two ensemble models, split into pairs to give the lowest possible RMSD
 
 # CURRENTLY assumes 2 conformations with altlocs labelled A and B.
+
 def pairconformations(modelA, modelB, doAlign=1, doPretty=1, guide=1, method='super', quiet=1):
+    def sele_exists(sele):
+        sess = cmd.get_session()
+        for i in sess["names"]:
+            if type(i) == list:
+                if sele==i[0]:
+                    return 1
+        return 0
+    
+    def new_name(new_model_name):
+        return_name=new_model_name
+        n=1
+        while sele_exists(f"{return_name}"):
+            return_name=f"{new_model_name}-{n}"
+            n+=1
+        return return_name
     modelA_confs=[]
     modelB_confs=[]
     for altloc in ["A","B"]:
-        modelA_confs.append(f"modelA-{altloc}")
+        modelA_confs.append(new_name(f"{modelA}-{altloc}"))
         cmd.create(modelA_confs[-1], f"model {modelA} and altloc {altloc}")
-        modelB_confs.append(f"modelB-{altloc}")
+        modelB_confs.append(new_name(f"{modelB}-{altloc}"))
         cmd.create(modelB_confs[-1], f"model {modelB} and altloc {altloc}")
     
     options=[]
@@ -37,8 +52,15 @@ def pairconformations(modelA, modelB, doAlign=1, doPretty=1, guide=1, method='su
             best_option=option
     # Remove worse options
     for i,pair in enumerate(best_option):
+        # for model in pair:
+        #     cmd.color({0:"orange",1:"purple"}[i],f"model {model}")
+        for model in pair:
+            cmd.color("grey",f"model {model}")
+            cmd.set_bond("stick_radius",0.1,f"sidechain and {model}")
         colorbyrmsd(*pair, doAlign, doPretty, guide, method, quiet)
-        cmd.group(f"pair-{i}",f"model {pair[0]} or model {pair[1]}")
+        group_name=f"{modelA}-{modelB}-pair-{i}"
+        cmd.delete(group_name)
+        cmd.group(group_name,f"model {pair[0]} or model {pair[1]}")
 
 
     
@@ -213,10 +235,10 @@ EXAMPLE
             b_dict[idx] = b
 
     cmd.alter(seleboth, 'b = b_dict.get((model, index), -1)', space=locals())
-
     if doPretty:
         cmd.orient(seleboth)
         cmd.show_as('cartoon', 'byobj ' + seleboth)
+        cmd.show('sticks', 'byobj ' + seleboth)
         cmd.color('gray', seleboth)
         cmd.spectrum('b', 'blue_red', seleboth + ' and b > -0.5')
 
