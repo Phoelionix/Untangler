@@ -22,6 +22,7 @@ from sklearn.neighbors import KNeighborsClassifier
 import psutil
 from LinearOptimizer.Tension import GeoXrayTension
 from matplotlib import pyplot as plt
+from StructureGeneration.CombineUpdateEnsembles import combine_update_ensembles
 #import create_delta_constraints_file
 
 
@@ -52,8 +53,8 @@ class Untangler():
     # If a model file hasn't been generated, will use the latest filename that exists and is expected to have been generated up to that point in the process.
     debug_skip_refine = False  # Note: Can set to True alongside debug_skip_first_swaps to skip to first proposal
     debug_phenix_ordered_solvent_on_initial=False
-    debug_skip_initial_refine=False
-    debug_skip_first_unrestrained_refine=False
+    debug_skip_initial_refine=True
+    debug_skip_first_unrestrained_refine=True
     never_do_unrestrained=False
     debug_skip_first_swaps=False
     debug_skip_first_focus_swaps=False # many swaps strategy only 
@@ -71,7 +72,7 @@ class Untangler():
     ##
     O_bond_change_period=5
     ####
-    num_threads=15
+    num_threads=20
     class Score():
         def __init__(self,combined,wE,R_work,R_free):
             self.wE=wE
@@ -654,7 +655,7 @@ class Untangler():
         assert minimize_R or minimize_wE # both is okay too
 
         models = os.listdir(model_dir)
-        models = [f"{model_dir}{m}"  for m in models]
+        models = [os.path.join(model_dir,m)  for m in models]
         best_both_decrease = np.inf
         best = np.inf
         best_tie_breaker_meas=np.inf
@@ -686,6 +687,15 @@ class Untangler():
         with Pool(self.num_threads) as p:
             p.map(pooled_method,range(len(models)))
                 
+        for m in models:
+            if not m[0].split("_")[-1].isnumeric():
+                sort_numeric=False
+                break
+        else:
+            sort_numeric=True
+        if sort_numeric:
+            sorted_zip = sorted(zip(models,models_for_scoring),key=lambda x: int(x[0].split("_")[-1]))
+            models, models_for_scoring = zip(*sorted_zip)
 
         best_model_idx=None
         for i, model_for_scoring in enumerate(models_for_scoring):
@@ -800,7 +810,7 @@ class Untangler():
             # Limited options
             if (self.loop+2)%3!=0: # All options
                 subset_size=self.altloc_subset_size
-                num_combinations=3
+                num_combinations=3 
                 altloc_subsets.extend(self.get_altloc_subsets(subset_size,num_combinations))
                 kwargs_list.extend([{} for _ in altloc_subsets])
 
@@ -871,34 +881,52 @@ class Untangler():
             refined_model_dir = self.regular_batch_refine(cand_models,altloc_subsets_list=altloc_subsets_list,
                                                           debug_skip=self.debug_skip_refine)
             #working_model = self.determine_best_model(refined_model_dir)
-            
             minimize_wE = CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH
             minimize_R=True
-            if altloc_subsets is None or all([v is None for v in altloc_subsets]):
+            if not (altloc_subsets is None or all([v is None for v in altloc_subsets])):
                 minimize_R=False
                 minimize_wE=True
-            working_model = self.determine_best_model(refined_model_dir,altloc_subsets_list=altloc_subsets_list, 
-                                                      minimize_R=minimize_R,minimize_wE=minimize_wE) 
+
+            subset_folders=os.listdir(refined_model_dir)
+            assert len(subset_folders)>0           
+            subset_combine_model=working_model[:-4]+"_postRefine.pdb"  
+            for altloc_string in subset_folders:
+                subset_dir=os.path.join(refined_model_dir,altloc_string)
+                if not os.path.isdir(subset_dir):
+                    continue
+                    
+                subset_best_model = self.determine_best_model(subset_dir,altloc_subsets_list=altloc_subsets_list, 
+                                                        minimize_R=minimize_R,minimize_wE=minimize_wE) 
+                if altloc_string == "full":
+                    assert len(subset_folders)==1
+                    working_model=subset_best_model
+                else:
+                    combine_update_ensembles(subset_combine_model,
+                                             [working_model,subset_best_model], 
+                                             [None,altloc_string])
+                    working_model=subset_combine_model
+                
+                
             
-            #### TODO Sucks make better ####
-            best_model_before_refined = os.path.basename(working_model).split("_")[-1]
-            candidate_model_dir = f"{self.output_dir}/{self.model_handle}_swapOptions_{self.loop}/"
-            best_model_before_refined = candidate_model_dir+best_model_before_refined
-            swaps = cand_swaps[cand_models.index(best_model_before_refined)]
-            if measure_preswap_postswap:
-                postswap_score = Untangler.Score(*assess_geometry_wE(best_model_before_refined,self.output_dir))
-                print("Score preswap:",preswap_score) 
-                print("Score postswap:",postswap_score) 
-            ################################
+                # #### TODO Sucks make better ####
+                best_model_before_refined = os.path.basename(subset_best_model).split("_")[-1]
+                candidate_model_dir = f"{self.output_dir}/{self.model_handle}_swapOptions_{self.loop}/"
+                best_model_before_refined = candidate_model_dir+best_model_before_refined
+                swaps = cand_swaps[cand_models.index(best_model_before_refined)]
+                if measure_preswap_postswap:
+                    postswap_score = Untangler.Score(*assess_geometry_wE(best_model_before_refined,self.output_dir))
+                    print("Score preswap:",preswap_score) 
+                    print("Score postswap:",postswap_score) 
+                # ################################
             
-            print("Refining all conformers for best model")
             score_file_needs_generation=False
             if altloc_subsets is None or all([v is None for v in altloc_subsets]):
                 shutil.copy(working_model,self.get_out_path(f"loopEnd{self.loop}"))
             else:
-                working_model=self.regular_refine(working_model,num_loops_override=1, disable_nqh_flips=True,refine_H=True,debug_skip=self.debug_skip_refine,)
-                working_model=self.regular_refine(working_model,num_loops_override=1, debug_skip=self.debug_skip_refine)
-                working_model=self.regular_refine(working_model,num_loops_override=1, disable_nqh_flips=True,debug_skip=self.debug_skip_refine)
+                print("Refining all conformers for best model")
+                working_model=self.regular_refine(working_model,num_loops_override=1, disable_nqh_flips=True,refine_H=True,debug_skip=self.debug_skip_refine,runtag=1)
+                working_model=self.regular_refine(working_model,num_loops_override=1, debug_skip=self.debug_skip_refine,runtag=2,delete_old_model_when_done=True)
+                working_model=self.regular_refine(working_model,num_loops_override=1, disable_nqh_flips=True,debug_skip=self.debug_skip_refine,runtag=None,delete_old_model_when_done=True)
                 score_file_needs_generation=True
 
         elif strategy == Untangler.Strategy.SwapManyPairs:
@@ -1000,12 +1028,14 @@ class Untangler():
 
     def initial_refine(self,model_path,**kwargs)->str:
         # Try to get atoms as close to their true positions as possible
-        for wc, wu, n_cycles, phenix_shake in zip([1,0.5,0.2,0.1],[1,0,0,0],[2,4,5,5],[0.1,0,0,0]):
+        params=list(zip([1,0.5,0.2,0.1],[1,0,0,0],[2,4,5,5],[0.1,0,0,0]))
+        for i, (wc, wu, n_cycles, phenix_shake) in enumerate(params):
         #for wc, wu, n_cycles in zip([1,0.5],[1,0],[8,4]):
         #for wc, wu, n_cycles in zip([1],[1],[self.num_end_loop_refine_cycles]):
+            tag="" if (i == len(params)-1) else f"-{i}"
             if self.refinement==self.PHENIX:
                 refine_params = self.get_refine_params_phenix(
-                    "initial",
+                    "initial"+tag,
                     model_path=model_path,
                     num_macro_cycles=n_cycles,
                     wc=wc,
@@ -1018,7 +1048,7 @@ class Untangler():
                 )
             elif self.refinement == self.REFMAC:
                 refine_params=self.get_refine_params_refmac(
-                    "initial",
+                    "initial"+tag,
                     model_path=model_path,
                     unrestrained=False,
                     # max_trials=100,
@@ -1093,8 +1123,10 @@ class Untangler():
         
     #TODO regular_batch_refine and regular_refine should get refine params from same source 
     def regular_batch_refine(self,model_paths:list[str],altloc_subsets_list=None, **kwargs):
-        shutil.rmtree(f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/Refinement/tmp_refinement/")
-        param_set = []
+        tmp_refine_dir=f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/Refinement/tmp_refinement/"
+        if os.path.isdir(tmp_refine_dir):
+            shutil.rmtree(tmp_refine_dir)
+        param_set:list[tuple[SimpleNamespace,list[str]]] = []
         for i, model in enumerate(model_paths):
             altloc_subset = None if (altloc_subsets_list is None) else altloc_subsets_list[i]
             if self.refinement==self.PHENIX:
@@ -1167,11 +1199,12 @@ class Untangler():
             return model_path
 
 
-    def regular_refine(self,model_path,altloc_subset=None,num_loops_override=None,refine_H=False,disable_nqh_flips=False,**kwargs)->str:
+    def regular_refine(self,model_path,altloc_subset=None,num_loops_override=None,refine_H=False,disable_nqh_flips=False,runtag=None,**kwargs)->str:
         print("Performing post-reallotment restrained refinement ")
+        tag = "" if runtag is None else f"-{runtag}"
         if self.refinement==self.PHENIX:
             refine_params = self.get_refine_params_phenix(
-                f"loopEnd{self.loop}",
+                f"loopEnd{self.loop}{tag}",
                 model_path=model_path,
                 num_macro_cycles=self.num_end_loop_refine_cycles if num_loops_override is None else num_loops_override,
                 wc= self.wc_anneal_start if self.wc_anneal_loops==0 else min(self.default_wc,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(self.default_wc-self.wc_anneal_start)),
@@ -1221,7 +1254,9 @@ class Untangler():
         return self.loop<self.num_loops_water_held
     def get_out_path(self,out_tag):
         return f"{Untangler.output_dir}{self.model_handle}_{out_tag}.pdb"
-    def refine(self,refine_params:(tuple[SimpleNamespace,list[str]]),debug_skip=False,show_python_params=False)->str:
+    def refine(self,refine_params:(tuple[SimpleNamespace,list[str]]),debug_skip=False,show_python_params=False,timeout_mins=None, skip_fail=False,delete_old_model_when_done=False)->str:
+        if timeout_mins is None:
+            timeout_mins=3*self.altloc_subset_size
         # assert model_path[-4:]==".pdb", model_path
         P, args = refine_params
         out_path = self.get_out_path(P.out_tag)
@@ -1237,7 +1272,10 @@ class Untangler():
                 if show_python_params:
                     print (f"Params: {P}")
                 print (f"|+ Running: {' '.join(args)}")
-                subprocess.run(args)#,stdout=log)
+                try:
+                    subprocess.run(args,timeout=60*timeout_mins)#,stdout=log)
+                except:
+                    print("timeout")
 
                 if os.path.exists(out_path): #TODO replace with direct way to check for success
                     break
@@ -1245,9 +1283,15 @@ class Untangler():
                     attempt+=1
                     print(f"Warning: refinement failed for unknown reason! Retrying...")
                     sleep(2)
+                elif skip_fail:
+                    print(f"refinement failed {max_attempts} times! Skipping...")
+                    return None
                 else:
                     raise Exception(f"refinement failed {max_attempts} times!")
-        
+
+            if delete_old_model_when_done:
+                os.remove(refine_params[0].model_path)
+
             # NOTE if somethin goes wrong here, the out_path is a file copied from Refinement/tmp_refinement/, so it can be recovered.
             self.prepare_pdb_and_read_altlocs(out_path,out_path+"tmp",sep_chain_format=False) 
             shutil.move(out_path+"tmp",out_path)
@@ -1379,34 +1423,37 @@ class Untangler():
                 args.append(flag)
         return P, args
 
-    def batch_refine(self,batch_tag,refine_arg_sets:list[dict[str]],debug_skip=False)->str:
+    def batch_refine(self,batch_tag,refine_arg_sets:list[tuple[SimpleNamespace,list[str]]],debug_skip=False)->str:
         out_directory = f"{self.output_dir}/{self.model_handle}_{batch_tag}/"
-        os.makedirs(out_directory,exist_ok=True) 
-        # Remove files from any previous call
         if not debug_skip:
-            for file in os.listdir(out_directory):
-                os.remove(out_directory + file) 
+            if os.path.isdir(out_directory):
+                shutil.rmtree(out_directory) 
+            os.makedirs(out_directory,exist_ok=True) 
+            # Remove files from any previous call
 
-        # TODO folder in output/refine_logs/
+            def subfolder_path(altloc_subset):
+                if altloc_subset is None:
+                    return os.path.join(out_directory,"full","")
+                return os.path.join(out_directory,"".join(altloc_subset),"")
+            print(subfolder_path("AB"))
+            for altloc_subset in [arg_set[0].altloc_subset for arg_set in refine_arg_sets]:
+                os.makedirs(subfolder_path(altloc_subset),exist_ok=True) 
+
+            # TODO folder in output/refine_logs/
         
             global pooled_method # not sure if this is a good idea. Did this because it tries to pickle but fails if local. Try replacing with line: multiprocessing.set_start_method(‘fork’)
             def pooled_method(i):
-                max_attempts=3
-                attempt=0
-                while True:
-                    sleep(0.2*i) # Desperate attempt to reduce phenix seg faults.
-                    print(f"Refining {i+1}/{len(refine_arg_sets)}")
-                    out_path = self.refine(refine_arg_sets[i])
-                    out_directory = f"{self.output_dir}/{self.model_handle}_{batch_tag}/"
-                    if os.path.exists(out_path):
-                        shutil.move(out_path,f"{out_directory}{batch_tag}_{i+1}.pdb") 
-                        break
-                    elif attempt < max_attempts:
-                        attempt+=1
-                        print(f"Warning: refinement {i} failed for unknown reason! Retrying...")
-                    else:
-                        print(f"Warning: refinement {i} failed {max_attempts} times! Skipping...")
-                        break
+                sleep(2*(i%self.num_threads)) # Desperate attempt to reduce phenix seg faults.
+                print(f"Refining {i+1}/{len(refine_arg_sets)}")
+                out_path = self.refine(refine_arg_sets[i],skip_fail=True)
+
+                altloc_subset=refine_arg_sets[i][0].altloc_subset
+                if out_path is not None and os.path.exists(out_path):
+                    shutil.move(out_path,os.path.join(
+                        subfolder_path(altloc_subset),f"{batch_tag}_{i+1}.pdb"
+                    )) 
+                else:
+                    print(f"Warning: refinement {i} failed! Skipping...")
             with Pool(self.num_threads) as p:
                 p.map(pooled_method,range(len(refine_arg_sets)))
         return out_directory
@@ -1530,7 +1577,7 @@ def main():
     Untangler(
         # max_num_best_swaps_considered=5,
         default_wc=1,
-        num_end_loop_refine_cycles=6,
+        num_end_loop_refine_cycles=3,
         max_num_best_swaps_considered=20,
         starting_num_best_swaps_considered=20,
         altloc_subset_size=2,

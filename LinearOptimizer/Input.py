@@ -1087,26 +1087,12 @@ class LP_Input:
         min_tension_where_anything_goes={}
     elif MODE=="HIGH_TOL":
         max_sigmas={
-            # ConstraintsHandler.BondConstraint:4,
-            # ConstraintsHandler.AngleConstraint:4,
-            #ConstraintsHandler.BondConstraint:6,
-            #ConstraintsHandler.AngleConstraint:3,
             ConstraintsHandler.BondConstraint:10,
             ConstraintsHandler.AngleConstraint:4,
-            #ConstraintsHandler.NonbondConstraint:4,
-            # ConstraintsHandler.BondConstraint:2,
-            # ConstraintsHandler.AngleConstraint:2,
-            # ConstraintsHandler.BondConstraint:99,
-            # ConstraintsHandler.AngleConstraint:99,
         }    
         min_sigmas_where_anything_goes={
             ConstraintsHandler.BondConstraint:2,
-            ConstraintsHandler.AngleConstraint:2,
             ConstraintsHandler.NonbondConstraint:2,
-            # ConstraintsHandler.BondConstraint:4,
-            # ConstraintsHandler.AngleConstraint:4,
-            # ConstraintsHandler.BondConstraint:99,
-            # ConstraintsHandler.AngleConstraint:99,
         } 
         min_tension_where_anything_goes={
             ConstraintsHandler.BondConstraint:5,
@@ -1119,15 +1105,8 @@ class LP_Input:
             # ConstraintsHandler.ClashConstraint:7,
         } 
     elif MODE=="LOW_TOL":
-        # max_sigmas={
-        #     ConstraintsHandler.BondConstraint:1.5,
-        #     ConstraintsHandler.AngleConstraint:1.5,
-        # }    
         max_sigmas={
-            #ConstraintsHandler.BondConstraint:8,
-            #ConstraintsHandler.AngleConstraint:3,
             ConstraintsHandler.BondConstraint:8,
-            #ConstraintsHandler.NonbondConstraint:3,
             ConstraintsHandler.AngleConstraint:2.5,
         }    
         min_sigmas_where_anything_goes={

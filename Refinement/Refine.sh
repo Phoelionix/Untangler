@@ -293,11 +293,14 @@ mkdir -p $TMPDIR
 
 # env -i PATH=/usr/local/phenix-2/build/bin:/usr/bin:/bin \
 #   PHENIX=/usr/local/phenix-2 \
+final_structure=${out_handle}_${serial}.pdb
+if [ -f $final_structure ]; then 
+  mv $final_structure $final_structure#
+fi
 echo "Refining $out_handle"
 phenix.refine $paramFile > $logs_path/${out_handle}.log
 unset TMPDIR
 
-final_structure=${out_handle}_${serial}.pdb
 
 if [ ! -f $final_structure ]; then 
   echo "$final_structure missing, refinement failed for unknown reason"

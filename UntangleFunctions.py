@@ -85,7 +85,7 @@ def get_score(score_file,phenixgeometry_only=False,verbose=True):
 def batch_create_score_files(pdb_file_path,log_out_folder_path):
     assert False, "Unimplemented"
 
-def create_score_file(pdb_file_path,log_out_folder_path,ignore_H=False,turn_off_cdl=False,reflections_for_R:str=None,skip_fail=False): 
+def create_score_file(pdb_file_path,log_out_folder_path,ignore_H=False,turn_off_cdl=False,reflections_for_R:str=None,skip_fail=False,timeout_mins=5): 
     # model_and_reflections_for_R overrides the R and R free values in the pdb path.
 
     holton_folder_path = UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/"
@@ -122,7 +122,10 @@ def create_score_file(pdb_file_path,log_out_folder_path,ignore_H=False,turn_off_
             Rwork,Rfree=get_R(pdb_file_path,reflections_for_R)
             args+= ["-W",str(Rwork),"F",str(Rfree)]
         print (f"|+ Running: {' '.join(args)}")
-        subprocess.run(args)
+        try:
+            subprocess.run(args,timeout=60*timeout_mins)#,stdout=log)
+        except:
+            print("timeout")
     if os.path.exists(score_file):
         print("finished")
         print("--==--")
