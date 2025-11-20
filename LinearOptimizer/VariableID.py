@@ -23,6 +23,9 @@ class VariableID:
         self.kind = kind
         self.site_num=site_num
         self.is_water = is_water
+    def get_site_num(self):
+        return self.site_num
+    ###
     def __repr__(self):
         return self.name
     def __hash__(self):

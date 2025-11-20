@@ -12,25 +12,7 @@
 
 # See phenix-2.0-5793/lib/python3.9/site-packages/cctbx/geometry_restraints/tst_process_nonbonded_proxies.py
 
-# if not running phenix.python... and just python3.9...
-
 import sys,os
-# # old_sys_path = [p for p in sys.path]
-
-# # sys.path=[os.path.join(os.environ["PHENIX"],"lib","python3.9","site-packages")]
-
-
-# phenix_lib = os.path.join(os.environ["PHENIX"],"lib","python3.9","site-packages")
-
-# if phenix_lib not in sys.path:
-#     sys.path.append(phenix_lib)
-
-# # Ensure required Phenix environment variables exist
-# #os.environ.setdefault("PHENIX", phenix_root)
-# os.environ.setdefault("LIBTBX_BUILD", os.path.join(os.environ["PHENIX"], "share","cctbx"))
-# #os.environ.setdefault("CCTBX_BUILD", os.path.join(phenix_root, "share"))
-# #os.environ["PHENIX_RESOURCES"] = os.path.join(phenix_root, "share")
-
 from cctbx.geometry_restraints import process_nonbonded_proxies,pair_proxies, manager
 import mmtbx.model
 import iotbx
@@ -167,7 +149,6 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
 
         
 
-    num_skipped=0
     out_data=[]
     for i, item in enumerate(nonbonded_list):
         if i%100000==0:

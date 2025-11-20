@@ -841,9 +841,13 @@ class ConstraintsHandler:
 
 
 
+
+        phenix_vdw_distances_table:dict[tuple[OrderedTag,OrderedTag,bool],float]={}        
         vdw_mon_lib_energy_name_dict:dict[dict[str]] = {}
         lj_mon_lib_energy_name_dict:dict[dict[str]] = {}
-        if MON_LIB_NONBOND:
+        if all([constr in constraints_to_skip for constr in (ConstraintsHandler.NonbondConstraint,ConstraintsHandler.ClashConstraint)]):
+            pass
+        elif MON_LIB_NONBOND:
             assert False
             for res in "HOH, ALA, ARG, ASN, ASP, CYS, GLU, GLN, GLY, HIS, ILE, LEU, LYS, MET, PHE, PRO, SER, THR, TRP, TYR, VAL".split(", "):
                 vdw_mon_lib_energy_name_dict[res],lj_mon_lib_energy_name_dict[res]=get_mon_lib_names(res)
@@ -851,7 +855,6 @@ class ConstraintsHandler:
             vdw_radii = read_vdw_radii(with_H=not IGNORE_HYDROGEN_CLASHES)
             lj_params = read_lj_parameters()
         else:
-            phenix_vdw_distances_table:dict[tuple[OrderedTag,OrderedTag,bool],float]={}
             for pdb1, pdb2, vdw_sum,is_symm in get_cross_conf_nonbonds(pdb_file_for_nonbonds):
                 conformer_tags = ConstraintsHandler.Constraint.ORDERED_site_tags_from_pdb_ids((pdb1,pdb2)) 
                 key = tuple(conformer_tags)+(is_symm,) # NOTE Order matters
@@ -867,7 +870,7 @@ class ConstraintsHandler:
         
 
         general_water_nonbond=True
-        water_water_nonbond=False
+        water_water_nonbond=water_water_nonbond
         protein_protein_nonbonds=True
         cross_conformation_clashes = True
         num_clashes_found=0
@@ -1019,6 +1022,8 @@ class AtomChunk(OrderedResidue):
         return self.coord
     def get_disordered_tag(self):
         return DisorderedTag(self.get_resnum(),self.name)
+    def get_ordered_tag(self):
+        return OrderedTag(self.get_resnum(),self.name,self.altloc)
     def unique_id(self):
         return f"{self.depth_tag}&{self.get_site_num()}.{self.get_altloc()}&{self.get_disordered_tag()}"
 
@@ -1044,6 +1049,9 @@ class DisorderedTag():
     def __hash__(self):
         return hash((self._resnum, self.atom_name()))
 
+    def ordered_tag(self,altloc:str):
+        return OrderedTag(self.resnum(),self.atom_name(),altloc)
+
     def __eq__(self, other:'DisorderedTag'):
         return (self._resnum, self.atom_name()) == (other._resnum, other.atom_name())
     def __ne__(self, other):
@@ -1060,9 +1068,9 @@ class OrderedTag(DisorderedTag):
     def disordered_tag(self):
         return DisorderedTag(self.resnum(),self.atom_name())
     def __repr__(self):
-        return f"{self.resnum()}.{self.atom_name()}.{self.altloc}"
+        return f"{self.resnum()}.{self.atom_name()}.{self.altloc()}"
     def __hash__(self):
-        return hash((self._resnum, self.atom_name(),self.altloc))
+        return hash((self._resnum, self.atom_name(),self.altloc()))
 
     def __eq__(self, other:'OrderedTag'):
         return (self._resnum, self.atom_name(),self.altloc()) == (other._resnum, other.atom_name(),other.altloc())
@@ -1279,6 +1287,7 @@ class LP_Input:
             self.atom_chunks = atom_chunks
             self.from_altlocs=[a.get_altloc() for a in atom_chunks]
             self.res_nums=[a.get_resnum() for a in atom_chunks]
+            self.atom_names=[a.name for a in atom_chunks]
             self.connection_type=connection_type
             self.ts_distance=ts_distance  # NOTE As in the travelling salesman problem sense
             self.hydrogen_tag=""
@@ -1328,7 +1337,7 @@ class LP_Input:
                                                      altloc_subset=altloc_subset,
                                                      allowed_resnums=resnums,allowed_resnames=resnames)   
         self.model_path=LP_Input.subset_model_path(pdb_file_path,altloc_subset)
-        self.restrained_model_path=restrained_refine_pdb_file_path
+        self.restrained_model_path=restrained_refine_pdb_file_path # TODO make optional arg default None. And if None, then in calculate_paths, set original clashes to [].
         self.APPLY_TENSION_MOD=APPLY_TENSION_MOD
         
     def align_uncertainty(self,structure:Structure.Structure):
@@ -1353,9 +1362,13 @@ class LP_Input:
         assert pdb_file_path[-4:]==".pdb",pdb_file_path
         return os.path.join(UntangleFunctions.separated_conformer_pdb_dir(), os.path.basename(pdb_file_path)[:-4]+tag+".pdb")
     @staticmethod
-    def prepare_geom_files(base_model_path,all_altloc_subsets,num_threads=10,water_swaps=True,allowed_resnums=None,allowed_resnames=None,waters=True):
+    def prepare_geom_files(base_model_path,all_altloc_subsets:list[str],num_threads=10,water_swaps=False,allowed_resnums=None,allowed_resnames=None,waters=True):
+        if all_altloc_subsets is None:
+            all_altloc_subsets=[None]
         if all_altloc_subsets==[None]:
             print("Considering full set of altlocs")
+        elif (type(all_altloc_subsets)==str) or len(all_altloc_subsets[0])==1:
+            raise Exception(f"all_altloc_subsets is {all_altloc_subsets}. But it should be either 1. a list of altloc subsets (strings with more than 1 character/altloc) to prepare files for, or 2. None, to consider all altlocs")
 
         original_structure = PDBParser().get_structure("struct",base_model_path)
         subset_model_paths=[]
@@ -1379,7 +1392,7 @@ class LP_Input:
             p.map(pooled_method,range(len(subset_model_paths)))
             
 
-    '''
+    ''' Assess conformations separately. TODO implement
     def geo_model_paths(pdb_file_path,altloc_subset:list[str]):
         assert pdb_file_path[-4:]==".pdb",pdb_file_path
         assert altloc_subset is not None
@@ -1393,7 +1406,7 @@ class LP_Input:
             
 
     @staticmethod
-    def prepare_geom_files(base_model_path,all_altloc_subsets,num_threads=10,water_swaps=True):
+    def prepare_geom_files(base_model_path,all_altloc_subsets,num_threads=10,water_swaps=False):
 
         original_structure = PDBParser().get_structure("struct",base_model_path)
 
@@ -1441,7 +1454,7 @@ class LP_Input:
         return UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/HoltonOutputs/"
     
     @staticmethod
-    def prepare_geom_files_for_one_subset(model_path,water_swaps=True,turn_off_cdl=False):
+    def prepare_geom_files_for_one_subset(model_path,water_swaps=False,turn_off_cdl=False):
         UntangleFunctions.assess_geometry_wE(model_path,LP_Input.geo_log_out_folder(),turn_off_cdl=turn_off_cdl) 
         model_water_swapped_path=UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{LP_Input.water_swapped_handle(model_path)}.pdb"
         if water_swaps and not DISABLE2WATERFLIP:
@@ -1455,6 +1468,7 @@ class LP_Input:
     def calculate_paths(self,scoring_function,quick_wE=False, dry_run=False,atoms_only=True,
                         clash_punish_thing=False,nonbonds=True,water_water_nonbond=None,
                         constraint_weights:dict[Type,float]=None,
+                        force_solution_reference:dict[OrderedTag,str]=None # dict of serial numbers with altloc labels. All with same label will be put in same conformation. The actual label of each conformation in the output file may be different. This only specifies which are to be in the same conformation.
                         )->tuple[list[Chunk],dict[str,list[AtomChunkConnection]]]: #disorderedResidues:list[Residue]
         print("Calculating geometric costs for all possible connections between chunks of atoms (pairs for bonds, triplets for angles, etc.)")
         
@@ -1472,7 +1486,7 @@ class LP_Input:
                 constraint_weights[key]=1
 
         if water_water_nonbond is None:
-            water_water_nonbond = self.ordered_atom_lookup.has_water()
+            water_water_nonbond = self.ordered_atom_lookup.waters_allowed
         if not self.ordered_atom_lookup.waters_allowed and (water_water_nonbond):
             assert False
 
@@ -1513,6 +1527,7 @@ class LP_Input:
 
             tripletAtoms = "TODO"
 
+        # TODO Deprecated. Replace with OrderedTag
         def atom_id_from_params(atom_name,atom_altloc,atom_res_seq_num):
             return f"{atom_name}.{atom_altloc}{atom_res_seq_num}"
         atom_chunks:dict[str,AtomChunk] = {}
@@ -1523,11 +1538,6 @@ class LP_Input:
         
         nonbond_scores_path=nonbond_water_flipped_scores_path=None
         model_handle = UntangleFunctions.model_handle(self.model_path)
-
-        needToFixWaterAltlocsDebugging=False
-        if needToFixWaterAltlocsDebugging:
-            nonbonds = False; water_water_nonbond=False ###################### XXX TEMPORARY !!!!!!!!!!!!!!!!!!!!!!!!!
-            print("WARNING: nonbonds force-disabled for debugging")
 
         # Generate geo file
         nonbond_scores_files = []
@@ -1565,6 +1575,8 @@ class LP_Input:
                 #nonbond_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_scorednonbond.txt"
                 clashes_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_clashes.txt"
                 print(f"Reading clashes from {clashes_path}")
+                assert os.path.exists(clashes_path), f"{clashes_path} does not exist. Was LP_Input.prepare_geom_files() run?" 
+                assert os.path.isfile(clashes_path), f"{clashes_path} is a directory!" 
                 with open(clashes_path) as clashes_file:
                     for line in clashes_file:
                         #pdb1 = f"{name}     ARES     A      {res_num}"
@@ -1831,51 +1843,66 @@ class LP_Input:
             disordered_connections[connection_id].append(connection)
         
 
-        # If the current connections have a tension above a certain value, let solver consider all alternatives.
-        print(f"Re-enabling connections that are alternatives to current connections with tension > {LP_Input.min_tension_where_anything_goes}")
-        num_bad_current_disordered_connections={k:0 for k in LP_Input.min_tension_where_anything_goes}
-        num_connections_re_enabled={k:0 for k in LP_Input.min_tension_where_anything_goes}
-        for disordered_connection_id, ordered_connections in disordered_connections.items():
-
-            conn_type = ordered_connections[0].connection_type
-            if conn_type not in LP_Input.min_tension_where_anything_goes:
-                continue
-            if ordered_connections[0].max_site_tension >= LP_Input.min_tension_where_anything_goes[conn_type]:
-                num_bad_current_disordered_connections[conn_type]+=1
-            else: continue
-
-            for conn in ordered_connections:
-                if conn.forbidden:
-                    num_connections_re_enabled[conn.connection_type]+=1
-                conn.forbidden=False
-                if conn.single_altloc():
-                    if conn_type == ConstraintsHandler.AngleConstraint:
-                        conn.ts_distance*=high_tension_penalty
-        print(f"Number of high tension disordered connections detected: {num_bad_current_disordered_connections}") 
-        print(f"Ordered connections re-enabled: {num_connections_re_enabled}")
-        # If the current connections have a sigma above a certain value, let solver consider all alternatives.
-
-        if not TURN_OFF_MIN_SIGMAS:
-            print(f"Re-enabling connections that are alternatives to current connections with sigma > {LP_Input.min_sigmas_where_anything_goes}")
-            num_bad_current_disordered_connections={k:0 for k in LP_Input.min_sigmas_where_anything_goes}
-            num_connections_re_enabled={k:0 for k in LP_Input.min_sigmas_where_anything_goes}
+        if force_solution_reference is not None:
             for disordered_connection_id, ordered_connections in disordered_connections.items():
-                if ordered_connections[0].outlier_ok:  # XXX represents disordered connection
-                    continue
-                
-                if ordered_connections[0].connection_type not in LP_Input.min_sigmas_where_anything_goes:
-                    continue
                 for conn in ordered_connections:
-                    if conn.single_altloc() and conn.z_score >= LP_Input.min_sigmas_where_anything_goes[conn.connection_type]:
-                        num_bad_current_disordered_connections[conn.connection_type]+=1
-                        break
+                    ordered_tags = [ach.get_ordered_tag() for ach in conn.atom_chunks]
+                    solution_to_altlocs = [force_solution_reference[tag] for tag in ordered_tags]
+                    # If connection is between two atoms that are not in the same conformation in the forced solution, forbid it. 
+                    conn.forbidden = len(set(solution_to_altlocs))!=1
+                    # if ordered_tags[0].resnum() <= 8 and len(ordered_tags)==2:
+                    #     print(ordered_tags, "ON" if not conn.forbidden else "")
+                    #     print([ach.altloc for ach in conn.atom_chunks],solution_to_altlocs)
+                    
+                # forbid connections between
+        else:
+            # If the current connections have a tension above a certain value, let solver consider all alternatives.
+            print(f"Re-enabling connections that are alternatives to current connections with tension > {LP_Input.min_tension_where_anything_goes}")
+            num_bad_current_disordered_connections={k:0 for k in LP_Input.min_tension_where_anything_goes}
+            num_connections_re_enabled={k:0 for k in LP_Input.min_tension_where_anything_goes}
+            for disordered_connection_id, ordered_connections in disordered_connections.items():
+
+                conn_type = ordered_connections[0].connection_type
+                if conn_type not in LP_Input.min_tension_where_anything_goes:
+                    continue
+                if ordered_connections[0].max_site_tension >= LP_Input.min_tension_where_anything_goes[conn_type]:
+                    num_bad_current_disordered_connections[conn_type]+=1
                 else: continue
+
                 for conn in ordered_connections:
                     if conn.forbidden:
                         num_connections_re_enabled[conn.connection_type]+=1
                     conn.forbidden=False
-            print(f"Number of high sigma disordered connections detected: {num_bad_current_disordered_connections}") 
+                    if conn.single_altloc():
+                        if conn_type == ConstraintsHandler.AngleConstraint:
+                            conn.ts_distance*=high_tension_penalty
+            print(f"Number of high tension disordered connections detected: {num_bad_current_disordered_connections}") 
             print(f"Ordered connections re-enabled: {num_connections_re_enabled}")
+            # If the current connections have a sigma above a certain value, let solver consider all alternatives.
+
+            if not TURN_OFF_MIN_SIGMAS:
+                print(f"Re-enabling connections that are alternatives to current connections with sigma > {LP_Input.min_sigmas_where_anything_goes}")
+                num_bad_current_disordered_connections={k:0 for k in LP_Input.min_sigmas_where_anything_goes}
+                num_connections_re_enabled={k:0 for k in LP_Input.min_sigmas_where_anything_goes}
+                for disordered_connection_id, ordered_connections in disordered_connections.items():
+                    if ordered_connections[0].outlier_ok:  # XXX represents disordered connection
+                        continue
+                    
+                    if ordered_connections[0].connection_type not in LP_Input.min_sigmas_where_anything_goes:
+                        continue
+                    for conn in ordered_connections:
+                        if conn.single_altloc() and conn.z_score >= LP_Input.min_sigmas_where_anything_goes[conn.connection_type]:
+                            num_bad_current_disordered_connections[conn.connection_type]+=1
+                            break
+                    else: continue
+                    for conn in ordered_connections:
+                        if conn.forbidden:
+                            num_connections_re_enabled[conn.connection_type]+=1
+                        conn.forbidden=False
+                print(f"Number of high sigma disordered connections detected: {num_bad_current_disordered_connections}") 
+                print(f"Ordered connections re-enabled: {num_connections_re_enabled}")
+
+        
 
 
 
@@ -1886,5 +1913,5 @@ class LP_Input:
 
 
         #finest_depth_chunks=orderedResidues
-        finest_depth_chunks=atom_chunks
+        finest_depth_chunks=list(atom_chunks.values())
         return finest_depth_chunks,disordered_connections

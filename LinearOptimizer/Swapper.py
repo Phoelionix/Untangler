@@ -218,6 +218,7 @@ class Swapper():
         assert model_path[-4:]==".pdb", model_path
         model_handle = os.path.basename(model_path)[:-4]
         out_path = f"{os.path.abspath(os.getcwd())}/output/{model_handle}_lpSwapped.pdb"
+        assert os.path.abspath(out_path)!=os.path.abspath(model_path)
 
         swap_group: Swapper.SwapGroup = self.swap_groups_sorted[self.sol_idx]
         assert isinstance(swap_group,Swapper.SwapGroup)

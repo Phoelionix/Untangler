@@ -110,7 +110,6 @@ def create_score_file(pdb_file_path,log_out_folder_path,ignore_H=False,turn_off_
         i+=1 
         sleep(1)
         print("--==--")
-        print (f"running {generate_holton_data_shell_file}")
         rel_path = os.path.relpath(pdb_file_path,start=holton_folder_path)
         #with open(log_out_folder_path+f"{handle}_log.txt","w") as log:
         args = ["bash", f"{generate_holton_data_shell_file}",f"{rel_path}"]
@@ -124,8 +123,8 @@ def create_score_file(pdb_file_path,log_out_folder_path,ignore_H=False,turn_off_
         print (f"|+ Running: {' '.join(args)}")
         try:
             subprocess.run(args,timeout=60*timeout_mins)#,stdout=log)
-        except:
-            print("timeout")
+        except Exception as e:
+            print(f"Error: {e}")
     if os.path.exists(score_file):
         print("finished")
         print("--==--")
@@ -313,5 +312,185 @@ def two_key_read(dict_obj,dict_name,key1,key2):
             for k in dict_obj[key1]:
                 print(k)
         raise Exception(exception)
+    
 
+def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False):
+        # Gets into format we expect. !!!!!!Assumes single chain!!!!!
+        def replace_occupancy(line,occ):
+            occ=f"{occ:.3f}"
+            occ = ' '*(6-len(occ))+occ
+            return line[:54] + occ + line[60:]
+        def replace_chain(line,chain_id):
+            chain_id = str(chain_id)
+            assert len(chain_id)==1
+            return line[:21]+chain_id+line[22:]
+        def replace_serial_num(line,serial_num):
+            serial_num = str(serial_num)
+            serial_num = ' '*(5-len(serial_num))+serial_num
+            return line[:6]+serial_num+line[11:]
+        def replace_altloc(line,altloc):
+            return line[:16]+altloc+line[17:]
+        def replace_res_num(line,res_num):
+            res_num = str(res_num)
+            res_num = ' '*(4-len(res_num))+res_num
+            return line[:22]+res_num+line[26:]
+            
+        protein_altlocs = []
+        solvent_altlocs = []
+        with open(pdb_path) as I:
+            max_resnum=0
+            start_lines = []
+            solvent_lines=[]
+            end_lines = []
+            atom_dict:dict[str,dict[str,dict[str,str]]] = {}  
+            last_chain=None
+            solvent_res_names=["HOH"]
+            solvent_chain_id = "z"
+            warned_collapse=False
+
+            for line in I:
+                if line.startswith("TER") or line.startswith("ANISOU"):
+                    continue
+                start_strs_considered = ["ATOM","HETATM"]
+                for s in start_strs_considered:
+                    if line.startswith(s):
+                        break
+                else: # Not modifying
+                    if len(atom_dict)==0:
+                        start_lines+=line
+                    else:
+                        end_lines += line
+                    continue
+
+                # Modifying
+                name = line[12:16].strip()
+                altloc = line[16]
+                resname = line[17:20]
+                space = line[20]
+                chain = line[21]
+                resnum = int(line[22:26])
+                if altloc == ' ' and altloc_from_chain_fix:
+                    altloc = chain
+                    line = replace_altloc(line,altloc)
+                if resname in solvent_res_names:
+                    solvent_lines.append(replace_chain(line,solvent_chain_id))
+                    if altloc not in solvent_altlocs:
+                        solvent_altlocs.append(altloc) 
+                    continue
+                assert len(end_lines)==0
+                
+                # Non-solvent atoms
+                if not sep_chain_format and not warned_collapse and chain != last_chain and last_chain is not None:
+                    print("Warning: Multiple chains detected. Collapsing chains into single chain")
+                    warned_collapse=True
+                if resnum not in atom_dict:
+                    atom_dict[resnum] = {}
+                
+                assert (altloc != ' '), line 
+
+                if altloc not in atom_dict[resnum]:
+                    atom_dict[resnum][altloc] = {}
+                    
+                    if altloc not in protein_altlocs:
+                        protein_altlocs.append(altloc) 
+                
+                atom_dict[resnum][altloc][name]=line  
+                max_resnum=max(resnum,max_resnum)
+                last_chain = chain
+                continue
+                    
+        n=0
+        # Add non-solvent atoms
+        if not sep_chain_format: # format for untangler stuff
+            protein_chain_id = "A"
+            for res_atom_dict in atom_dict.values():
+                for altloc_atom_dict in res_atom_dict.values():
+                    for line in altloc_atom_dict.values():
+                        n+=1
+                        modified_line = line
+                        
+                        modified_line = replace_occupancy(modified_line,
+                            1/len(protein_altlocs)) # Set occupancies to all be same
+                        modified_line = replace_chain(modified_line,protein_chain_id)
+                        modified_line = replace_serial_num(modified_line,n)
+                        start_lines.append(modified_line)
+        else: # Note that lines for each chain need to be contiguous in the file
+            chain_dict={}
+            for res_atom_dict in atom_dict.values():
+                for altloc, altloc_atom_dict in res_atom_dict.items():
+                    protein_chain_id = altloc
+                    for line in altloc_atom_dict.values():
+                        n+=1
+                        modified_line = line
+                        modified_line = replace_occupancy(modified_line,
+                            1/len(protein_altlocs)) # Set occupancies to all be same
+                        modified_line = replace_chain(modified_line,protein_chain_id)
+                        modified_line = replace_serial_num(modified_line,n)
+                        if altloc not in chain_dict:
+                            chain_dict[altloc]=[]
+                        chain_dict[altloc].append(modified_line)
+            for _, lines in chain_dict.items():
+                for modified_line in lines:
+                    start_lines.append(modified_line)
+
+        # Make sure waters don't share residue numbers with protein
+        min_solvent_resnum=99999999
+        for line in solvent_lines:
+            solvent_resnum=int(line[22:26])
+            min_solvent_resnum = min(solvent_resnum,min_solvent_resnum)
+        shift = max_resnum-min_solvent_resnum + 1
+        new_solvent_resnum_dict = {}
+        for line in solvent_lines:
+            solvent_resnum=int(line[22:26])
+            # In case of gaps...
+            if solvent_resnum not in new_solvent_resnum_dict:
+                if (solvent_resnum+shift)-max_resnum > 1:
+                    shift = max_resnum-solvent_resnum + 1 
+                elif (solvent_resnum+shift)-max_resnum < 0:
+                    print(f"Warning, are solvent res nums out of order? {max_resnum,solvent_resnum,shift, min_solvent_resnum, max_resnum, out_path}")
+                max_resnum = shift+solvent_resnum
+                new_solvent_resnum_dict[solvent_resnum]=max_resnum
+            
+            
+            modified_line = replace_res_num(line,new_solvent_resnum_dict[solvent_resnum])
+            start_lines.append(modified_line)
+
+        with open(out_path,'w') as O:
+            O.writelines(start_lines+end_lines)
+
+
+def get_altlocs_from_pdb(pdb_path):
+            
+        protein_altlocs = []
+        solvent_altlocs = []
+        with open(pdb_path) as I:
+            solvent_res_names=["HOH"]
+
+            for line in I:
+                if line.startswith("TER") or line.startswith("ANISOU"):
+                    continue
+                start_strs_considered = ["ATOM","HETATM"]
+                for s in start_strs_considered:
+                    if line.startswith(s):
+                        break
+                else: 
+                    continue 
+
+                # Atom entries
+                altloc = line[16]
+                resname = line[17:20]
+                if resname in solvent_res_names:
+                    if altloc not in solvent_altlocs:
+                        solvent_altlocs.append(altloc) 
+                    continue
+                
+                # Non-solvent atoms
+                
+                assert (altloc != ' '), line 
+
+
+                if altloc not in protein_altlocs:
+                    protein_altlocs.append(altloc) 
+
+        return set(protein_altlocs),set(solvent_altlocs)
 # %%
