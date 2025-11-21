@@ -42,6 +42,9 @@ def evaluate_tangle(model, ground_truth):
     avg_dict_model=get_avg_coord_dict(model_lookup)
     avg_dict_truth=get_avg_coord_dict(truth_lookup)
 
+    forbid_ring_changes=True
+    if forbid_ring_changes:
+        print("WARNING: ring changes ignored")
     for res_num in truth_lookup.better_dict:
         for name in truth_lookup.better_dict[res_num]:
             truth_conformers_assigned=[]
@@ -59,6 +62,11 @@ def evaluate_tangle(model, ground_truth):
                 assert closest_truth_conformer_altloc not in truth_conformers_assigned, "Error, unhandled case" # TODO
                 truth_conformers_assigned.append(closest_truth_conformer_altloc)
                 force_solution_reference[OrderedTag(res_num,name,model_altloc)]=closest_truth_conformer_altloc
+                if forbid_ring_changes:
+                    resname=OrderedAtomLookup.atom_res_name(model_atom) 
+                    
+                    if resname in ["TYR","PHE"] and name in ["CD1","CD2","CE1","CE2","HD1","HD2","HE1","HE2"]:
+                        force_solution_reference[OrderedTag(res_num,name,model_altloc)]=force_solution_reference[OrderedTag(res_num,"CG",model_altloc)]
                 # if is_atom(model_atom,7,"CA",model_altloc):
                 #     print(f"{model_altloc}>>{closest_truth_conformer_altloc}")
             
@@ -95,7 +103,7 @@ def evaluate_tangle(model, ground_truth):
                 out_handle=out_handle,
                 num_solutions=1,
                 modify_forbid_conditions=False,
-                change_punish_factor=change_punish_factor#0.01 # Need to make non-zero 
+                change_punish_factor=change_punish_factor,#0.01 # Need to make non-zero 
                 )
     swapper=Swapper()
     swapper.add_candidates(swaps_file_path) #
