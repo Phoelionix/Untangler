@@ -51,7 +51,7 @@ PLOTTING=True
 MAX_BOND_CHANGES_SECOND_HALF_ONLY=True
 CHANGES_MUST_INVOLVE=None#["A"] # In testing.
 DEBUG_FIRST_100_SITES=False
-
+FORBID_RING_CHANGES=False
 
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,LP_Input.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
@@ -295,15 +295,30 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
 
         def forbid_change_conditions():
+            if not modify_forbid_conditions:
+                return False
             for ch in disordered_connection[0].atom_chunks:
                 if constraint_type==VariableKind.Bond: 
                     # TODO this allows water to change. But necessary.
-                    if MAIN_CHAIN_ONLY and (ch.name not in ["N","CA","CB","C","O"]) and (ch.get_resname() not in ["CYS","HOH"]):  # XXX tidy up and put in a separate python file for specifying what to optimize
+                    MCH=["N","CA","CB","C","O"]
+                    if MAIN_CHAIN_ONLY and (ch.name not in MCH) and (ch.get_resname() not in ["CYS","HOH"]):  # XXX tidy up and put in a separate python file for specifying what to optimize
                         return True
-                    if SIDE_CHAIN_ONLY and ch.name in ["N","CA","CB","C","O"] and ch.get_resname()!="HOH":
+                    if SIDE_CHAIN_ONLY and ch.name in MCH and ch.get_resname()!="HOH":
                         return True
                     if NO_CB_CHANGES and ch.name == "CB":
                         return True
+                    if FORBID_RING_CHANGES:
+                        if ch.get_resname() in ["TYR","PHE"]:
+                            if ch.name in ["CD1","CD2","CE1","CE2","CZ"]:
+                                return True
+                        elif ch.get_resname()=="PRO":
+                            if ch.name in ["CG"]: # Include CD?
+                                return True
+                        elif ch.get_resname()=="TRP":
+                            if ch.name not in MCH\
+                            and ch.name not in ["CG"]:
+                                return True
+
 
             # Forbid changes that are costly to consider and don't seem to tangle
             #TESTING_DISABLE_CHANGES=["CD2","CE2","OH","NH2","NZ"]
@@ -980,7 +995,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             add_disordered_block_to_str(original_constraints)
             out_str+="Active\n"
             add_disordered_block_to_str(active_constraints)
-            out_str+="-----------------------\n"
+            out_str+="***********************\n"
         with open(f"{out_dir}/xLO-ChangedConnections{out_handle}.txt",'w') as f:
             f.write(out_str)
 

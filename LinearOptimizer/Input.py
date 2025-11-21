@@ -855,6 +855,7 @@ class ConstraintsHandler:
             vdw_radii = read_vdw_radii(with_H=not IGNORE_HYDROGEN_CLASHES)
             lj_params = read_lj_parameters()
         else:
+            # TODO don't need to be doing ordered sites. Big waste of time. All that matters is atom "energy types" and whether it's a crystal-packing contact or same-ASU nonbond 
             for pdb1, pdb2, vdw_sum,is_symm in get_cross_conf_nonbonds(pdb_file_for_nonbonds):
                 conformer_tags = ConstraintsHandler.Constraint.ORDERED_site_tags_from_pdb_ids((pdb1,pdb2)) 
                 key = tuple(conformer_tags)+(is_symm,) # NOTE Order matters
@@ -1709,6 +1710,8 @@ class LP_Input:
             #constraints_that_include_H = [ConstraintsHandler.AngleConstraint,ConstraintsHandler.NonbondConstraint,ConstraintsHandler.ClashConstraint]
             #if not HYDROGEN_RESTRAINTS:
             constraints_that_include_H=[ConstraintsHandler.ClashConstraint,ConstraintsHandler.TwoAtomPenalty]  # Since the purpose of clash constraints is to say "the current thing is wrong", in which case using the hydrogens is fine.
+            if force_solution_reference is not None:
+                constraints_that_include_H.append(ConstraintsHandler.BondConstraint)
             # atoms_for_constraint = self.ordered_atom_lookup.select_atoms_by(
             #     names=constraint.atom_names(),
             #     res_nums=constraint.residues(),

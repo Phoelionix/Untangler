@@ -180,10 +180,11 @@ class Untangler():
                     
 
     def prepare_pdb_and_read_altlocs(self,pdb_path,out_path,
-                                     sep_chain_format=False,altloc_from_chain_fix=False):
+                                     sep_chain_format=False,altloc_from_chain_fix=False,ring_name_grouping=False):
         prepare_pdb(pdb_path,out_path,
                     sep_chain_format=sep_chain_format,
-                    altloc_from_chain_fix=altloc_from_chain_fix)
+                    altloc_from_chain_fix=altloc_from_chain_fix,
+                    ring_name_grouping=ring_name_grouping)
         self.protein_altlocs,self.solvent_altlocs = get_altlocs_from_pdb(pdb_path)
 
     def run(self,pdb_file_path,hkl_file_path,desired_score=18.6,max_num_runs=100):
@@ -429,7 +430,7 @@ class Untangler():
         num_altlocs = len(altloc_subset) if altloc_subset is not None else len(self.protein_altlocs)
         do_water_swaps=(self.protein_altlocs==self.solvent_altlocs) and num_altlocs==2
         if need_to_prepare_geom_files:
-            self.prepare_pdb_and_read_altlocs(model_to_swap,model_to_swap,sep_chain_format=False) 
+            self.prepare_pdb_and_read_altlocs(model_to_swap,model_to_swap,sep_chain_format=False,ring_name_grouping=True) 
             Solver.LP_Input.prepare_geom_files(model_to_swap,[altloc_subset],
                                                   waters = True,
                                                   water_swaps=do_water_swaps)
@@ -649,7 +650,9 @@ class Untangler():
         assert working_model[-4:]==".pdb"
         old_working_model=working_model
         working_model = old_working_model[:-4]+"_fmtd.pdb"
-        self.prepare_pdb_and_read_altlocs(old_working_model,working_model)
+        self.prepare_pdb_and_read_altlocs(old_working_model,working_model,
+                                          ring_name_grouping=True #NOTE
+                                          )
 
         def get_tensions(restrained_model,unrestrained_model):
             if not (skip_unrestrained and os.path.exists(geo_file_name(unrestrained_model))): # XXX risky..

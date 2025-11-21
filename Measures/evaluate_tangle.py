@@ -59,8 +59,8 @@ def evaluate_tangle(model, ground_truth):
                 assert closest_truth_conformer_altloc not in truth_conformers_assigned, "Error, unhandled case" # TODO
                 truth_conformers_assigned.append(closest_truth_conformer_altloc)
                 force_solution_reference[OrderedTag(res_num,name,model_altloc)]=closest_truth_conformer_altloc
-                if is_atom(model_atom,7,"CA",model_altloc):
-                    print(f"{model_altloc}>>{closest_truth_conformer_altloc}")
+                # if is_atom(model_atom,7,"CA",model_altloc):
+                #     print(f"{model_altloc}>>{closest_truth_conformer_altloc}")
             
  
     # Pass model conformers into LinearOptimizer.Input, with ground-truth conformers as reference (labelled by serial number) so it can forbid any other changes.
@@ -72,10 +72,11 @@ def evaluate_tangle(model, ground_truth):
         ConstraintsHandler.TwoAtomPenalty: 0,
     }
     
-    symmetries=parse_symmetries_from_pdb(model)
+    symmetries=parse_symmetries_from_pdb(ground_truth)
     model_handle=os.path.basename(model)[:-4]
-    untangle_fmted_model = get_out_path(model_handle,"fmted")
-    prepare_pdb(model,untangle_fmted_model)
+    untangle_fmted_model = get_out_path(model_handle,"fmtd")
+    prepare_pdb(model,untangle_fmted_model,
+                ring_name_grouping=True) #NOTE
     model = untangle_fmted_model
     
     LP_Input.prepare_geom_files(model,None)

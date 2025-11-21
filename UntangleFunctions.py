@@ -4,6 +4,8 @@
 #%%
 from Bio.PDB.Structure import Structure#, parse_pdb_header
 from Bio.PDB.PDBIO import PDBIO
+from Bio.PDB import PDBParser
+from Bio.PDB.Atom import Atom
 # from typing import List # if your version of python is older than 3.9 uncomment this and replace instances of "list[" with "List[" 
 import os
 import subprocess
@@ -12,6 +14,7 @@ from time import sleep
 import numpy as np
 matplotlib.use('AGG')
 import shutil
+import itertools
 
 ATOMS = ('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr'
        +' Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe').split()
@@ -205,7 +208,7 @@ def get_R(pdb_file_path,reflections_path):
 
 # nonH_fullname_list is with whitespaces
 # quite possibly the worst parser ever written.
-def H_get_parent_fullname(H_name:str,nonH_fullname_list:list[str],debug_print=False): 
+def H_get_parent_fullname(H_name:str,nonH_fullname_list:list[str],debug_print=True): 
         parent_name=None
         H_name = H_name.strip()
         basic_dict = dict(
@@ -314,8 +317,163 @@ def two_key_read(dict_obj,dict_name,key1,key2):
         raise Exception(exception)
     
 
-def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False):
+
+def relabel_ring(pdb_path):
+
+    def sqrdist(a:Atom,b:Atom):
+            #print(a_shifted,b_shifted)
+            return np.sum((a.get_coord()-b.get_coord())**2)
+
+    # TODO do with NQH?
+
+    struct = PDBParser().get_structure("struct",pdb_path)
+    # Finds labels such that RMSD for the two groups is as low as possible
+    indistinguish_dict = {"CD1":"CD", 
+                          "CD2":"CD",
+                          "CE1":"CE",
+                          "CE2":"CE"}
+    
+    anchors={"CD1":"CE1", "CD2":"CE2"}
+    riding_hydrogens={"CD1":"HD1", "CD2":"HD2","CE1":"HE1", "CE2":"HE2"}
+    original_label_dict={}
+    ring_relabel_dict:dict[int,str]={}
+    total_sd_original=0
+    total_sd_after=0
+
+    def angle(a,b,c):
+        v1 = a - b
+        v2 = c - b
+        def unit_vector(vector):
+            return vector / np.linalg.norm(vector)
+        v1_u = unit_vector(v1)
+        v2_u = unit_vector(v2)
+        return np.arccos(np.dot(v1_u, v2_u))*180/np.pi
+
+    for residue in [res for res in struct.get_residues() if res.get_resname() in ["TYR","PHE"]]:
+        ring_group_dict = {key:[] for key in ["CD","CE"]}
+        avg_CG_coord=None
+        #CG_coords={}
+        hydrogen_sn_dict={}
+        for Datom in residue.get_atoms():
+            for atom in Datom:
+                name = atom.get_name()
+                if name in indistinguish_dict:
+                    ring_group_dict[indistinguish_dict[name]].append(atom)
+                    original_label_dict[atom.get_serial_number()]=name
+                elif name in riding_hydrogens.values():
+                    if name not in hydrogen_sn_dict:
+                        hydrogen_sn_dict[name]={}
+                    hydrogen_sn_dict[name][atom.get_altloc()]=atom.get_serial_number()
+            if Datom.get_name()=="CG":
+                avg_CG_coord=np.mean([a.get_coord() for a in Datom],axis=0)
+                #CG_coords[atom.get_altloc()]=atom.get_coord()
+        anchor_vals={"CD1":None,"CD2":None}; groups=["CD","CE"]
+        for group_kind in groups:
+            atoms=ring_group_dict[group_kind]
+            group_names= [key for key in indistinguish_dict if indistinguish_dict[key]==group_kind]
+            assert len(group_names)==2
+
+            #grouping_options:itertools.combinations[tuple[list[Atom],list[Atom]]] = itertools.combinations(atoms, int(len(atoms)/2))
+
+
+            # for all 2 element combinations of set
+            grouping_options=[]
+            for perm in itertools.combinations(atoms,int(len(atoms)/2)):
+                pair = (perm,tuple([a for a in atoms if a not in perm]))
+                # need same number of altlocs in each.
+                altlocs_a,altlocs_b = [a.get_altloc() for a in pair[0]], [b.get_altloc() for b in pair[1]]
+                if set(altlocs_a)!=set(altlocs_b):
+                    continue
+                pair = set(pair)
+                if pair not in grouping_options:
+                    grouping_options.append(pair)
+
+            #print(atoms)
+            assert len(grouping_options)>0
+
+    
+            best_option:tuple[list[Atom],list[Atom]] = None
+            lowest_sd=np.inf
+            best_means=None
+            for a,b in grouping_options:
+                deviations=[]
+                means=[]
+                for g in a,b:
+                    mean = np.mean([atom.get_coord() for atom in g],axis=0)
+                    # if residue.get_id()[1]==47:
+                    #     print([(atom.get_name(),atom.get_coord()) for atom in g] )
+                    #     print(mean)
+                    deviations.extend([atom.get_coord()-mean for atom in g])
+                    means.append(mean)
+                rmsd = np.sqrt(np.mean([np.sum(dev**2) for dev in deviations]))
+                # if residue.get_id()[1]==47:
+                #     print(rmsd)
+                if rmsd < lowest_sd:
+                    lowest_sd=rmsd
+                    best_option=(a,b)
+                    best_means=means
+                if len(set([atom.get_name() for atom in a]))==1:
+                    assert len(set([atom.get_name() for atom in b]))==1
+                    original_sd=rmsd
+            assert best_option is not None, grouping_options
+
+            need_anchor=False
+            for group_name, mean in zip(group_names,best_means):
+                #print(group_name)
+                if group_name in anchor_vals:
+                    anchor_vals[group_name]=mean
+                else:
+                    need_anchor=True
+                    assert np.all([v is not None for v in anchor_vals.values()])
+                #print(anchor_vals)
+            anchor_names = list(anchor_vals)
+            final_names_dict={group_names[i]: best_option[i] for i in range(2) }
+            if need_anchor:
+                order_a = (anchor_names,{anchor_names[0]:best_means[0],anchor_names[1]:(best_means[1])})
+                order_b = (list(reversed(anchor_names)),{anchor_names[1]:best_means[0],anchor_names[0]:(best_means[1])})
+                
+                best=np.inf
+                angles=[]
+                ideal_angle=180
+                for i, (mod_anchor_names, mean_dict) in enumerate((order_a,order_b)):
+                    for j, (anchor_name, mean) in enumerate(mean_dict.items()):
+                        angles.append(angle(mean,anchor_vals[anchor_name],avg_CG_coord))
+                        deviations.append(angles[-1]-ideal_angle)
+                        # if residue.get_id()[1]==15:
+                        #     print(np.sqrt(np.sum((mean-anchor_vals[anchor_name])**2)),np.sqrt(np.sum((avg_CG_coord-anchor_vals[anchor_name])**2)))
+                        #     print(anchor_name,best_option[j],mean,angles[-1])
+                        #     print(mean,anchor_vals[anchor_name],avg_CG_coord)
+                    rmsd = np.sqrt(np.mean([np.sum(dev**2) for dev in deviations]))
+                    if rmsd<best:
+                        best=rmsd
+                        final_names_dict = {anchors[n]:g for n,g in zip(mod_anchor_names,best_option)}
+            # if residue.get_id()[1]==47:
+            #     print(final_names_dict)
+            # TODO CD2 and CE2 correspond to covalent bond. So should decide whether label is 1 or 2 
+            
+            
+            assert len(final_names_dict)==len(best_option)
+            for new_atom_name, atoms in final_names_dict.items():
+                for atom in atoms:
+                    assert atom.get_serial_number() not in ring_relabel_dict
+                    ring_relabel_dict[atom.get_serial_number()]=new_atom_name
+                    for hydrogen_name in hydrogen_sn_dict:
+                        for hydrogen_altloc, hydrogen_sn in hydrogen_sn_dict[hydrogen_name].items():
+                            if riding_hydrogens[atom.get_name()]==hydrogen_name and hydrogen_altloc==atom.get_altloc():
+                                ring_relabel_dict[hydrogen_sn]=riding_hydrogens[new_atom_name]
+
+            total_sd_original+=original_sd 
+            total_sd_after+=lowest_sd
+
+    #print(original_label_dict)
+    #print(ring_relabel_dict)
+    print(f"{total_sd_original:.2f}>>{total_sd_after:.2f}")
+    return ring_relabel_dict
+    
+
+def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False,ring_name_grouping=False):
         # Gets into format we expect. !!!!!!Assumes single chain!!!!!
+        # Relabels ring atoms CE1/CE2, CD1/CD2 so that all with same label are closest         
         def replace_occupancy(line,occ):
             occ=f"{occ:.3f}"
             occ = ' '*(6-len(occ))+occ
@@ -334,7 +492,21 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
             res_num = str(res_num)
             res_num = ' '*(4-len(res_num))+res_num
             return line[:22]+res_num+line[26:]
+        def replace_name(line,name):
+            if len(name)==3:
+                name = ' '+name
+            elif len(name)==2:
+                name = ' '+name+' '
+            elif len(name)==1:
+                name = ' '+name+'  '
+            else:
+                assert len(name)==4
+            return line[:12]+name+line[16:]
             
+        
+        if ring_name_grouping:
+            ring_relabel_dict = relabel_ring(pdb_path)
+
         protein_altlocs = []
         solvent_altlocs = []
         with open(pdb_path) as I:
@@ -369,6 +541,12 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                 space = line[20]
                 chain = line[21]
                 resnum = int(line[22:26])
+
+                if ring_name_grouping:
+                    if resname in ["TYR","PHE"] and name in ["CD1","CD2","CE1","CE2","HD1","HD2","HE1","HE2"]:
+                        original_serial_num=int(line[6:11])
+                        name = ring_relabel_dict[original_serial_num]
+                        line = replace_name(line,name)
                 if altloc == ' ' and altloc_from_chain_fix:
                     altloc = chain
                     line = replace_altloc(line,altloc)
