@@ -29,7 +29,7 @@ from StructureGeneration.interp_coords import interp_coords
 
 
 DISABLE_WATER_ALTLOC_OPTIM=True
-TURN_OFF_BULK_SOLVENT=True
+TURN_OFF_BULK_SOLVENT=False
 CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=True
 PHENIX_ORDERED_SOLVENT=False
 TENSIONS=False  # Enables behaviours of re-enabling connection options involving high-tension sites, and, if option enabled, to scale cost by tensions
@@ -65,7 +65,7 @@ class Untangler():
     debug_skip_holton_data_generation=False
     debug_always_accept_proposed_model=False
     auto_group_waters=False
-    debug_skip_to_loop=2
+    debug_skip_to_loop=0
     debug_skip_initial_holton_data_generation =debug_skip_initial_refine or (debug_skip_to_loop!=0)
     refmac_refine_water_occupancies_initial=False
     ##
@@ -444,7 +444,7 @@ class Untangler():
                 water_water_nonbond = not DISABLE_WATER_ALTLOC_OPTIM, 
                 constraint_weights=self.weight_factors,
             )
-            swaps_file_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
+            swaps_file_path, bonds_changed = Solver.solve(atoms,connections,out_dir=self.output_dir,
                                             out_handle=self.model_handle,
                                             num_solutions=num_solutions,
                                             force_sulfur_bridge_swap_solutions=False, #True
@@ -495,7 +495,7 @@ class Untangler():
                 )
                 print("Allotting waters")
                 #TODO args in dict so don't repeat massive list of args.
-                waters_swapped_path = Solver.solve(atoms,connections,out_dir=self.output_dir,
+                waters_swapped_path, bonds_changed = Solver.solve(atoms,connections,out_dir=self.output_dir,
                                                         out_handle=self.model_handle,
                                                         num_solutions=1,
                                                         force_sulfur_bridge_swap_solutions=False,

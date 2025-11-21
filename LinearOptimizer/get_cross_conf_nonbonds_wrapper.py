@@ -16,7 +16,7 @@ def get_cross_conf_nonbonds(pdb_file_path):
     out_items = []
     with open(tmp_file_path) as f:
         for line in f:
-            pdb1,pdb2,vdw,is_symm = line.split('|')
+            pdb1,pdb2,vdw,is_symm = line.rstrip().split('|')
             vdw = float(vdw)
             is_symm = (is_symm.lower() == "true")
             out_items.append((pdb1,pdb2,vdw,is_symm))

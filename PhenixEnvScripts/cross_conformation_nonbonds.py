@@ -167,6 +167,9 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
         #         print(keyA,keyB)
         #         print(site_labels[i_seq],site_labels[j_seq])
         distance_cutoff = 4
+        
+        debug_packing_added={}
+        debug_nonpacking_added={}
         for (conformer_site_label_A,coordA) in ordered_atom_sites_dict[keyA]:
             for (conformer_site_label_B,coordB) in ordered_atom_sites_dict[keyB]:
                 model_distance=sep(coordA,coordB)
@@ -178,22 +181,21 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
                 #         print(conformer_site_label_A,conformer_site_label_B)
                 #         print(site_labels[i_seq],site_labels[j_seq])
                 crystal_packing_contact= "true" if symop_str.strip()!="" else "false"
-                out_data.append([
+    
+                datum=[
                     conformer_site_label_A.split('"')[1], #pdb1 (pdb entry 1)
                     conformer_site_label_B.split('"')[1], #pdb2 (pdb entry 2)
                     vdw_sum,
                     crystal_packing_contact,
-                ])
-                #if verbose and len(out_data) < 100:
-                # if verbose:
-                #     #if all([(site_labels[idx].split('"')[1].strip()[0:2].strip(),site_labels[idx].split('"')[1].strip()[-4:].strip()) in (("C","30"),("CA","31")) for idx in (i_seq,j_seq)]):
-                #         # print(conformer_site_label_A,conformer_site_label_B,float(vdw_sum),float(model_distance))
-                #         # print(keyA,keyB)
-                #         # print(site_labels[i_seq],site_labels[j_seq])
-                #     #print(site_labels[i_seq],site_labels[j_seq],float(vdw_sum))
-                #     print("--")
-                #     print(site_labels[i_seq],site_labels[j_seq],float(vdw_sum))
-                #     print(conformer_site_label_A,conformer_site_label_B,model_distance)
+                ]
+                debug_key=datum[0]+" " +datum[1]
+                debug_dict = debug_packing_added if crystal_packing_contact else debug_nonpacking_added
+                # Assuming only difference in vdw for same energy types is whether it is a crystal packing contact
+                if debug_key in debug_dict:
+                    assert debug_dict[debug_key]==vdw_sum, (datum,debug_dict[debug_key])
+                else:
+                    debug_dict[debug_key]=vdw_sum
+                    out_data.append(datum)
             
     if out_file is not None:
         with open(out_file,"w") as f:
