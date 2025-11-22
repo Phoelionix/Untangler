@@ -115,6 +115,8 @@ class Untangler():
         self.solvent_altlocs=None
         self.weight_factors = weight_factors
         
+        if os.path.isdir(UntangleFunctions.separated_conformer_pdb_dir()):
+            shutil.rmtree(UntangleFunctions.separated_conformer_pdb_dir())
         os.makedirs(UntangleFunctions.separated_conformer_pdb_dir(),exist_ok=True)
     def set_hyper_params(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=2,  # 8,
                  default_wc=1,wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=5, # 20,
@@ -430,13 +432,15 @@ class Untangler():
         num_altlocs = len(altloc_subset) if altloc_subset is not None else len(self.protein_altlocs)
         do_water_swaps=(self.protein_altlocs==self.solvent_altlocs) and num_altlocs==2
         if need_to_prepare_geom_files:
-            self.prepare_pdb_and_read_altlocs(model_to_swap,model_to_swap,sep_chain_format=False,ring_name_grouping=True) 
+            self.prepare_pdb_and_read_altlocs(model_to_swap,model_to_swap,sep_chain_format=False,
+                                              ring_name_grouping=True) #NOTE 
             Solver.LP_Input.prepare_geom_files(model_to_swap,[altloc_subset],
                                                   waters = True,
                                                   water_swaps=do_water_swaps)
             need_to_prepare_geom_files=False
 
         swapper.clear_candidates()
+        out_handle=f"{self.model_handle}-{self.loop}"
         if not read_prior_run:
             atoms, connections = Solver.LP_Input(model_to_swap, restrained_refine_pdb_file_path, tensions, self.symmetries, ignore_waters=False,altloc_subset=altloc_subset,resnums=resnums,resnames=resnames).calculate_paths(
                 scoring_function=scoring_function,
@@ -446,7 +450,7 @@ class Untangler():
                 constraint_weights=self.weight_factors,
             )
             swaps_file_path, bonds_changed = Solver.solve(atoms,connections,out_dir=self.output_dir,
-                                            out_handle=self.model_handle,
+                                            out_handle=out_handle,
                                             num_solutions=num_solutions,
                                             force_sulfur_bridge_swap_solutions=False, #True
                                             protein_sites=True, 
@@ -461,7 +465,7 @@ class Untangler():
                                             #water_sites=False,
                                             )
         else:
-            swaps_file_path = Solver.swaps_file_path(out_dir=self.output_dir,out_handle=self.model_handle)
+            swaps_file_path = Solver.swaps_file_path(out_dir=self.output_dir,out_handle=out_handle)
         
         # Translate candidate solutions from LinearOptimizer into swaps lists
         # Try proposing each solution until one is accepted or we run out.
@@ -469,7 +473,7 @@ class Untangler():
     
         candidate_models:list[str]=[]
         candidate_swaps:list[Swapper.SwapGroup]=[]
-        candidate_model_dir = f"{self.output_dir}/{self.model_handle}_swapOptions_{self.loop}/"
+        candidate_model_dir = self.get_candidate_model_dir()
         os.makedirs(candidate_model_dir,exist_ok=True)
         
         if num_sols_already_saved_this_loop == 0:
@@ -497,7 +501,7 @@ class Untangler():
                 print("Allotting waters")
                 #TODO args in dict so don't repeat massive list of args.
                 waters_swapped_path, bonds_changed = Solver.solve(atoms,connections,out_dir=self.output_dir,
-                                                        out_handle=self.model_handle,
+                                                        out_handle=out_handle,
                                                         num_solutions=1,
                                                         force_sulfur_bridge_swap_solutions=False,
                                                         protein_sites=True,
@@ -528,6 +532,8 @@ class Untangler():
             i+=1
         return candidate_models,candidate_swaps
     
+    def get_candidate_model_dir(self):
+        return os.path.join(self.output_dir,"swapOptions",f"{self.model_handle}_{self.loop}","")
     def determine_best_model(self,model_dir, altloc_subset=None, minimize_R=True,minimize_wE=True,regenerate_R=False):
         assert minimize_R or minimize_wE # both is okay too
 
@@ -740,10 +746,11 @@ class Untangler():
                 if not skip_swaps:
                     if altloc_subset!=last_altloc_subset: 
                         #TODO uncomment out once get_subset_model generates subset model to same path as candidate_models_from_swapper AND the model generated is the same (e.g. if excluding water, it should too).
-                        unrestrained_subset_model = get_subset_model(self.current_model); #need_to_prepare_geom_models=False
-                        restrained_subset_model = get_subset_model(working_model)
+                        unrestrained_subset_model = get_subset_model(working_model); #need_to_prepare_geom_models=False
+                        restrained_subset_model = get_subset_model(self.current_model)
                         if TENSIONS:
-                            tensions = get_tensions(unrestrained_subset_model,restrained_subset_model)
+                            assert False, "need to ring swap self.current_model"
+                            tensions = get_tensions(restrained_subset_model,unrestrained_subset_model)
                             assert tensions is not None, "??"
                     if TENSIONS:
                         assert tensions is not None,(altloc_subset,last_altloc_subset)
@@ -796,7 +803,7 @@ class Untangler():
                 # #### TODO Sucks make better ####
                 if not skip_batch_refine:
                     best_model_before_refined = os.path.basename(subset_best_model).split("_")[-1]
-                    candidate_model_dir = f"{self.output_dir}/{self.model_handle}_swapOptions_{self.loop}/"
+                    candidate_model_dir = self.get_candidate_model_dir()
                     best_model_before_refined = candidate_model_dir+best_model_before_refined
                     swaps = cand_swaps[cand_models.index(best_model_before_refined)]
                     if measure_preswap_postswap:
@@ -1340,7 +1347,7 @@ class Untangler():
         return P, args
 
     def batch_refine(self,batch_tag,refine_arg_sets:list[tuple[SimpleNamespace,list[str]]],debug_skip=False,remove_tmpdir_on_end=True)->str:
-        out_directory = f"{self.output_dir}/{self.model_handle}_{batch_tag}/"
+        out_directory = os.path.join(self.output_dir,"batchRefine",f"{self.model_handle}_{batch_tag}","")
         if not debug_skip:
             if os.path.isdir(out_directory):
                 shutil.rmtree(out_directory) 

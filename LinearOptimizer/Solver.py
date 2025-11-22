@@ -40,6 +40,7 @@ import json
 from copy import deepcopy
 import gc; 
 import sys
+import shutil
 import matplotlib.pyplot as plt
 from typing import Union
 
@@ -51,7 +52,7 @@ PLOTTING=True
 MAX_BOND_CHANGES_SECOND_HALF_ONLY=True
 CHANGES_MUST_INVOLVE=None#["A"] # In testing.
 DEBUG_FIRST_100_SITES=False
-FORBID_RING_CHANGES=False
+
 
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,LP_Input.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.AtomChunkConnection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
@@ -66,7 +67,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
           #max_bond_changes=7):  
           max_bond_changes=None,
           modify_forbid_conditions=True,  # Whether the function is allowed to modify (generally, turn off) the "forbidden" flags of the connections
-          change_punish_factor=0 # Adds cost of: change_punish_factor x num_conformer_labels_changed/num_conformers x original_cost. Num conformers excludes conformers that are being ignore (see `site_being_considered()`).
+          change_punish_factor=0, # Adds cost of: change_punish_factor x num_conformer_labels_changed/num_conformers x original_cost. Num conformers excludes conformers that are being ignore (see `site_being_considered()`).
+          forbid_ring_changes=False
           ):  
           #max_bond_changes=None):  
     # protein_sites, water_sites: Whether these can be swapped.
@@ -307,7 +309,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                         return True
                     if NO_CB_CHANGES and ch.name == "CB":
                         return True
-                    if FORBID_RING_CHANGES:
+                    if forbid_ring_changes:
                         if ch.get_resname() in ["TYR","PHE"]:
                             if ch.name in ["CD1","CD2","CE1","CE2","CZ"]:
                                 return True
@@ -704,7 +706,12 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
     
     ######################
-    log_file = f"{out_dir}/xLO-HighLevelLog_{out_handle}.log"
+    log_out_dir = os.path.join(out_dir,"linear_optimizer_logs",out_handle,"")
+    if os.path.isdir(log_out_dir):
+        shutil.rmtree(log_out_dir,ignore_errors=True)
+    os.makedirs(log_out_dir)
+
+    log_file = f"{log_out_dir}/HighLevelLog.Log"
     if not os.path.exists(log_file):
         with open(log_file,'w') as f:
             f.write(f"{out_handle} altloc optimizer log\n")
@@ -714,6 +721,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             
 
     swaps_file =  swaps_file_path(out_dir,out_handle)
+    if os.path.isfile(swaps_file):
+        shutil.move(swaps_file,swaps_file+"#")
     def update_swaps_file(distances, site_assignment_arrays,record_notable_improvements_threshold=None): # record_notable_improvements_threshold: fractional improvement required to record separately
     # Create json file that lists all the site *changes* that are required to meet the solution. 
         out_dict = {"target": out_handle,"initial badness":initial_badness,"solutions":{}}
@@ -721,7 +730,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             assert 0 <= record_notable_improvements_threshold < 1
             sep_dict= deepcopy(out_dict)
             best_improvement = 0
-        verbose=False
+        else: 
+            sep_dict=None
         for i, (distance, atom_assignments) in enumerate(zip(distances,site_assignment_arrays)):
             solution_dict = {"badness": distance}
             out_dict["solutions"][f"solution {i+1}"] = solution_dict
@@ -734,19 +744,16 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 site_key = f"site {site}"
                 for from_altloc,to_altloc in atom_assignments[site].items():
                     if from_altloc == to_altloc:
-                        # No change needed
-                        continue
-                    if verbose:
-                        # TODO Flag only when swaps have **changed**, as did in 2 altloc version.
-                        print(f"Flagging assignment of {site} {from_altloc} to {to_altloc}")
+                        continue # No change needed
                     if site_key not in moves:
                         moves[site_key] = {}
                     moves[site_key][from_altloc] = to_altloc
         with open(swaps_file,'w') as f: 
             json.dump(out_dict,f,indent=4)
 
-        if len(sep_dict["solutions"])>0:
-            separate_record_file = f"{out_dir}/xLO-Diff_{f'{best_improvement*100:.2f}'}_{out_handle}.json"
+
+        if sep_dict is not None and len(sep_dict["solutions"])>0:
+            separate_record_file = f"{log_out_dir}/Diff_{f'{best_improvement*100:.2f}'}.json"
             with open(separate_record_file,'w') as f2: 
                 json.dump(sep_dict,f2,indent=4)
 
@@ -773,7 +780,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             connections_str+=f"{var.name} {constraint.ideal} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n"
         with open(out_file,'w') as f:
             f.write(connections_str)
-    write_current_connections(f"{out_dir}/xLO-OriginalConnections{out_handle}.txt")
+    write_current_connections(f"{log_out_dir}/OriginalConnections.txt")
 
     create_initial_variable_files=True
     bonds_replaced_each_loop:list[list[LP_Input.AtomChunkConnection]]=[]
@@ -798,7 +805,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         print()
 
         if create_initial_variable_files:
-            lp_problem.writeLP(f"{out_dir}/xLO-LP_{out_handle}.lp")
+            lp_problem.writeLP(f"{log_out_dir}/LP.lp")
 
 
         class Solver(Enum):
@@ -817,7 +824,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         #threads=None
         #threads=24
         threads=10
-        logPath=out_dir+"xLO-Log"+out_handle+".log"
+        logPath=log_out_dir+"solver_log.txt"
         #logPath=None
         pulp_solver = Solver.CPLX_PY # https://stackoverflow.com/questions/10035541/what-causes-a-python-segmentation-fault
         #pulp_solver = Solver.COIN
@@ -827,7 +834,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         
         #gapRel=None
         if create_initial_variable_files:
-            with open(f"{out_dir}/xLO-Initial{out_handle}.txt",'w') as f:
+            with open(f"{log_out_dir}/ProblemStatusEnd.txt",'w') as f:
                 f.write(f"Status: {LpStatus[lp_problem.status]}\n")
 
                 for v in lp_problem.variables():
@@ -896,7 +903,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         #         dry=v.calculated_dry()
         #         break
         # tag = "_dry" if dry else ""
-        with open(f"{out_dir}/xLO-Out{out_handle}.txt",'w') as f:
+        with open(f"{log_out_dir}/ProblemStatusEnd.txt",'w') as f:
             f.write(f"Status: {LpStatus[lp_problem.status]}\n")
 
             for v in lp_problem.variables():
@@ -916,7 +923,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             break
 
         ##Active Connections##
-        write_current_connections(f"{out_dir}/xLO-ActiveConnections{out_handle}.txt")
+        write_current_connections(f"{log_out_dir}/ActiveConnections.txt")
         ####
 
         ### Changed Connections ###
@@ -996,8 +1003,26 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             out_str+="Active\n"
             add_disordered_block_to_str(active_constraints)
             out_str+="***********************\n"
-        with open(f"{out_dir}/xLO-ChangedConnections{out_handle}.txt",'w') as f:
+        with open(f"{log_out_dir}/ChangedConnections-{l+1}.txt",'w') as f:
             f.write(out_str)
+
+        def write_bonds_replaced_to_file(bonds_replaced:list[LP_Input.AtomChunkConnection],out_path):
+            out_str="Replaced bonds\n==============\n"
+            
+            site_altloc_dict={}
+            for bond in bonds_replaced:
+                key = bond.get_disordered_connection_id()
+                if key not in site_altloc_dict:
+                    site_altloc_dict[key]=""
+                assert bond.single_altloc()
+                site_altloc_dict[key]+=bond.from_altlocs[0]
+            for disordered_id, altlocs in site_altloc_dict.items():
+                assert len(bond.atom_chunks)==2
+                out_str+= f"{disordered_id} {altlocs}\n"
+            with open(out_path,'w') as f:
+                f.write(out_str)
+        write_bonds_replaced_to_file(bonds_replaced,f"{log_out_dir}/ChangedBonds-{l+1}.txt")
+
 
         if PLOTTING:
             try:
@@ -1066,7 +1091,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         #     print(key)
         distances.append(value(lp_problem.objective))
         
-        update_swaps_file(distances,site_assignment_arrays,record_notable_improvements_threshold=0.03)
+        update_swaps_file(distances,site_assignment_arrays)  #,record_notable_improvements_threshold=0.03)
       
        
         # solution = [var.value() for var in lp_problem.variables()] 
@@ -1105,6 +1130,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             assert l <= int(num_solutions/2) 
             if l == int(num_solutions/2):
                 limit_bond_changes()
+
+
+
 
 
     del lp_problem

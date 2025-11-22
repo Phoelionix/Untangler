@@ -12,12 +12,24 @@ def evaluate_tangle(model, ground_truth):
         output_dir = os.path.join(UNTANGLER_WORKING_DIRECTORY,"output","")
         return f"{output_dir}{model_handle}_{out_tag}.pdb"
     
+
+    model_handle=os.path.basename(model)[:-4]
+    untangle_fmted_model = get_out_path(model_handle,"fmtd")
+    prepare_pdb(model,untangle_fmted_model,
+                ring_name_grouping=True) #NOTE
+    untangle_fmted_truth = get_out_path(os.path.basename(ground_truth)[:-4],"fmtd")
+    prepare_pdb(ground_truth,untangle_fmted_truth,
+            ring_name_grouping=True) #NOTE
+    model = untangle_fmted_model
+    ground_truth=untangle_fmted_truth
+
+
     # Find ground-truth conformers nearest to model conformers
     model_lookup=OrderedAtomLookup(
-         PDBParser().get_structure("struct",model).get_atoms()
+         PDBParser().get_structure("struct",model).get_atoms(),waters=True
         )
     truth_lookup=OrderedAtomLookup(
-         PDBParser().get_structure("struct",ground_truth).get_atoms()
+         PDBParser().get_structure("struct",ground_truth).get_atoms(),waters=True
         )
     force_solution_reference:dict[OrderedTag,str]={}
     def dist(a:Atom,b:Atom,translation_a,translation_b):
@@ -75,17 +87,13 @@ def evaluate_tangle(model, ground_truth):
     weight_factors = {
         ConstraintsHandler.BondConstraint: 0.1,
         ConstraintsHandler.AngleConstraint: 80,#1,
-        ConstraintsHandler.NonbondConstraint: 0, # 0.1
+        ConstraintsHandler.NonbondConstraint: 0.1, # 0.1
         ConstraintsHandler.ClashConstraint: 0, 
         ConstraintsHandler.TwoAtomPenalty: 0,
     }
     
     symmetries=parse_symmetries_from_pdb(ground_truth)
-    model_handle=os.path.basename(model)[:-4]
-    untangle_fmted_model = get_out_path(model_handle,"fmtd")
-    prepare_pdb(model,untangle_fmted_model,
-                ring_name_grouping=True) #NOTE
-    model = untangle_fmted_model
+
     
     LP_Input.prepare_geom_files(model,None)
     atoms, connections = LP_Input(model, model, None, symmetries).calculate_paths(
@@ -117,13 +125,13 @@ def evaluate_tangle(model, ground_truth):
         assert len(bond.atom_chunks)==2
         tmp = zip(bond.atom_names,bond.res_nums,bond.from_altlocs)
         terms = [f"{resnum}.{name}.{altloc}" for name,resnum,altloc in tmp]
-        out_str+= ' '.join(terms)+"\n"
+        #out_str+= ' '.join(terms)+"\n"
         all_terms.extend(terms)
 
-    bond_changes_file="tangled_bonds.txt"
-    with open(bond_changes_file,"w") as f:
-        f.write(out_str)
-    print(f"Necessary bond changes written to {bond_changes_file}")
+    # bond_changes_file="tangled_bonds.txt"
+    # with open(bond_changes_file,"w") as f:
+    #     f.write(out_str)
+    #print(f"Necessary bond changes written to {bond_changes_file}")
     tangled_bonds_path=get_out_path(model_handle,"tangled_bonds")
     write_to_b_factors(model,all_terms,tangled_bonds_path)
     print(f"Written bad bonds to B factors in {tangled_bonds_path}")

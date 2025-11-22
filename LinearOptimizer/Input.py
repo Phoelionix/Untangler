@@ -1710,8 +1710,8 @@ class LP_Input:
             #constraints_that_include_H = [ConstraintsHandler.AngleConstraint,ConstraintsHandler.NonbondConstraint,ConstraintsHandler.ClashConstraint]
             #if not HYDROGEN_RESTRAINTS:
             constraints_that_include_H=[ConstraintsHandler.ClashConstraint,ConstraintsHandler.TwoAtomPenalty]  # Since the purpose of clash constraints is to say "the current thing is wrong", in which case using the hydrogens is fine.
-            if force_solution_reference is not None:
-                constraints_that_include_H.append(ConstraintsHandler.BondConstraint)
+            #if force_solution_reference is not None:
+                #constraints_that_include_H.append(ConstraintsHandler.BondConstraint)
             # atoms_for_constraint = self.ordered_atom_lookup.select_atoms_by(
             #     names=constraint.atom_names(),
             #     res_nums=constraint.residues(),
