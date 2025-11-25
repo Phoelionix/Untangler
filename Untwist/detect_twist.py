@@ -84,7 +84,6 @@ def get_arc(start_anchor:tuple[float],mid_anchor:tuple[float],bond_length,atom_a
     y = np.cross(v, x) 
     theta = np.linspace(0, 2 * np.pi, num_points)
 
-    print(separation(mid_anchor,mid_anchor+h*v))
     points = mid_anchor+h*v + r*(np.cos(theta[...,None])*x + np.sin(theta[...,None])*y)
     return points
 
@@ -95,18 +94,30 @@ def separation_condition(atom:Atom,max_separation):
     A,B = [a for a in atom]
     return separation(A,B)<=max_separation
 
+def relative_orientation(v1,v2):
+    v1/=norm(v1)
+    v2/=norm(v2)
+    return np.arctan2(norm(np.cross(v1, v2)), np.dot(v1, v2))*180/np.pi
+    
 
 def detect_twist(
     atoms:tuple[Atom,Atom,Atom],
     snap_to_ideal=True,  # Snap to ideal angle and bond length. Otherwise, uses current (potentially warped angle and bond length)
     plot=False,
+    min_twist_angle=25,
+    max_fake_separation=0.25, # TODO make it resolution dependent
+    max_true_separation=0.3,
+    min_ratio_real_sep_on_fake_sep=0,
+    take_average = False, # Takes average of all twist point pairs that satisfy the conditions
+    take_closest = True, # Takes the twist point pair that satisfies the conditions that has a separation most similar to the current atoms.
 ):
+
+    assert not (take_average and take_closest)
+
     twist_points=[]
     
     A,B,C=atoms
     # Check C is close enough. 
-    max_fake_separation=0.25 # TODO make it resolution dependent
-    max_true_separation=0.4
     if not separation_condition(C,max_fake_separation):
         return twist_points # empty list
     
@@ -124,6 +135,7 @@ def detect_twist(
     # a✓ -- b✓ -- c? 
     #arcs = {altloc:[] for altloc in ordered_atoms.keys()}
     arcs={}
+    bond_lengths,angles = [],[]
     for altloc, (a,b,c) in ordered_atoms.items():
         bond_length,angle=separation(b,c),get_angle(a,b,c)
         if snap_to_ideal:
@@ -131,25 +143,46 @@ def detect_twist(
 
         arc = get_arc(a.get_coord(),b.get_coord(),bond_length,angle)
         arcs[altloc] = arc
+        bond_lengths.append(bond_length)
+        angles.append(angle)
     
-    if plot:
-        print(bond_length,angle)
-        a_coords,b_coords = [],[]
-        for altloc in ordered_atoms:
-            a_coords.append(ordered_atoms[altloc][0].get_coord())
-            b_coords.append(ordered_atoms[altloc][1].get_coord())
-        print(a_coords,b_coords)
-        plot_the_arcs(a_coords,b_coords,bond_length,angle)
+    assert 0 < min_twist_angle <=90
 
     arcA_coords,arcB_coords = arcs.values()
     possible_true_coords=[]
     for arcA_coord in arcA_coords:
         for arcB_coord in arcB_coords:
-            if match_midpoint(arcA_coord,arcB_coord,midpoint): # May be empty list
+            if match_midpoint(arcA_coord,arcB_coord,midpoint,tol_frac=0.03): # May be empty list
                 possible_true_coords.append((arcA_coord,arcB_coord))
+    c_vector=c_coords[1]-c_coords[0]
     for p in possible_true_coords:
-        if fake_separation <= separation(*p) <= max_true_separation:
+        p_vector=p[1]-p[0]
+
+        condition_A = fake_separation*min_ratio_real_sep_on_fake_sep <= separation(*p) <= max_true_separation
+        condition_B = min_twist_angle < relative_orientation(p_vector,c_vector) < 180-min_twist_angle
+
+        if all((condition_A,condition_B)):
             twist_points.append(p)
+    if take_closest:
+        smallest_diff=np.inf # difference in separation
+        for pair in twist_points:
+            diff = abs(separation(*C)-separation(*pair))
+            if diff < smallest_diff:
+                twist_points=[pair]
+                smallest_diff=diff
+
+
+    if take_average:
+        twist_points = np.array([[np.mean(np.array(twist_points)[:,i],axis=0) for i in range(2)]])
+    if plot:
+        a_coords,b_coords,c_coords = [],[],[]
+        for altloc in ordered_atoms:
+            a_coords.append(ordered_atoms[altloc][0].get_coord())
+            b_coords.append(ordered_atoms[altloc][1].get_coord())
+            c_coords.append(ordered_atoms[altloc][2].get_coord())
+        #print(bond_length,angle);print(a_coords,b_coords)
+        plot_it(a_coords,b_coords,c_coords,twist_points,bond_lengths,angles)
+        
     return twist_points
         
 
@@ -160,24 +193,33 @@ def match_midpoint(coordA,coordB,needed_midpoint,tol_frac=0.01):
 
 
 
-def plot_the_arcs(A,B,bond_length,angle):
-    ((a,b),(a2,b2)) = zip(A,B)
+def plot_it(A,B,C,twist_points,bond_lengths,angles,focus_twist=True):
+    ((a,b,c),(a2,b2,c2)) = zip(A,B,C)
 
-    print(a,b,a2,b2)
 
     fig = plt.figure()
     ax = fig.add_subplot(projection='3d')
-    # X,Y,Z = zip(*get_arc(a,b,bond_length,angle))
-    # ax.scatter(X,Y,Z,s=100)
-    # ax.scatter(*zip(a,b),color=["red","purple"],s=100)
+    X,Y,Z = zip(*get_arc(a,b,bond_lengths[0],angles[0]))
+    ax.scatter(X,Y,Z,s=10,color="blue")
+    ax.scatter(*zip(a,b,c),color=["red","purple","blue"],s=100)
     
-    X,Y,Z = zip(*get_arc(a2,b2,bond_length,angle))
-    ax.scatter(X,Y,Z,s=100)
-    ax.scatter(*zip(a2,b2),color=["brown","orange"],s=100)
+    X,Y,Z = zip(*get_arc(a2,b2,bond_lengths[1],angles[1]))
+    ax.scatter(X,Y,Z,s=10,color="cyan")
+    ax.scatter(*zip(a2,b2,c2),color=["brown","orange","cyan"],s=100)
     ax.view_init(0, 0, 0)
+
+    for pair in twist_points:
+        ax.scatter(*[np.array(pair)[:,i] for i in range(3)],marker="X",s=250,color=["blue","cyan"]) # color="maroon",
+
+    if focus_twist:
+        buff=0.1
+        for i, func in zip(range(2),(ax.axes.set_ylim3d,ax.axes.set_zlim3d)):
+            func(bottom=min([x[i+1] for x in C])-buff, top=max([x[i+1] for x in C])+buff)
+        ax.axes.set_xlim3d(left=min([x[0] for x in C])-buff, right=max([x[0] for x in C])+buff)
+
     # Rotate the axes and update
     # https://matplotlib.org/stable/gallery/mplot3d/rotate_axes3d_sgskip.html
-    rot_speed=2
+    rot_speed=1
     for cam_angle in range(0, int(180*3/rot_speed) + 1):
         # Normalize the angle to the range [-180, 180] for display
         cam_angle=cam_angle*rot_speed
@@ -204,12 +246,14 @@ def plot_the_arcs(A,B,bond_length,angle):
 
 
 #%%
-if __name__=="__main__" and False:
+if __name__=="__main__":
 
     struct = PDBParser().get_structure("struct","/home/speno/Untangler/output/longrangetraps_TW_unrestrained2_fmtd.pdb")
     
-    resnum=14
-    atoms_resnums={"CA":14,"C":14,"N":15}
+    n=22
+    atoms_resnums={"CA":n,"C":n,"N":n+1}
+    #atoms_resnums={"CA":14,"C":14,"N":15}
+    #atoms_resnums={"CA":45,"C":45,"N":46}
     disordered_atoms=[]
     for residue in struct.get_residues():
         resnum=residue.get_id()[1]
@@ -223,7 +267,7 @@ if __name__=="__main__" and False:
     print(detect_twist(tuple(disordered_atoms),snap_to_ideal=False,plot=True))
 
 #%%
-if __name__=="__main__" and True:
+if __name__=="__main__" and False:
 
     ideal_bond_length,ideal_angle=1.5,110
     diag_v = np.array([1.,1.,1.])
