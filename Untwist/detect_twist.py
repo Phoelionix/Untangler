@@ -144,9 +144,11 @@ def detect_twist(
     max_fake_separation=0.25, # TODO make it resolution dependent
     max_true_separation=0.25,
     midpoint_match_tol_frac=0.1,
-    min_ratio_real_sep_on_fake_sep=0,
+    min_ratio_real_sep_on_fake_sep=1.1, # note that at 1, requires separation of real conformers are at least as large
+    max_difference_real_fake_sep=0.1, # TODO should be replaced with a check for gaussian overlap with tolerance determined by the resolution
     take_average = False, # Takes average of all twist point pairs that satisfy the conditions
     take_closest = False, # Takes the twist point pair that satisfies the conditions that has a separation most similar to the current atoms.
+    verbose=False,
 ):
     
     if snap_interp == 0:
@@ -184,7 +186,8 @@ def detect_twist(
         if snap_to_ideal:
             bond_length = (snap_interp*get_ideal_bond_length(constraints_handler,(b,c)) + (1-snap_interp)*bond_length)
             angle = (snap_interp*get_ideal_angle(constraints_handler,(a,b,c)) + (1-snap_interp)*angle)
-            print(f"Snapping to bond length {bond_length} and angle {angle}")
+            if verbose:
+                print(f"Snapping to bond length {bond_length} and angle {angle}")
 
         arc = get_arc(a.get_coord(),b.get_coord(),bond_length,angle)
         arcs[altloc] = arc
@@ -205,7 +208,7 @@ def detect_twist(
 
         # multivariate_normal.pdf()
         #TODO Condition A should change to the electron density overlap of the two atoms
-        condition_A = fake_separation*min_ratio_real_sep_on_fake_sep <= separation(*p) <= max_true_separation
+        condition_A = max(fake_separation*min_ratio_real_sep_on_fake_sep,separation(*p)-max_difference_real_fake_sep) <= separation(*p) <= min(max_true_separation,separation(*p)+max_difference_real_fake_sep)
         condition_B = min_twist_angle < relative_orientation(p_vector,c_vector) < 180-min_twist_angle
 
         if all((condition_A,condition_B)):
@@ -307,6 +310,7 @@ def plot_it(A,B,C,twist_points,bond_lengths,angles,focus_twist=True,rot_speed=1,
 
 
 def check_nitrogen_twists(struct:Structure,target_res_num:int, constraints_handler:ConstraintsHandler,max_solution_sep=0.1, **kwargs):
+    # TODO Don't apply strong constraints, and return stats of the twists, so they can be filtered after calling this function.
 
     n=target_res_num # 50
 
@@ -346,19 +350,17 @@ def check_nitrogen_twists(struct:Structure,target_res_num:int, constraints_handl
                                 **kwargs)
         twist_point_sets.append(twist_pairs) # pairs of points
         print(twist_pairs)
-        if len(twist_pairs==1):
-            print(separation(*twist_pairs[0]))
-            print(np.mean(twist_pairs,axis=0))
+        if len(twist_pairs)==1:
+            print(f"candidate sep: {separation(*twist_pairs[0]):.3f} original: {separation(*C):.3f}")
+            #print(np.mean(twist_pairs,axis=0))
 
     twist_point_combined_constraint_solutions=[]
     
-    compatible_unflipped=True
-    compatible_flipped=True
-    twist_point_sets = np.array(twist_point_sets)
     seps_unflipped=[]
     seps_flipped=[]
     bond_needs_to_be_flipped=None
     if len(twist_point_sets[0])==len(twist_point_sets[1])==1:
+        twist_point_sets = np.array(twist_point_sets)
         # Get the deviation in the conformer coordinates for the solutions found for each geometric constraint. 
         # Since there is a bond either side of nitrogen, we need to account for the possibility that one of the bonds is "flipped" relative to the other. 
         # NOTE flipped does NOT refer to the atom site, it asks whether the bond has been flipped 
@@ -386,33 +388,49 @@ def check_nitrogen_twists(struct:Structure,target_res_num:int, constraints_handl
                 break
         else:
             twist_point_combined_constraint_solutions.append(sol)            
-    else:
+    elif len(twist_point_sets[0])>1 or len(twist_point_sets[1]) > 1:
         print("Multiple points for sets not handled")
-    return twist_point_sets,np.array(twist_point_combined_constraint_solutions),bond_needs_to_be_flipped
+    else:
+        pass
+    return twist_point_sets,np.array(twist_point_combined_constraint_solutions),bond_needs_to_be_flipped  
 
 
 #%%
 if __name__=="__main__":
 
+    # Tw conformer case 
+
     pdb_path="/home/speno/Untangler/output/longrangetraps_TW_unrestrained2_fmtd.pdb"
 
     struct = PDBParser().get_structure("struct",pdb_path)
-    constraints_handler = get_constraints_handler(pdb_path,geo_file_needs_generation=True)
-    target_res_num=46
-    indiv_twist_points,solutions,bond_needs_to_be_flipped=check_nitrogen_twists(struct,target_res_num,constraints_handler,
-                                        max_solution_sep=0.1,
-                                        #plot_zoomed_in=True,
-                                        #plot_zoomed_out=True,
-                                        take_closest=True,
-                                        #take_average=True
-                                       )
-    print("done")
-    print(indiv_twist_points)
-    print("---")
-    print(solutions)
-    print("---")
-    print(bond_needs_to_be_flipped)
+    constraints_handler = get_constraints_handler(pdb_path,geo_file_needs_generation=False)
+    twists_found=[]
+    twist_resnums=[]
+    bond_flips_needed=[]
+    for res_num in range(2,64):
+        print(res_num)
+        indiv_twist_points,solutions,bond_needs_to_be_flipped=check_nitrogen_twists(struct,res_num,constraints_handler,
+                                            max_solution_sep=0.1,
+                                            #plot_zoomed_in=True,
+                                            #plot_zoomed_out=True,
+                                            take_closest=True,
+                                            #take_average=True
+                                        )
+        if bond_needs_to_be_flipped is not None:
+            twists_found.append(solutions)
+            twist_resnums.append(res_num)
+            bond_flips_needed.append(bond_needs_to_be_flipped)
+        print("====")
+        print(indiv_twist_points)
+        print("---")
+        print(solutions)
+        print("---")
+        print(bond_needs_to_be_flipped)
+        print("====")
 
+    print("Possible twists found:")
+    for twists_found,  resnum, tangled in zip(twists_found, twist_resnums, bond_flips_needed):
+        print(f"Res num {resnum}, requires flipping one bond relative to another: {tangled}")
         
     #print(detect_twist(tuple(disordered_atoms),snap_to_ideal=False,plot=True))
 
