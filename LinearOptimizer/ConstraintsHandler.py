@@ -448,10 +448,10 @@ class ConstraintsHandler:
             # if site == DisorderedTag(17,"N"):
             #     print(self.atom_constraints[site])
 
-    def load_all_constraints(self,pdb_file,ordered_atom_lookup:OrderedAtomLookup,symmetries:list, calc_nonbonds:bool=True,water_water_nonbond:bool=None,constraints_to_skip=[],two_atom_penalty_tuples:list[tuple[tuple[str,str],tuple[int,int],float,tuple[str,str]]]=[],outliers_to_ignore_file=None):
+    def load_all_constraints(self,pdb_file,ordered_atom_lookup:OrderedAtomLookup,symmetries:list, calc_nonbonds:bool=True,water_water_nonbond:bool=None,constraints_to_skip=[],two_atom_penalty_tuples:list[tuple[tuple[str,str],tuple[int,int],float,tuple[str,str]]]=[],outliers_to_ignore_file=None,turn_off_cdl=False):
         # two_atom_penalty_tuples: list of tuples like ( (CA,O), (12,110), 3, (A,B) ) --> their names, their res nums, the badness, their altlocs 
 
-        constraints_file = UntangleFunctions.geo_file_name(pdb_file) # NOTE we only read ideal and weights.
+        constraints_file = UntangleFunctions.geo_file_name(pdb_file,turn_off_cdl=turn_off_cdl) # NOTE we only read ideal and weights.
         
         print(f"Parsing constraints in {constraints_file}")
 

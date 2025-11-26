@@ -81,7 +81,7 @@ def get_constraints_handler(pdb_file_path,geo_file_needs_generation=True):
         UntangleFunctions.create_score_file(pdb_file_path,turn_off_cdl=True)
     ordered_atom_lookup = OrderedAtomLookup(struct.get_atoms())
     constraints_handler=ConstraintsHandler()
-    constraints_handler.load_all_constraints(pdb_file_path,ordered_atom_lookup,symmetries=None,calc_nonbonds=False)
+    constraints_handler.load_all_constraints(pdb_file_path,ordered_atom_lookup,symmetries=None,calc_nonbonds=False,turn_off_cdl=True)
     return constraints_handler
 
 # Get the circle of possible values for position x that satisfy an angle between start_anchor--mid_anchor--x and distance for mid_anchor--x
@@ -401,9 +401,10 @@ if __name__=="__main__":
     # Tw conformer case 
 
     pdb_path="/home/speno/Untangler/output/longrangetraps_TW_unrestrained2_fmtd.pdb"
+    #pdb_path="/home/speno/Untangler/output/longrangetraps_TW_Accepted1.pdb"
 
     struct = PDBParser().get_structure("struct",pdb_path)
-    constraints_handler = get_constraints_handler(pdb_path,geo_file_needs_generation=False)
+    constraints_handler = get_constraints_handler(pdb_path,geo_file_needs_generation=True)
     twists_found=[]
     twist_resnums=[]
     bond_flips_needed=[]

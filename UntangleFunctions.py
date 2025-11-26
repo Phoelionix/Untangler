@@ -163,8 +163,8 @@ def score_file_name(model_handle_or_path,ignore_H=False,turn_off_cdl=False):
     handle = model_handle(model_handle_or_path)+("_ignoreH" if ignore_H else "")+("_noCDL" if turn_off_cdl else "")
     return os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration",'HoltonOutputs',f'{handle}_score.txt')
 
-def geo_file_name(model_handle_or_path):
-    handle = model_handle(model_handle_or_path)
+def geo_file_name(model_handle_or_path,ignore_H=False,turn_off_cdl=False):
+    handle = model_handle(model_handle_or_path)+("_ignoreH" if ignore_H else "")+("_noCDL" if turn_off_cdl else "")
     return os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration","HoltonOutputs",f"{handle}.geo")
 
 def assess_geometry_wE(pdb_file_path,ignore_H=False,turn_off_cdl=False):
