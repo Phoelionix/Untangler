@@ -58,7 +58,7 @@ def read_vdw_radii(with_H):
 def get_mon_lib_names(residue):
     # Returns a dict that gives the atom type used in ener_lib.cif for each corresponding pdb atom name (as defined by MON_LIB)
     out_folder = os.path.join(UNTANGLER_WORKING_DIRECTORY,"LinearOptimizer","tmp_out","")
-    libcheck_script = os.path.join(UNTANGLER_WORKING_DIRECTORY,"LinearOptimizer","libcheck.sh")
+    libcheck_script = os.path.join(UNTANGLER_WORKING_DIRECTORY,"LinearOptimizer","mon_libcheck.sh")
     residue_monomer_lib_file= os.path.join(out_folder,residue+".lib")
     if not os.path.exists(residue_monomer_lib_file):
         args = ["bash",libcheck_script,residue,out_folder] 

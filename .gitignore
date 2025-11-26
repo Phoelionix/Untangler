@@ -8,3 +8,4 @@ StructureGeneration/data/
 data/*
 .vscode/*
 *conformer_subsets/*
+*tmp_out/

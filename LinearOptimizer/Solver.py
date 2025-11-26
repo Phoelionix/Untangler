@@ -334,12 +334,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     #if ch.name in ["O","CD2","NH2"] or ch.name[0]=="O":
                     #if ch.name in ["O","OH","OG","OG1","OD1","NZ"]:
                     #if ch.name[0]=="O":
-                    if NO_O_BOND_CHANGES and ch.name in ["O"]:
-                        return True
+                    # if NO_O_BOND_CHANGES and ch.name in ["O"]:
+                    #     return True
                     #TODO implement option turn off swaps of O or other "endpoint" atom to its ridden atom (C for O) when there are no other connection changes involving same C
                     
                     if ch.name in forbidden_atom_bond_changes["name"]:
                         return True
+                        
                 if (ch.name in forbidden_atom_any_connection_changes["name"]) or (ch.name in TESTING_DISABLE_CHANGES):
                     return True
             return False
@@ -501,10 +502,21 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 else:
                     allowed =  (not ordered_connection_option.forbidden) \
                         or (ordered_connection_option.ts_distance<=always_tolerate_score_threshold)
+                    
+                    if NO_O_BOND_CHANGES:
+                        # Forbid changes to angles where the only change is through an oxygen bond change
+                        if (constraint_type==VariableKind.Angle
+                            and "O" in [ch.name for ch in ordered_connection_option.atom_chunks]):
+                                other_altlocs = [ch.altloc for ch in ordered_connection_option.atom_chunks if ch.name !="O"]
+                                allowed = len(set(other_altlocs))!=1 # Allow only if the altlocs don't match for the non-O atoms
+
+
                 chance_allow_anyway=0
                 if not allowed and chance_allow_anyway>0:
                     if np.random.rand()<chance_allow_anyway:
                         allowed=True
+
+                        
             else:
                 allowed = not ordered_connection_option.forbidden
 
@@ -600,9 +612,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     print(f"Num small fry: {num_small_fry_disordered_connections}")
 
     max_bond_changes_tuple=None
-    if max_bond_changes is not None:
+    if max_bond_changes is not None or MAIN_CHAIN_ONLY:
+        
         sys.setrecursionlimit(int(1e4)) 
-        no_change_vars=[]
+        no_change_vars=[] # List of variables for whether no changes in a particular disordered connection
+        no_change_vars_dict:dict[str,LpVariable]={}
         for connection_id, connection_var_dict in mega_connection_var_dict.items():
             constraint_type = VariableKind[connection_id.split('_')[0]]
             if constraint_type!=VariableKind.Bond:
@@ -623,7 +637,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             #lp_problem += no_change_var
             #no_change_vars.append(no_change_var)
             no_change_vars.append(no_change_var)
-        
+            no_change_vars_dict[connection_id] = no_change_var
+    if max_bond_changes is not None:    
         max_bond_changes_tuple = (
             lpSum(no_change_vars)>=(len(no_change_vars)-max_bond_changes),
             f"Max{max_bond_changes}BondChanges"
@@ -638,6 +653,37 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             limit_bond_changes()
 
 
+    if MAIN_CHAIN_ONLY:
+        # Point of focusing main chain is to get long range traps out.
+        # Thus we want to forbid very short range differences. 
+        max_resnum=0
+        resnum_no_change_vars_dict:dict[int,list[LpVariable]]={}
+        for connection_id, connection_var_dict in mega_connection_var_dict.items():
+            constraint_type = VariableKind[connection_id.split('_')[0]]
+            if constraint_type!=VariableKind.Bond:
+                continue
+            reference_conn = list(connection_var_dict.values())[0][0]
+            resnum = reference_conn.res_nums[0] # Anchor to first atom
+            if not all(ach.name in ["N","CA","C"] for ach in reference_conn.atom_chunks):
+                continue
+            if resnum not in resnum_no_change_vars_dict:
+                resnum_no_change_vars_dict[resnum]=[]
+                max_resnum = max(resnum,max_resnum)
+            resnum_no_change_vars_dict[resnum].append(no_change_vars_dict[connection_id])
+        print(resnum_no_change_vars_dict[4])
+
+        for resnum in range(1,max_resnum+1):
+            # consider vars for bonds between N, C, CA in residue and neighbouring residues
+            no_change_vars=[v for v in resnum_no_change_vars_dict[resnum]]
+            if resnum > 1:
+                no_change_vars.extend(resnum_no_change_vars_dict[resnum-1])
+            if resnum < max_resnum:
+                no_change_vars.extend(resnum_no_change_vars_dict[resnum+1])
+            max_changes=1
+            lp_problem +=  (
+                lpSum(no_change_vars)>=(len(no_change_vars)-max_changes),
+                f"Max{max_changes}BondChangesNearRes{resnum}"
+            )
 
     # for disordered_connection_var_dict in mega_connection_var_dict.values():
     #     active_constraints=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if var.value()>0]
@@ -1007,7 +1053,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             f.write(out_str)
 
         def write_bonds_replaced_to_file(bonds_replaced:list[LP_Input.AtomChunkConnection],out_path):
-            out_str="Replaced bonds\n==============\n"
+            out_str="Replaced bonds\n"
+            out_str+=f"Total distance = {total_distance} ({100*(diff):.3f}%)\n"
+            out_str+="==============\n"
             
             site_altloc_dict={}
             for bond in bonds_replaced:
@@ -1141,7 +1189,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         ##################
 
     assert swaps_file==swaps_file_path(out_dir,out_handle) # XXX
-    return swaps_file,bonds_replaced_each_loop
+    return swaps_file,bonds_replaced_each_loop, distances
 
 def swaps_file_path(out_dir,out_handle):
     return f"{out_dir}/xLO-toFlip_{out_handle}.json"

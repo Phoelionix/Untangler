@@ -1,4 +1,6 @@
 #%%
+import os, sys, pathlib
+sys.path.append(str(pathlib.Path(__file__).parent.parent))
 from Bio.PDB.Structure import Structure#, parse_pdb_header
 from Bio.PDB.PDBIO import PDBIO
 from Bio.PDB import PDBParser
@@ -13,7 +15,11 @@ import numpy as np
 import shutil
 import itertools
 from scipy.linalg import norm
+from scipy.stats import multivariate_normal
 import matplotlib.pyplot as plt
+from LinearOptimizer.ConstraintsHandler import ConstraintsHandler,DisorderedTag
+from LinearOptimizer.OrderedAtomLookup import OrderedAtomLookup
+import UntangleFunctions
 
 
 #(I) they share the same midpoint
@@ -36,6 +42,7 @@ def get_angle(a:Atom,b:Atom,c:Atom):
 def separation(v1,v2):
     if type(v1)==Atom and type(v2)==Atom:
         v1, v2 = v1.get_coord(),v2.get_coord()
+    assert np.array(v1).shape==np.array(v2).shape==(3,), (np.array(v1).shape, np.array(v2).shape)
     return np.sqrt(np.sum((v1-v2)**2))
 
 # def atom_sep(a:Atom,b:Atom):
@@ -46,11 +53,36 @@ def separation(v1,v2):
 
 def get_angle_atoms()->list[tuple[Atom,Atom,Atom]]:
     assert False
-def get_ideal_angle()->float:
-    assert False
-def get_ideal_bond_length()->float:
-    assert False
+def get_ideal_angle(constraints_handler:ConstraintsHandler,atoms:tuple[Atom,Atom,Atom])->float:
 
+    site_tags = [DisorderedTag.from_atom(a) for a in atoms]
+
+    valid_constraints = [constraint for constraint in constraints_handler.atom_constraints[site_tags[0]] \
+                         if (type(constraint)==ConstraintsHandler.AngleConstraint
+                         and all([
+                             (constraint in constraints_handler.atom_constraints[site_tag]) for site_tag in site_tags[1:]
+                             ]))]
+    assert len(valid_constraints)==1
+    return valid_constraints[0].ideal
+def get_ideal_bond_length(constraints_handler:ConstraintsHandler,atoms:tuple[Atom,Atom])->float:
+    site_tags = [DisorderedTag.from_atom(a) for a in atoms]
+
+    valid_constraints = [constraint for constraint in constraints_handler.atom_constraints[site_tags[0]] \
+                         if (type(constraint)==ConstraintsHandler.BondConstraint
+                         and all([
+                             (constraint in constraints_handler.atom_constraints[site_tags[i+1]]) for i in range(1)
+                             ]))]
+    assert len(valid_constraints)==1
+    return valid_constraints[0].ideal
+
+def get_constraints_handler(pdb_file_path,geo_file_needs_generation=True):
+    struct = PDBParser().get_structure("struct",pdb_file_path)
+    if geo_file_needs_generation:
+        UntangleFunctions.create_score_file(pdb_file_path,turn_off_cdl=True)
+    ordered_atom_lookup = OrderedAtomLookup(struct.get_atoms())
+    constraints_handler=ConstraintsHandler()
+    constraints_handler.load_all_constraints(pdb_file_path,ordered_atom_lookup,symmetries=None,calc_nonbonds=False)
+    return constraints_handler
 
 # Get the circle of possible values for position x that satisfy an angle between start_anchor--mid_anchor--x and distance for mid_anchor--x
 def get_arc(start_anchor:tuple[float],mid_anchor:tuple[float],bond_length,atom_angle,num_points=360):
@@ -102,15 +134,26 @@ def relative_orientation(v1,v2):
 
 def detect_twist(
     atoms:tuple[Atom,Atom,Atom],
+    constraints_handler=None,
     snap_to_ideal=True,  # Snap to ideal angle and bond length. Otherwise, uses current (potentially warped angle and bond length)
-    plot=False,
+    snap_interp=0.5, # for angles and bonds: (1-snap_interp)*current + snap_interp*ideal
+    plot_zoomed_in=False,
+    plot_zoomed_out=False,
+    plot_rot_speed=1,
     min_twist_angle=25,
     max_fake_separation=0.25, # TODO make it resolution dependent
-    max_true_separation=0.3,
+    max_true_separation=0.25,
+    midpoint_match_tol_frac=0.1,
     min_ratio_real_sep_on_fake_sep=0,
     take_average = False, # Takes average of all twist point pairs that satisfy the conditions
-    take_closest = True, # Takes the twist point pair that satisfies the conditions that has a separation most similar to the current atoms.
+    take_closest = False, # Takes the twist point pair that satisfies the conditions that has a separation most similar to the current atoms.
 ):
+    
+    if snap_interp == 0:
+        snap_to_ideal=False # NOTE
+    if snap_to_ideal:
+        assert 0 < snap_interp <=1
+        assert constraints_handler is not None 
 
     assert not (take_average and take_closest)
 
@@ -139,7 +182,9 @@ def detect_twist(
     for altloc, (a,b,c) in ordered_atoms.items():
         bond_length,angle=separation(b,c),get_angle(a,b,c)
         if snap_to_ideal:
-            bond_length,angle = get_ideal_bond_length(), get_ideal_angle()
+            bond_length = (snap_interp*get_ideal_bond_length(constraints_handler,(b,c)) + (1-snap_interp)*bond_length)
+            angle = (snap_interp*get_ideal_angle(constraints_handler,(a,b,c)) + (1-snap_interp)*angle)
+            print(f"Snapping to bond length {bond_length} and angle {angle}")
 
         arc = get_arc(a.get_coord(),b.get_coord(),bond_length,angle)
         arcs[altloc] = arc
@@ -152,12 +197,14 @@ def detect_twist(
     possible_true_coords=[]
     for arcA_coord in arcA_coords:
         for arcB_coord in arcB_coords:
-            if match_midpoint(arcA_coord,arcB_coord,midpoint,tol_frac=0.03): # May be empty list
+            if match_midpoint(arcA_coord,arcB_coord,midpoint,tol_frac=midpoint_match_tol_frac): # May be empty list
                 possible_true_coords.append((arcA_coord,arcB_coord))
     c_vector=c_coords[1]-c_coords[0]
     for p in possible_true_coords:
         p_vector=p[1]-p[0]
 
+        # multivariate_normal.pdf()
+        #TODO Condition A should change to the electron density overlap of the two atoms
         condition_A = fake_separation*min_ratio_real_sep_on_fake_sep <= separation(*p) <= max_true_separation
         condition_B = min_twist_angle < relative_orientation(p_vector,c_vector) < 180-min_twist_angle
 
@@ -168,40 +215,52 @@ def detect_twist(
         for pair in twist_points:
             diff = abs(separation(*C)-separation(*pair))
             if diff < smallest_diff:
-                twist_points=[pair]
+                twist_points=np.array([pair])
                 smallest_diff=diff
 
 
-    if take_average:
+    if take_average and len(twist_points)>0:
         twist_points = np.array([[np.mean(np.array(twist_points)[:,i],axis=0) for i in range(2)]])
-    if plot:
+    if plot_zoomed_in or plot_zoomed_out:
         a_coords,b_coords,c_coords = [],[],[]
         for altloc in ordered_atoms:
             a_coords.append(ordered_atoms[altloc][0].get_coord())
             b_coords.append(ordered_atoms[altloc][1].get_coord())
             c_coords.append(ordered_atoms[altloc][2].get_coord())
         #print(bond_length,angle);print(a_coords,b_coords)
-        plot_it(a_coords,b_coords,c_coords,twist_points,bond_lengths,angles)
+        names = [atom.get_name() for atom in atoms]
+        if plot_zoomed_in:
+            plot_it(a_coords,b_coords,c_coords,twist_points,bond_lengths,angles,
+                    names=names,
+                    focus_twist=True,rot_speed=plot_rot_speed)
+        if plot_zoomed_out:
+            plot_it(a_coords,b_coords,c_coords,twist_points,bond_lengths,angles,
+                    names=names,
+                    focus_twist=False,rot_speed=plot_rot_speed)
         
     return twist_points
         
 
-def match_midpoint(coordA,coordB,needed_midpoint,tol_frac=0.01):
+def match_midpoint(coordA,coordB,needed_midpoint,tol_frac):
     tol = tol_frac*separation(coordA,coordB)
     midpoint = (coordA+coordB)/2
     return separation(midpoint,needed_midpoint)<=tol
 
 
 
-def plot_it(A,B,C,twist_points,bond_lengths,angles,focus_twist=True):
+def plot_it(A,B,C,twist_points,bond_lengths,angles,focus_twist=True,rot_speed=1,names=[]):
     ((a,b,c),(a2,b2,c2)) = zip(A,B,C)
 
 
     fig = plt.figure()
     ax = fig.add_subplot(projection='3d')
     X,Y,Z = zip(*get_arc(a,b,bond_lengths[0],angles[0]))
-    ax.scatter(X,Y,Z,s=10,color="blue")
     ax.scatter(*zip(a,b,c),color=["red","purple","blue"],s=100)
+    for i, x,y,z, name in zip(range(3),*zip(a,b,c),names):
+        ax.text(x,y,z,name)
+
+    ax.scatter(X,Y,Z,s=10,color="blue")
+    
     
     X,Y,Z = zip(*get_arc(a2,b2,bond_lengths[1],angles[1]))
     ax.scatter(X,Y,Z,s=10,color="cyan")
@@ -211,15 +270,17 @@ def plot_it(A,B,C,twist_points,bond_lengths,angles,focus_twist=True):
     for pair in twist_points:
         ax.scatter(*[np.array(pair)[:,i] for i in range(3)],marker="X",s=250,color=["blue","cyan"]) # color="maroon",
 
+
+    buff=0.2
+    box_length = max([max([x[i] for x in C]) - min([x[i] for x in C]) for i in range(3)])+buff
+    centre = np.mean(C,axis=0)
     if focus_twist:
-        buff=0.1
         for i, func in zip(range(2),(ax.axes.set_ylim3d,ax.axes.set_zlim3d)):
-            func(bottom=min([x[i+1] for x in C])-buff, top=max([x[i+1] for x in C])+buff)
-        ax.axes.set_xlim3d(left=min([x[0] for x in C])-buff, right=max([x[0] for x in C])+buff)
+            func(bottom=centre[i+1]-box_length/2, top=centre[i+1]+box_length/2)
+        ax.axes.set_xlim3d(left=centre[0]-box_length/2, right=centre[0]+box_length/2)
 
     # Rotate the axes and update
     # https://matplotlib.org/stable/gallery/mplot3d/rotate_axes3d_sgskip.html
-    rot_speed=1
     for cam_angle in range(0, int(180*3/rot_speed) + 1):
         # Normalize the angle to the range [-180, 180] for display
         cam_angle=cam_angle*rot_speed
@@ -245,26 +306,115 @@ def plot_it(A,B,C,twist_points,bond_lengths,angles,focus_twist=True):
 
 
 
+def check_nitrogen_twists(struct:Structure,target_res_num:int, constraints_handler:ConstraintsHandler,max_solution_sep=0.1, **kwargs):
+
+    n=target_res_num # 50
+
+
+    angles = [
+        {"CA":n-1,"C":n-1,"N":n},
+        {"C":n,"CA":n,"N":n,},
+    ]
+    target_atom="N"
+    twist_point_sets:list[list]=[]
+    for atoms_resnums in angles:
+        disordered_atoms={}
+        for residue in struct.get_residues():
+            resnum=residue.get_id()[1]
+            if resnum in atoms_resnums.values():
+                for atom in residue.get_atoms():
+                    if atom.get_name() not in atoms_resnums:
+                        continue
+                    if atoms_resnums[atom.get_name()]==resnum:
+                        assert atom.get_name() not in disordered_atoms
+                        disordered_atoms[atom.get_name()]=atom
+        assert target_atom == "N"
+        
+        C=disordered_atoms[target_atom]
+        if target_atom == "N":
+            if atoms_resnums["CA"]==atoms_resnums["C"]==atoms_resnums["N"]-1:
+                A=disordered_atoms["CA"]
+                B=disordered_atoms["C"]
+            elif atoms_resnums["N"]==atoms_resnums["CA"]==atoms_resnums["C"]:
+                # Backwards
+                A=disordered_atoms["C"]
+                B=disordered_atoms["CA"]
+
+            
+        twist_pairs=detect_twist((A,B,C),
+                                  constraints_handler=constraints_handler,
+                                **kwargs)
+        twist_point_sets.append(twist_pairs) # pairs of points
+        print(twist_pairs)
+        if len(twist_pairs==1):
+            print(separation(*twist_pairs[0]))
+            print(np.mean(twist_pairs,axis=0))
+
+    twist_point_combined_constraint_solutions=[]
+    
+    compatible_unflipped=True
+    compatible_flipped=True
+    twist_point_sets = np.array(twist_point_sets)
+    seps_unflipped=[]
+    seps_flipped=[]
+    bond_needs_to_be_flipped=None
+    if len(twist_point_sets[0])==len(twist_point_sets[1])==1:
+        # Get the deviation in the conformer coordinates for the solutions found for each geometric constraint. 
+        # Since there is a bond either side of nitrogen, we need to account for the possibility that one of the bonds is "flipped" relative to the other. 
+        # NOTE flipped does NOT refer to the atom site, it asks whether the bond has been flipped 
+        for i in range(2):
+            conformer_separation = separation(twist_point_sets[0][0][i],twist_point_sets[1][0][i])
+            print(f"conformer {i} separation: {conformer_separation}")
+            seps_unflipped.append(conformer_separation)
+            # reverse
+            conformer_separation = separation(twist_point_sets[0][0][i],twist_point_sets[1][0][1-i])
+            print(f"conformer {i} separation flipped: {conformer_separation}")
+            seps_flipped.append(conformer_separation)
+
+        unflipped_sol = np.mean(twist_point_sets,axis=0)
+        flipped_sol = np.zeros(shape=unflipped_sol.shape)
+        for i, point in enumerate(unflipped_sol):
+            flipped_sol[i]=point[::-1]
+
+        rmsd_unflipped = np.sqrt( np.sum(np.array(seps_unflipped)**2) )
+        rmsd_flipped = np.sqrt( np.sum(np.array(seps_flipped)**2) )
+
+        sol,seps,bond_needs_to_be_flipped = (unflipped_sol,seps_unflipped,False) if rmsd_unflipped < rmsd_flipped else (flipped_sol,seps_flipped,True)
+
+        for conformer_separation in seps:
+            if conformer_separation > max_solution_sep:
+                break
+        else:
+            twist_point_combined_constraint_solutions.append(sol)            
+    else:
+        print("Multiple points for sets not handled")
+    return twist_point_sets,np.array(twist_point_combined_constraint_solutions),bond_needs_to_be_flipped
+
+
 #%%
 if __name__=="__main__":
 
-    struct = PDBParser().get_structure("struct","/home/speno/Untangler/output/longrangetraps_TW_unrestrained2_fmtd.pdb")
-    
-    n=22
-    atoms_resnums={"CA":n,"C":n,"N":n+1}
-    #atoms_resnums={"CA":14,"C":14,"N":15}
-    #atoms_resnums={"CA":45,"C":45,"N":46}
-    disordered_atoms=[]
-    for residue in struct.get_residues():
-        resnum=residue.get_id()[1]
-        if resnum in atoms_resnums.values():
-            for atom in residue.get_atoms():
-                if atom.get_name() not in atoms_resnums:
-                    continue
-                if atoms_resnums[atom.get_name()]==resnum:
-                    disordered_atoms.append(atom)
-    detect_twist(tuple(disordered_atoms),snap_to_ideal=False)
-    print(detect_twist(tuple(disordered_atoms),snap_to_ideal=False,plot=True))
+    pdb_path="/home/speno/Untangler/output/longrangetraps_TW_unrestrained2_fmtd.pdb"
+
+    struct = PDBParser().get_structure("struct",pdb_path)
+    constraints_handler = get_constraints_handler(pdb_path,geo_file_needs_generation=True)
+    target_res_num=46
+    indiv_twist_points,solutions,bond_needs_to_be_flipped=check_nitrogen_twists(struct,target_res_num,constraints_handler,
+                                        max_solution_sep=0.1,
+                                        #plot_zoomed_in=True,
+                                        #plot_zoomed_out=True,
+                                        take_closest=True,
+                                        #take_average=True
+                                       )
+    print("done")
+    print(indiv_twist_points)
+    print("---")
+    print(solutions)
+    print("---")
+    print(bond_needs_to_be_flipped)
+
+        
+    #print(detect_twist(tuple(disordered_atoms),snap_to_ideal=False,plot=True))
 
 #%%
 if __name__=="__main__" and False:

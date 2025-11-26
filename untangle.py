@@ -24,7 +24,7 @@ from LinearOptimizer.Tension import GeoXrayTension
 from matplotlib import pyplot as plt
 from StructureGeneration.CombineUpdateEnsembles import combine_update_ensembles
 from StructureGeneration.interp_coords import interp_coords
-#import create_delta_constraints_file
+from Measures.evaluate_tangle import evaluate_tangle
 
 
 
@@ -65,7 +65,7 @@ class Untangler():
     debug_skip_holton_data_generation=False
     debug_always_accept_proposed_model=False
     auto_group_waters=False
-    debug_skip_to_loop=0
+    debug_skip_to_loop=1
     debug_skip_initial_holton_data_generation =debug_skip_initial_refine or (debug_skip_to_loop!=0)
     refmac_refine_water_occupancies_initial=False
     ##
@@ -95,15 +95,16 @@ class Untangler():
 
     # TODO keep refining while Rfree decreasing.
     def __init__(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=8,  #8,
-                 default_wc=1,wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=20, # 20,
+                 default_wc=1,endloop_wc=1,wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=20, # 20,
                  max_num_best_swaps_considered=100,num_refine_for_positions_macro_cycles_phenix=3,
                  num_loops_water_held=0,weight_factors=None,
                  max_bond_changes=9999,altloc_subset_size=3,refine_for_positions_geo_weight=0.1,
-                 unrestrained_damp=0.5):
+                 unrestrained_damp=0.5, solution_reference=None):
         self.set_hyper_params(acceptance_temperature,max_wE_frac_increase,num_end_loop_refine_cycles,
-                              default_wc,wc_anneal_start,wc_anneal_loops, starting_num_best_swaps_considered,
+                              default_wc,endloop_wc,wc_anneal_start,wc_anneal_loops, starting_num_best_swaps_considered,
                               max_num_best_swaps_considered,num_refine_for_positions_macro_cycles_phenix, 
-                              num_loops_water_held,max_bond_changes,altloc_subset_size,refine_for_positions_geo_weight,unrestrained_damp)
+                              num_loops_water_held,max_bond_changes,altloc_subset_size,refine_for_positions_geo_weight,
+                              unrestrained_damp, solution_reference)
         self.previously_swapped = []
         self.model_handle=None
         self.current_model=None
@@ -114,16 +115,19 @@ class Untangler():
         self.protein_altlocs=None
         self.solvent_altlocs=None
         self.weight_factors = weight_factors
+        self.reference_distances=[]
+        self.reference_wrong_bonds=[]
+        self.reference_score_labels=[]
         
         if os.path.isdir(UntangleFunctions.separated_conformer_pdb_dir()):
             shutil.rmtree(UntangleFunctions.separated_conformer_pdb_dir())
         os.makedirs(UntangleFunctions.separated_conformer_pdb_dir(),exist_ok=True)
     def set_hyper_params(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=2,  # 8,
-                 default_wc=1,wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=5, # 20,
+                 default_wc=1,endloop_wc=1,wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=5, # 20,
                  max_num_best_swaps_considered=100,num_refine_for_positions_macro_cycles_phenix=3,
                  num_loops_water_held=0,
                  max_bond_changes=None,altloc_subset_size=3,refine_for_positions_geo_weight=0.1,
-                 unrestrained_damp=0.5):
+                 unrestrained_damp=0.5,solution_reference=None):
         # NOTE Currently max wE increase is percentage based, 
         # but TODO optimal method needs to be investigated.
         self.n_best_swap_start=starting_num_best_swaps_considered
@@ -133,13 +137,15 @@ class Untangler():
         self.acceptance_temperature=acceptance_temperature
         self.num_end_loop_refine_cycles=num_end_loop_refine_cycles
         self.num_loops_water_held=num_loops_water_held
-        self.default_wc=default_wc
+        self.default_wc=endloop_wc
+        self.endloop_wc=endloop_wc
         self.wc_anneal_start = wc_anneal_start
         self.wc_anneal_loops=wc_anneal_loops
         self.max_bond_changes=max_bond_changes
         self.altloc_subset_size=altloc_subset_size
         self.refine_for_positions_geo_weight=refine_for_positions_geo_weight
         self.unrestrained_damp=unrestrained_damp
+        self.solution_reference=solution_reference
 
     def delete_zero_occupancy_waters(self,pdb_path,out_path):
         assert os.path.abspath(pdb_path) != os.path.abspath(out_path)
@@ -250,10 +256,10 @@ class Untangler():
         self.current_model=initial_model
 
         if not self.debug_skip_holton_data_generation and not self.debug_skip_initial_holton_data_generation:
-            self.initial_score = Untangler.Score(*assess_geometry_wE(initial_model, log_out_folder_path=self.output_dir))
+            self.initial_score = Untangler.Score(*assess_geometry_wE(initial_model))
         else:
             if not os.path.exists(score_file_name(initial_model)):
-                create_score_file(initial_model,log_out_folder_path=self.output_dir)
+                create_score_file(initial_model)
             self.initial_score = Untangler.Score(*get_score(score_file_name(initial_model)))
         self.current_score = self.best_score = Untangler.Score.inf_bad_score()# i.e. force accept first solution
         if self.first_loop>0:
@@ -397,7 +403,7 @@ class Untangler():
                     #temp_path=working_model[:-4]+"_subsetOut.pdb"
                     temp_path=Solver.LP_Input.subset_model_path(working_model,altloc_subset)[:-4]+"Out.pdb"
                     ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=working_model,out_path=temp_path)
-                    assess_geometry_wE(temp_path,Solver.LP_Input.geo_log_out_folder())
+                    assess_geometry_wE(temp_path)
 
                     if conformer_stats:
                         Solver.LP_Input.prepare_geom_files(working_model,self.protein_altlocs,water_swaps=False)
@@ -418,7 +424,7 @@ class Untangler():
         #scoring_function_list = [ConstraintsHandler.prob_weighted_stat,ConstraintsHandler.chi,ConstraintsHandler.e_density_scaled_dev]
         #scoring_function_list = [ConstraintsHandler.chi]
         #scoring_function_list = [ConstraintsHandler.dev_sqr]
-        scoring_function_list = [ConstraintsHandler.log_chi]
+        scoring_function_list = [ConstraintsHandler.log_chi] # TODO use prob weighted stat
         #scoring_function_list = [ConstraintsHandler.prob_weighted_stat]
         #scoring_function_list = [ConstraintsHandler.e_density_scaled_dev]
         scoring_function = scoring_function_list[self.loop%len(scoring_function_list)]
@@ -449,7 +455,7 @@ class Untangler():
                 water_water_nonbond = not DISABLE_WATER_ALTLOC_OPTIM, 
                 constraint_weights=self.weight_factors,
             )
-            swaps_file_path, bonds_changed = Solver.solve(atoms,connections,out_dir=self.output_dir,
+            swaps_file_path, bonds_changed,distances = Solver.solve(atoms,connections,out_dir=self.output_dir,
                                             out_handle=out_handle,
                                             num_solutions=num_solutions,
                                             force_sulfur_bridge_swap_solutions=False, #True
@@ -500,7 +506,7 @@ class Untangler():
                 )
                 print("Allotting waters")
                 #TODO args in dict so don't repeat massive list of args.
-                waters_swapped_path, bonds_changed = Solver.solve(atoms,connections,out_dir=self.output_dir,
+                waters_swapped_path, bonds_changed, distances = Solver.solve(atoms,connections,out_dir=self.output_dir,
                                                         out_handle=out_handle,
                                                         num_solutions=1,
                                                         force_sulfur_bridge_swap_solutions=False,
@@ -662,9 +668,9 @@ class Untangler():
 
         def get_tensions(restrained_model,unrestrained_model):
             if not (skip_unrestrained and os.path.exists(geo_file_name(unrestrained_model))): # XXX risky..
-                create_score_file(unrestrained_model,log_out_folder_path=self.output_dir)
+                create_score_file(unrestrained_model)
             if not os.path.exists(geo_file_name(restrained_model)): 
-                create_score_file(restrained_model,log_out_folder_path=self.output_dir)
+                create_score_file(restrained_model)
             tensions = GeoXrayTension([restrained_model,unrestrained_model],self.symmetries,water_water_nonbond=not DISABLE_WATER_ALTLOC_OPTIM).site_tensions
 
             print("Highest tension sites:")
@@ -687,7 +693,7 @@ class Untangler():
         score_file_needs_generation=True
         swaps = None
         if measure_preswap_postswap:
-            preswap_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
+            preswap_score = Untangler.Score(*assess_geometry_wE(working_model))
         if strategy == Untangler.Strategy.Batch:
             
             ## 
@@ -696,7 +702,8 @@ class Untangler():
 
 
             # Limited options
-            if (self.loop+2)%3!=0: # All options
+            MChOnly_period=2
+            if (self.loop+(MChOnly_period-1))%MChOnly_period!=0: # All options
                 subset_size=self.altloc_subset_size
                 num_combinations=3 
                 altloc_subsets.extend(self.get_altloc_subsets(subset_size,num_combinations))
@@ -807,7 +814,7 @@ class Untangler():
                     best_model_before_refined = candidate_model_dir+best_model_before_refined
                     swaps = cand_swaps[cand_models.index(best_model_before_refined)]
                     if measure_preswap_postswap:
-                        postswap_score = Untangler.Score(*assess_geometry_wE(best_model_before_refined,self.output_dir))
+                        postswap_score = Untangler.Score(*assess_geometry_wE(best_model_before_refined))
                         print("Score preswap:",preswap_score) 
                         print("Score postswap:",postswap_score) 
                 # ################################
@@ -851,7 +858,7 @@ class Untangler():
             if swaps_focused is not None:
                 swaps = swaps_focused+swaps
             if measure_preswap_postswap:
-                postswap_score = Untangler.Score(*assess_geometry_wE(working_model,self.output_dir))
+                postswap_score = Untangler.Score(*assess_geometry_wE(working_model))
                 print("Score preswap:",preswap_score) 
                 print("Score postswap:",postswap_score) 
             working_model=self.regular_refine(working_model,debug_skip=self.debug_skip_refine)
@@ -884,11 +891,25 @@ class Untangler():
         with open(f"{self.output_dir}refine_logs/swapHistory_{self.model_handle}.txt","w") as f:
             f.writelines('\n'.join([str(swap) for swap in self.swaps_history]))
 
+    def track(self,model,label):
+        num_wrong_bonds,distance = evaluate_tangle(model,self.solution_reference)
+        self.reference_wrong_bonds.append(num_wrong_bonds)
+        self.reference_distances.append(distance)
+        self.reference_score_labels.append(f"{label}-self.loop")
+        print(self.reference_wrong_bonds)
+        print(self.reference_distances)
+        print(self.reference_score_labels)
+
     def propose_model(self,working_model,score_file_needs_generation=True):
         if score_file_needs_generation or PROPOSE_IGNORES_H:
-            create_score_file(working_model,log_out_folder_path=self.output_dir,ignore_H=PROPOSE_IGNORES_H)
+            create_score_file(working_model,ignore_H=PROPOSE_IGNORES_H)
         new_score = Untangler.Score(*get_score(score_file_name(working_model,ignore_H=PROPOSE_IGNORES_H)))
         
+
+        # Get the distance from the solution
+        if self.solution_reference is not None:
+            self.track(working_model,label=f"end")
+
         #deltaE = new_wE-self.current_score.wE # geometry only
         if CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH:
             deltaE = new_score.combined-self.current_score.combined  # include R factor
@@ -1051,7 +1072,7 @@ class Untangler():
                     f"loopEnd{self.loop}-{i+1}",
                     model_path=model,
                     num_macro_cycles=self.num_end_loop_refine_cycles,
-                    wc=self.wc_anneal_start if self.wc_anneal_loops==0 else min(1,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(1-self.wc_anneal_start)),
+                    wc=self.endloop_wc if self.wc_anneal_loops==0 else min(self.endloop_wc,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(self.endloop_wc-self.wc_anneal_start)),
                     hold_water_positions=self.holding_water(),
                     #refine_occupancies=False,
                     #ordered_solvent=False,
@@ -1124,7 +1145,7 @@ class Untangler():
                 f"loopEnd{self.loop}{tag}",
                 model_path=model_path,
                 num_macro_cycles=self.num_end_loop_refine_cycles if num_loops_override is None else num_loops_override,
-                wc= self.wc_anneal_start if self.wc_anneal_loops==0 else min(self.default_wc,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(self.default_wc-self.wc_anneal_start)),
+                wc= self.wc_anneal_start if self.wc_anneal_loops==0 else min(self.endloop_wc,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(self.endloop_wc-self.wc_anneal_start)),
                 hold_water_positions=self.holding_water(),
                 #refine_occupancies=False,
                 #ordered_solvent=False,
@@ -1499,14 +1520,15 @@ def main():
     xray_data = sys.argv[2]
     Untangler(
         # max_num_best_swaps_considered=5,
+        endloop_wc=1, num_end_loop_refine_cycles=6,
         default_wc=1,
-        num_end_loop_refine_cycles=6,
+        #endloop_wc=3, num_end_loop_refine_cycles=1,
+        refine_for_positions_geo_weight=0,
         max_num_best_swaps_considered=20,
         starting_num_best_swaps_considered=20,
         altloc_subset_size=2,
         unrestrained_damp=0,
         #refine_for_positions_geo_weight=0.03,
-        refine_for_positions_geo_weight=0,
         num_refine_for_positions_macro_cycles_phenix=1,
         #max_bond_changes=2,
         max_bond_changes=99999,
@@ -1525,5 +1547,6 @@ def main():
     )
 if __name__=="__main__":
     main()
+
 
 # %%

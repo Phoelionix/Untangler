@@ -9,10 +9,8 @@ from Bio.PDB.Atom import Atom
 # from typing import List # if your version of python is older than 3.9 uncomment this and replace instances of "list[" with "List[" 
 import os
 import subprocess
-import matplotlib
 from time import sleep
 import numpy as np
-matplotlib.use('AGG')
 import shutil
 import itertools
 
@@ -27,9 +25,14 @@ for symbol in ATOMS:
 
 UNTANGLER_WORKING_DIRECTORY= os.path.join(os.path.abspath(os.getcwd()),"")
 
-def model_handle(model_path):
-    assert model_path[-4:]==".pdb"
-    return os.path.basename(model_path)[:-4]
+def model_handle(model_handle_or_path):
+    if model_handle_or_path[-4:]==".pdb":
+        return os.path.basename(model_handle_or_path)[:-4]
+    else: 
+        # assume is already a handle
+        assert os.path.sep not in model_handle_or_path
+        return model_handle_or_path
+
 
 def pdb_data_dir():
     return os.path.join(UNTANGLER_WORKING_DIRECTORY,"data","")
@@ -85,10 +88,8 @@ def get_score(score_file,phenixgeometry_only=False,verbose=True):
             return combined_score,wE_score,Rwork, Rfree
 
 
-def batch_create_score_files(pdb_file_path,log_out_folder_path):
-    assert False, "Unimplemented"
 
-def create_score_file(pdb_file_path,log_out_folder_path,ignore_H=False,turn_off_cdl=False,reflections_for_R:str=None,skip_fail=False,timeout_mins=5): 
+def create_score_file(pdb_file_path,ignore_H=False,turn_off_cdl=False,reflections_for_R:str=None,skip_fail=False,timeout_mins=5): 
     # model_and_reflections_for_R overrides the R and R free values in the pdb path.
 
     holton_folder_path = UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/"
@@ -99,7 +100,7 @@ def create_score_file(pdb_file_path,log_out_folder_path,ignore_H=False,turn_off_
     #generate_holton_data_shell_file=self.holton_folder_path+'GenerateHoltonDataOriginal.sh' # for testing...
     generate_holton_data_shell_file=holton_folder_path+'GenerateHoltonData.sh'
 
-    score_file=score_file_name(pdb_file_path,ignore_H=ignore_H)
+    score_file=score_file_name(pdb_file_path,ignore_H=ignore_H,turn_off_cdl=turn_off_cdl)
     if os.path.exists(score_file):
         os.remove(score_file)
 
@@ -114,7 +115,7 @@ def create_score_file(pdb_file_path,log_out_folder_path,ignore_H=False,turn_off_
         sleep(1)
         print("--==--")
         rel_path = os.path.relpath(pdb_file_path,start=holton_folder_path)
-        #with open(log_out_folder_path+f"{handle}_log.txt","w") as log:
+
         args = ["bash", f"{generate_holton_data_shell_file}",f"{rel_path}"]
         if ignore_H:
             args.append("-H")
@@ -158,20 +159,16 @@ def clear_geo(excluded_suffixes=["_start.geo","_fmtd.geo"]):
             else: 
                 os.remove(os.path.join(geo_path,filename))
 
-def score_file_name(pdb_file_path,ignore_H=False):
-    holton_folder_path = os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration","")
-    assert pdb_file_path[-4:]==".pdb"
-    handle = os.path.basename(pdb_file_path)[:-4]+("_ignoreH" if ignore_H else "")
-    return holton_folder_path+f'HoltonOutputs/{handle}_score.txt'
-def geo_file_name(pdb_file_path):
-    holton_folder_path = os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration","")
-    assert pdb_file_path[-4:]==".pdb"
-    handle = os.path.basename(pdb_file_path)[:-4]
-    return holton_folder_path+f'HoltonOutputs/{handle}.geo'
+def score_file_name(model_handle_or_path,ignore_H=False,turn_off_cdl=False):
+    handle = model_handle(model_handle_or_path)+("_ignoreH" if ignore_H else "")+("_noCDL" if turn_off_cdl else "")
+    return os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration",'HoltonOutputs',f'{handle}_score.txt')
 
-def assess_geometry_wE(pdb_file_path,log_out_folder_path,ignore_H=False,turn_off_cdl=False):
-    score_file = create_score_file(pdb_file_path,log_out_folder_path,ignore_H=ignore_H,turn_off_cdl=turn_off_cdl)
-    assert score_file == score_file_name(pdb_file_path,ignore_H=ignore_H)
+def geo_file_name(model_handle_or_path):
+    handle = model_handle(model_handle_or_path)
+    return os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration","HoltonOutputs",f"{handle}.geo")
+
+def assess_geometry_wE(pdb_file_path,ignore_H=False,turn_off_cdl=False):
+    score_file = create_score_file(pdb_file_path,ignore_H=ignore_H,turn_off_cdl=turn_off_cdl)
     return get_score(score_file)
 
             
