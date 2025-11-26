@@ -398,9 +398,9 @@ def check_nitrogen_twists(struct:Structure,target_res_num:int, constraints_handl
 #%%
 if __name__=="__main__":
 
-    # Tw conformer case 
+    # Two-conformer implementation 
 
-    pdb_path="/home/speno/Untangler/output/longrangetraps_TW_unrestrained2_fmtd.pdb"
+    pdb_path="/home/speno/Untangler/output/longrangetraps_TW_unrestrained2.pdb"
     #pdb_path="/home/speno/Untangler/output/longrangetraps_TW_Accepted1.pdb"
 
     struct = PDBParser().get_structure("struct",pdb_path)
@@ -417,7 +417,7 @@ if __name__=="__main__":
                                             take_closest=True,
                                             #take_average=True
                                         )
-        if bond_needs_to_be_flipped is not None:
+        if len(solutions!=0):
             twists_found.append(solutions)
             twist_resnums.append(res_num)
             bond_flips_needed.append(bond_needs_to_be_flipped)
