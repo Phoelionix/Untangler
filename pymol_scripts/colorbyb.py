@@ -18,15 +18,17 @@ EXAMPLE
     '''
 
     stick_factor=1.5
-    cmd.show_as('sticks', f"model {model}")
-    cmd.set_bond("stick_radius",0.125*stick_factor,model)
+
     #cmd.set_bond("stick_radius",0.125,f"sidechain and {model}")
     bad_bonds = f"badBonds_{model}"
     model_copy = f"copy_{model}"
     cmd.create(model_copy, f"{model}")
     cmd.create(bad_bonds, f"{model_copy} and b > 0")
+    for m in [model_copy,bad_bonds]:
+        cmd.show_as('sticks', f"model {m}")
     #cmd.set_bond("stick_radius",0.2*stick_factor,f"{bad_bonds} and b > 0")
-    cmd.set_bond("stick_radius",0.16*stick_factor,f"{bad_bonds} and b > 0")
+    cmd.set_bond("stick_radius",0.125*stick_factor,model_copy)
+    cmd.set_bond("stick_radius",0.16*stick_factor,bad_bonds)
     cmd.color('gray', model_copy)
     cmd.color('red', f"{bad_bonds} and b > 0")
 
