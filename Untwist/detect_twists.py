@@ -389,9 +389,10 @@ def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_
     twist_point_combined_constraint_solutions=[]
     
     bond_needs_to_be_flipped=None
+    sol = None
     if len(angles)==1: # N-terminus, or C-terminus with CB angles off
         if len(twist_point_sets[0])>0:
-            twist_point_combined_constraint_solutions.append(twist_point_sets)
+            sol = twist_point_sets
     else:
         seps_unflipped=[]
         seps_flipped=[]
@@ -416,20 +417,48 @@ def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_
             for i, point in enumerate(unflipped_sol):
                 flipped_sol[i]=point[::-1]
 
+            unflipped_sol= np.mean(twist_point_sets,axis=0)
+            assert twist_point_sets.shape==(2,1,2,3)
+            flipped_twist_point_sets = np.zeros(shape=twist_point_sets.shape)
+            flipped_twist_point_sets[0]=twist_point_sets[0]
+            flipped_twist_point_sets[1]=twist_point_sets[1,:,::-1]
+            flipped_sol= np.mean(flipped_twist_point_sets,axis=0)
+
+
+
             rmsd_unflipped = np.sqrt( np.sum(np.array(seps_unflipped)**2) )
             rmsd_flipped = np.sqrt( np.sum(np.array(seps_flipped)**2) )
+            #print(rmsd_unflipped,rmsd_flipped)
 
-            sol,seps,bond_needs_to_be_flipped = (unflipped_sol,seps_unflipped,False) if rmsd_unflipped < rmsd_flipped else (flipped_sol,seps_flipped,True)
+            options = [(unflipped_sol,seps_unflipped,False),(flipped_sol,seps_flipped,True)]
+            valid_options=[]
+            for option in options:
+                seps = option[1]
+                for conformer_separation in seps:
+                    if conformer_separation > max_solution_conformer_sep:
+                        break
+                else:
+                    valid_options.append(option)
+            
+            # Choose highest sep option
+            if len(valid_options)>0:
+                #print(list(opt[0] for opt in valid_options))
+                highest_sep=-1
+                for option in valid_options:
+                    option_sol=option[0]
+                    sep = separation(*option_sol[0])
+                    if sep > highest_sep:
+                        highest_sep=sep
+                        sol,_,bond_needs_to_be_flipped = option
+                print(f"Separation {separation(*C)} --> {highest_sep}")
 
-            for conformer_separation in seps:
-                if conformer_separation > max_solution_conformer_sep:
-                    break
-            else:
-                twist_point_combined_constraint_solutions.append(sol)            
         elif len(twist_point_sets[0])>1 or len(twist_point_sets[1]) > 1:
             print("Multiple points for sets not handled")
+            assert False
         else:
             pass
+    if sol is not None:
+        twist_point_combined_constraint_solutions.append(sol)    # XXX stupid         
     return twist_point_sets,np.array(twist_point_combined_constraint_solutions),bond_needs_to_be_flipped  
 
 
@@ -447,10 +476,15 @@ if __name__=="__main__":
     twists_found:list[NDArray]=[]
     twist_atom_ids:list[DisorderedTag]=[]
     bond_flips_needed:list[bool]=[]
+    altlocs_involved:list[str]=[]
     debug = False
+    single_res_debug=False
     print("Computing twists...")
     last_resnum=64
-    for res_num in range(1,last_resnum+1):
+    first_resnum=1
+    if single_res_debug:
+        first_resnum=last_resnum=46
+    for res_num in range(first_resnum,last_resnum+1):
         if res_num%10==1:
             print(f"residue {res_num}/{last_resnum}")
         for atom_name in "N","CA","C":
@@ -471,6 +505,7 @@ if __name__=="__main__":
                 twists_found.append(solutions)
                 twist_atom_ids.append(DisorderedTag(res_num,atom_name))
                 bond_flips_needed.append(bond_needs_to_be_flipped)
+                altlocs_involved.append("AB") # Temporary FIXME 
             if debug:
                 print("====")
                 print(indiv_twist_points)
@@ -489,10 +524,13 @@ if __name__=="__main__":
     
     solutions_chosen=np.array(twists_found)[:,0,0] # XXX
     out_handle = os.path.basename(pdb_path)[:-4]
-    out_str="resnum.name | new coords \n"
+    out_str="# resnum.name | new coords \n"
     np.set_printoptions(formatter={'float': lambda x: "{:.3f}".format(x)})
-    out_str+="\n".join([f"{site_tag} {' '.join(str(coord) for coord in coord_pair)} " \
-                        for (coord_pair,  site_tag, tangled) in zip(solutions_chosen, twist_atom_ids, bond_flips_needed)]
+    # out_str+="\n".join([f"{site_tag} {' '.join(str(coord) for coord in coord_pair)}" \
+    #                     for (coord_pair,  site_tag, tangled) in zip(solutions_chosen, twist_atom_ids, bond_flips_needed)]
+    #                   )
+    out_str+="\n".join([f"{site_tag} {altlocs} {' '.join(str(coord) for coord in coord_pair)} {'Y' if tangled else 'N'}" \
+                        for (coord_pair,  site_tag, altlocs, tangled) in zip(solutions_chosen, twist_atom_ids,altlocs_involved, bond_flips_needed)]
                       )
     with open(f"untwist_moves_{out_handle}.txt",'w') as f:
         f.write(out_str)

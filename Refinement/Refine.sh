@@ -185,7 +185,7 @@ if [ -n "$altlocs_to_refine" ]; then
   rm -rf $tmp_dir; mkdir -p $tmp_dir
   bash $(dirname "$0")/mask_altlocs.sh ${xyz_handle}.pdb $hkl_path $altlocs_to_refine $new_hkl_path $tmp_dir &> /dev/null
   # Get structure file of the atoms with the specified altloc labels
-  bash $(dirname "$0")/make_altloc_subset.sh ${xyz_handle}.pdb $altlocs_to_refine ${xyz_subset_handle}.pdb &> /dev/null
+  bash $(dirname "$0")/../StructureGeneration/make_altloc_subset.sh ${xyz_handle}.pdb $altlocs_to_refine ${xyz_subset_handle}.pdb &> /dev/null
   hkl_path=$new_hkl_path
  
 fi
@@ -323,7 +323,6 @@ cd ../..
 if $calc_wE; then
   echo "Calculating wE for $out_path"
   cd ../StructureGeneration
-  echo $(realpath -s --relative-to="./" "$out_path" )
   bash GenerateHoltonData.sh $(realpath -s --relative-to="./" "$out_path" )  > HoltonScores/${out_handle}.log
 fi
 
