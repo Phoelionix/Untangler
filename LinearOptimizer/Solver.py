@@ -290,10 +290,12 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
     num_small_fry_disordered_connections=0
 
+    initial_badness=0
     def add_constraints_from_disordered_connection(constraint_type:VariableKind,disordered_connection: list[LP_Input.AtomChunkConnection],global_score_tolerate_threshold=0):
         # Rule: If all atom assignments corresponding to a connection are active,
         # then all those atoms must be swapped to the same assignment.
         nonlocal lp_problem  
+        nonlocal initial_badness
 
 
         def forbid_change_conditions():
@@ -449,33 +451,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         site_names+=extra_tag
 
         
-
-
-
-
-
-
-        #     # This makes things slower...
-        #     '''
-        #     if allowed:
-        #         assert len(permutation_vars)==len(altlocs)
-        #         lp_problem += (
-        #             lpSum(permutation_vars) <= len(permutation_vars)*permutation_vars[0],   # all or none are active.
-        #             f"Permutation{constraint_type.value}{p}_{tag}"
-        #             )
-        #     '''
-                    
-            #TODO CRITICAL Variables for when hydrogen is involved can be simplified, especially for angles involving hydrogen.
-
-        # TODO!!!! if connection options don't appear in any non-forbidden group, can just write:
-        # for to_altloc in all_altlocs:
-        #     assignment_vars = [site_var_dict[VariableID.Atom(ch)][ch.get_altloc()][to_altloc] for ch in ordered_connection_option.atom_chunks]
-        #     lp_problem += (
-        #         lpSum(assignment_vars) <=  len(assignment_vars)-1,   
-        #         f"FORBID{constraint_type.value}_{tag}>>{to_altloc}"
-        #         )
-        # And also remove corresponding var_active ordered connection variable.
-        # This will make things clearer, if not faster. 
+        for ordered_connection_option, _ in connection_var_dict.values():
+            if ordered_connection_option.single_altloc():
+                initial_badness+=ordered_connection_option.ts_distance
+                
         if modify_forbid_conditions:
             worst_no_change_score=0
             #    So possible solution is guaranteed, always allow connections of original structure.  
@@ -730,6 +709,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
 
     if change_punish_factor!=0:
+        raise NotImplementedError()
         num_conformers=len([site_being_considered(chunk) for chunk in chunk_sites])
         original_cost = lpSum([dist for dist in distance_vars]).value()
 
@@ -744,7 +724,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     lp_problem += (
     badness,
     "badness",)
-    initial_badness = badness.value()
+    #initial_badness = badness.value() 
     print(f"Initial badness: {initial_badness}")
         
     
@@ -880,7 +860,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         
         #gapRel=None
         if create_initial_variable_files:
-            with open(f"{log_out_dir}/ProblemStatusEnd.txt",'w') as f:
+            with open(f"{log_out_dir}/ProblemStatusStart.txt",'w') as f:
                 f.write(f"Status: {LpStatus[lp_problem.status]}\n")
 
                 for v in lp_problem.variables():
