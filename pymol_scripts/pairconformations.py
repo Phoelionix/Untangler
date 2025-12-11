@@ -13,7 +13,8 @@ from time import sleep
 
 # CURRENTLY assumes 2 conformations with altlocs labelled A and B.
 
-def pairconformations(modelA, modelB, colorbysep=1,sep_cutoff=0.05, doAlign=0, doPretty=1, guide=0, method='super', quiet=1):
+def pairconformations(modelA, modelB, good='ytterbium',bad='yellow', colorbysep=1,sep_cutoff=0.05, doAlign=0, doPretty=1, guide=0, method='super', quiet=1):
+    # try ytterbium is a moderate green
     def sele_exists(sele):
         sess = cmd.get_session()
         for i in sess["names"]:
@@ -45,6 +46,7 @@ def pairconformations(modelA, modelB, colorbysep=1,sep_cutoff=0.05, doAlign=0, d
         cmd.create(modelA_confs[-1], f"model {modelA} and altloc {altloc}")
         modelB_confs.append(delete_name(f"{modelB}-{altloc}"))
         cmd.create(modelB_confs[-1], f"model {modelB} and altloc {altloc}")
+    
     options=[]
     options.append(((modelA_confs[0],modelB_confs[0]),(modelA_confs[1],modelB_confs[1])))
     options.append(((modelA_confs[0],modelB_confs[0]),(modelA_confs[1],modelB_confs[1])))
@@ -66,9 +68,9 @@ def pairconformations(modelA, modelB, colorbysep=1,sep_cutoff=0.05, doAlign=0, d
         for model in pair:
             cmd.color("grey",f"model {model}")
             cmd.set_bond("stick_radius",0.1,f"sidechain and model {model}")
+            cmd.set("sphere_scale",0.15)
         if colorbysep:
-            pass
-            color_sep(*pair, sep_cutoff,doAlign, doPretty, guide, method, quiet=1)
+            color_sep(*pair, sep_cutoff,doAlign, doPretty, guide, method, quiet=1,goodcolor=good,badcolor=bad)
         else:
             pass
             colorbyrmsd(*pair, doAlign, doPretty, guide, method, quiet=1)
@@ -84,7 +86,7 @@ cmd.extend('pairconformations', pairconformations)
 cmd.auto_arg[0]['pairconformations'] = cmd.auto_arg[0]['align']
 cmd.auto_arg[1]['pairconformations'] = cmd.auto_arg[1]['align']
 
-def color_sep(mobile, target,sep_cutoff, doAlign=0, doPretty=1, guide=0, method='super', quiet=1):
+def color_sep(mobile, target,sep_cutoff, doAlign=0, doPretty=1, guide=0, method='super', quiet=1,goodcolor='green',badcolor='yellow'):
     from chempy import cpv
 
     doAlign, doPretty = int(doAlign), int(doPretty)
@@ -129,13 +131,14 @@ def color_sep(mobile, target,sep_cutoff, doAlign=0, doPretty=1, guide=0, method=
             b_dict[idx] = b
 
     cmd.alter(seleboth, 'b = b_dict.get((model, index), -1)', space=locals())
+    cmd.refresh()
     if doPretty:
         cmd.orient(seleboth)
         # cmd.show_as('cartoon', 'byobj ' + seleboth)
         # cmd.show('sticks', 'byobj ' + seleboth)
         cmd.color('gray',seleboth)
-        cmd.color('yellow',  f"{seleboth} and b > -0.5")
-        cmd.color('green',  f"{seleboth} and b > {sep_cutoff}")
+        cmd.color(goodcolor,  f"{seleboth} and b > -0.5")
+        cmd.color(badcolor,  f"{seleboth} and b > {sep_cutoff}")
 
     if not quiet:
         print(" ColorByRMSD: Minimum Distance: %.2f" % (min(b_dict.values())))
