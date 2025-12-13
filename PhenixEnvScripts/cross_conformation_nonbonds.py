@@ -136,6 +136,8 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
     ).get_sites_cart()
     #og_site_labels=site_labels
 
+
+    # consider all altlocs (lazy implementation)
     ordered_atom_sites_dict={}
     def sep(X,Y):
         return np.sqrt(np.sum((np.array(X)-np.array(Y))**2))
@@ -212,7 +214,3 @@ if __name__=="__main__":
     for i, arg in enumerate(sys.argv[1:]):
         args[i]=arg
     get_cross_conf_nonbonds(*args)
-
-# That was nearly instant.
-# Now need to just modify phenix to generate vdw sums for all possible altlocs or find the function that does
-

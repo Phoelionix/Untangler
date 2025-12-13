@@ -185,7 +185,7 @@ if [ -n "$altlocs_to_refine" ]; then
   rm -rf $tmp_dir; mkdir -p $tmp_dir
   bash $(dirname "$0")/mask_altlocs.sh ${xyz_handle}.pdb $hkl_path $altlocs_to_refine $new_hkl_path $tmp_dir &> /dev/null
   # Get structure file of the atoms with the specified altloc labels
-  bash $(dirname "$0")/../StructureGeneration/make_altloc_subset.sh ${xyz_handle}.pdb $altlocs_to_refine ${xyz_subset_handle}.pdb &> /dev/null
+  bash $(dirname "$0")/../StructureGeneration/make_altloc_subset.sh ${xyz_handle}.pdb $altlocs_to_refine ${xyz_subset_handle}.pdb > /dev/null
   hkl_path=$new_hkl_path
  
 fi
@@ -214,6 +214,15 @@ sed  "s/SHAKE_TEMPLATE/${shake}/g" $paramFile  > tmp.$$
 mv tmp.$$ $paramFile
 sed  "s/      sigma = 0.1/      sigma = ${max_sigma_movement_restraint}/g" $paramFile  > tmp.$$ 
 mv tmp.$$ $paramFile
+
+
+  if $refine_hydrogens; then
+    if $hold_protein; then 
+      #echo "Hydrogens are the only protein atoms that will be refined"
+      sed "s/individual = water/individual = water or element H/g" $paramFile > tmp.$$ 
+      mv tmp.$$ $paramFile
+    fi
+  fi
 
 if $no_mlhl; then
   sed "s/target = auto ml \*mlhl ml_sad ls mli/target = *auto ml mlhl ml_sad ls mli/g" $paramFile > tmp.$$ 

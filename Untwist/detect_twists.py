@@ -23,6 +23,10 @@ from LinearOptimizer.OrderedAtomLookup import OrderedAtomLookup
 import UntangleFunctions
 
 
+#TODO
+# Should focus on finding solutions that are as close to 90 degrees as possible. 
+
+
 #(I) they share the same midpoint
 # (II) they are farther apart
 # (III) each conformer position is related via rotation of a model conformer around the vector formed by a and b.
@@ -461,18 +465,10 @@ def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_
         twist_point_combined_constraint_solutions.append(sol)    # XXX stupid         
     return twist_point_sets,np.array(twist_point_combined_constraint_solutions),bond_needs_to_be_flipped  
 
-
-#%%
-if __name__=="__main__":
-
-    # Two-conformer implementation 
-
-    pdb_path="/home/speno/Untangler/output/longrangetraps_TW_unrestrained2.pdb"
-    #pdb_path="/home/speno/Untangler/output/longrangetraps_TW_Accepted1.pdb"
-
+def create_untwist_file(pdb_path,geo_file_needs_generation=True):
     struct = PDBParser().get_structure("struct",pdb_path)
     ordered_atom_lookup=OrderedAtomLookup(struct.get_atoms(),waters=False)
-    constraints_handler = get_constraints_handler(pdb_path,geo_file_needs_generation=False)
+    constraints_handler = get_constraints_handler(pdb_path,geo_file_needs_generation=geo_file_needs_generation)
     twists_found:list[NDArray]=[]
     twist_atom_ids:list[DisorderedTag]=[]
     bond_flips_needed:list[bool]=[]
@@ -480,8 +476,8 @@ if __name__=="__main__":
     debug = False
     single_res_debug=False
     print("Computing twists...")
-    last_resnum=64
     first_resnum=1
+    last_resnum= max(OrderedAtomLookup(struct.get_atoms(),waters=False).get_residue_nums())
     if single_res_debug:
         first_resnum=last_resnum=46
     for res_num in range(first_resnum,last_resnum+1):
@@ -526,15 +522,24 @@ if __name__=="__main__":
     out_handle = os.path.basename(pdb_path)[:-4]
     out_str="# resnum.name | new coords \n"
     np.set_printoptions(formatter={'float': lambda x: "{:.3f}".format(x)})
-    # out_str+="\n".join([f"{site_tag} {' '.join(str(coord) for coord in coord_pair)}" \
-    #                     for (coord_pair,  site_tag, tangled) in zip(solutions_chosen, twist_atom_ids, bond_flips_needed)]
-    #                   )
     out_str+="\n".join([f"{site_tag} {altlocs} {' '.join(str(coord) for coord in coord_pair)} {'Y' if tangled else 'N'}" \
                         for (coord_pair,  site_tag, altlocs, tangled) in zip(solutions_chosen, twist_atom_ids,altlocs_involved, bond_flips_needed)]
                       )
-    with open(f"untwist_moves_{out_handle}.txt",'w') as f:
+    untwist_file=f"untwist_moves_{out_handle}.txt"
+    with open(untwist_file,'w') as f:
         f.write(out_str)
     print("Done")
+    return untwist_file
+
+
+#%%
+if __name__=="__main__":
+
+    # Two-conformer implementation 
+
+    pdb_path="/home/speno/Untangler/output/longrangetraps_TW_unrestrained2.pdb"
+    create_untwist_file(pdb_path,geo_file_needs_generation=False)
+
 
         
     #print(detect_twist(tuple(disordered_atoms),snap_to_ideal=False,plot=True))

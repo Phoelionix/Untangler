@@ -6,7 +6,7 @@ from LinearOptimizer.Swapper import Swapper
 import UntangleFunctions
 from UntangleFunctions import assess_geometry_wE, get_R,pdb_data_dir,create_score_file,get_score,score_file_name,geo_file_name,res_is_water, parse_symmetries_from_pdb,prepare_pdb,get_altlocs_from_pdb,UNTANGLER_WORKING_DIRECTORY
 import subprocess
-import os, sys
+import os, sys,pathlib
 import numpy as np
 import shutil
 import random
@@ -25,6 +25,8 @@ from matplotlib import pyplot as plt
 from StructureGeneration.CombineUpdateEnsembles import combine_update_ensembles
 from StructureGeneration.interp_coords import interp_coords
 from Measures.evaluate_tangle import evaluate_tangle
+from Untwist import untwist
+
 
 
 
@@ -53,21 +55,23 @@ class Untangler():
     ####
     # Skip stages. Requires files to already have been generated (up to the point you are debugging).
     # If a model file hasn't been generated, will use the latest filename that exists and is expected to have been generated up to that point in the process.
+    # As of writing, untwist step is skipped if the unrestrained step is skipped.
     debug_skip_refine = False  # Note: Can set to True alongside debug_skip_first_swaps to skip to first proposal
     debug_phenix_ordered_solvent_on_initial=False
-    debug_skip_initial_refine=True
-    debug_skip_first_unrestrained_refine=True
-    debug_main_chain_swaps_only=True
-    debug_always_allow_O_swaps=True
-    never_do_unrestrained=False # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
-    debug_skip_first_swaps=True
+    debug_skip_initial_refine=False
+    debug_skip_first_unrestrained_refine=False 
+    debug_skip_first_swaps=False
     debug_skip_first_batch_refine=False # skip to assessing best model from batch refine
     debug_skip_first_focus_swaps=False # many swaps strategy only 
     debug_skip_unrestrained_refine=False
-    debug_skip_holton_data_generation=False
     debug_always_accept_proposed_model=False
     auto_group_waters=False
-    debug_skip_to_loop=2
+    never_do_unrestrained=False # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
+    always_allow_O_swaps=True
+    debug_main_chain_swaps_only=False
+    main_chain_swaps_only_after_first_loop=True
+    debug_skip_to_loop=0
+    debug_skip_holton_data_generation=False
     debug_skip_initial_holton_data_generation =debug_skip_initial_refine or (debug_skip_to_loop!=0)
     refmac_refine_water_occupancies_initial=False
     ##
@@ -257,12 +261,15 @@ class Untangler():
         print("Initial model:", initial_model)
         self.current_model=initial_model
 
+        model_for_initial_score = pdb_file_path
+        if self.loop!=0:
+            model_for_initial_score = initial_model
         if not self.debug_skip_holton_data_generation and not self.debug_skip_initial_holton_data_generation:
-            self.initial_score = Untangler.Score(*assess_geometry_wE(initial_model))
+            self.initial_score = Untangler.Score(*assess_geometry_wE(model_for_initial_score))
         else:
-            if not os.path.exists(score_file_name(initial_model)):
-                create_score_file(initial_model)
-            self.initial_score = Untangler.Score(*get_score(score_file_name(initial_model)))
+            if not os.path.exists(score_file_name(model_for_initial_score)):
+                create_score_file(model_for_initial_score)
+            self.initial_score = Untangler.Score(*get_score(score_file_name(model_for_initial_score)))
         self.current_score = self.best_score = Untangler.Score.inf_bad_score()# i.e. force accept first solution
         if self.first_loop>0:
             self.current_score=self.best_score=self.initial_score
@@ -632,9 +639,20 @@ class Untangler():
         SwapManyPairs=1
         
 
-
+    def untwist(self,working_model,skip=False):
+        if len(self.protein_altlocs)!=2:
+            print("Skipping untwists due to more than 2 protein altlocs")
+            return working_model
+        out_path = self.get_out_path("untwist")
+        if skip:
+            return out_path
+        print("Performing untwist moves")
+        untwisted_model = untwist.apply_all_untwists_for_two_conformations(working_model)
+        shutil.copy(untwisted_model,out_path)
+        return out_path
+    
     def no_O_bond_swaps(self):
-        return (self.loop%self.O_bond_change_period!=0) and not self.debug_always_allow_O_swaps
+        return (self.loop%self.O_bond_change_period!=0) and not self.always_allow_O_swaps
     def refinement_loop(self,two_swaps=False,allot_protein_independent_of_waters=False,strategy=None): 
         # working_model stores the path of the current model. It changes value during the loop.
         # TODO if stuck (tried all candidate swap sets for the loop), do random flips or engage Metr.Hastings or track all the new model scores and choose the best.
@@ -649,9 +667,13 @@ class Untangler():
         #strategy=Untangler.Strategy.SwapManyPairs
 
         working_model = self.current_model
+ 
         if not self.never_do_unrestrained:        
+            # Do we skip unrestrained refinement this loop?
             skip_unrestrained = self.debug_skip_refine or self.debug_skip_unrestrained_refine or (self.loop==self.first_loop and self.debug_skip_first_unrestrained_refine)
-            #if (self.loop+9)%10==0 and not skip_unrestrained: # XXX
+            
+            working_model = self.untwist(working_model,skip=skip_unrestrained)
+                            
             if (self.loop+1)%10==0 and not skip_unrestrained: # XXX
                 self.working_model = self.nice_long_refine(working_model)
 
@@ -710,7 +732,8 @@ class Untangler():
             # Limited options
             MChOnly_period=2
             if ((self.loop+(MChOnly_period-1))%MChOnly_period!=0
-                and not self.debug_main_chain_swaps_only): # All options
+                and not self.debug_main_chain_swaps_only
+                and not (self.main_chain_swaps_only_after_first_loop and self.loop>0)): # All options
                 subset_size=self.altloc_subset_size
                 num_combinations=3 
                 altloc_subsets.extend(self.get_altloc_subsets(subset_size,num_combinations))

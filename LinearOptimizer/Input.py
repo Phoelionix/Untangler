@@ -702,7 +702,7 @@ class LP_Input:
             potential_overrides = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}_potential_overrides.txt"
         constraints_handler.load_all_constraints(self.model_path,self.ordered_atom_lookup,symmetries=self.symmetries,water_water_nonbond=water_water_nonbond,constraints_to_skip=constraints_to_skip,
                                                  two_atom_penalty_tuples=original_clashes,
-                                                 potential_overrides_file=potential_overrides)
+                                                 outliers_to_ignore_file=potential_overrides)
         print("Nonordered constraint properties loaded.")
         #for n,atom in enumerate(self.ordered_atom_lookup.select_atoms_by(names=["CA","C","N"])):
 

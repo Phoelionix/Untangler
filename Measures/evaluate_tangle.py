@@ -7,11 +7,23 @@ from LinearOptimizer.Swapper import Swapper
 
 # How many bonds need to change to get it right?
 
-def evaluate_tangle(model, ground_truth):
+WATER_WATER_NONBOND=False
+
+def evaluate_tangle(model, ground_truth,weight_factors=None):
     def get_out_path(model_handle,out_tag):
         output_dir = os.path.join(UNTANGLER_WORKING_DIRECTORY,"output","")
         return f"{output_dir}{model_handle}_{out_tag}.pdb"
     
+    if weight_factors is None:
+        weight_factors = {
+            ConstraintsHandler.BondConstraint: 0.1,
+            ConstraintsHandler.AngleConstraint: 80,#1,
+            ConstraintsHandler.NonbondConstraint: 0.1, # 0.1
+            ConstraintsHandler.ClashConstraint: 0, 
+            ConstraintsHandler.TwoAtomPenalty: 0,
+        }
+
+        
 
     model_handle=os.path.basename(model)[:-4]
     untangle_fmted_model = get_out_path(model_handle,"fmtd")
@@ -84,13 +96,7 @@ def evaluate_tangle(model, ground_truth):
             
  
     # Pass model conformers into LinearOptimizer.Input, with ground-truth conformers as reference (labelled by serial number) so it can forbid any other changes.
-    weight_factors = {
-        ConstraintsHandler.BondConstraint: 0.1,
-        ConstraintsHandler.AngleConstraint: 80,#1,
-        ConstraintsHandler.NonbondConstraint: 0.1, # 0.1
-        ConstraintsHandler.ClashConstraint: 0, 
-        ConstraintsHandler.TwoAtomPenalty: 0,
-    }
+
     
     symmetries=parse_symmetries_from_pdb(ground_truth)
 
@@ -99,7 +105,8 @@ def evaluate_tangle(model, ground_truth):
     atoms, connections = LP_Input(model, model, None, symmetries).calculate_paths(
         scoring_function=ConstraintsHandler.log_chi,
         constraint_weights=weight_factors,
-        force_solution_reference=force_solution_reference
+        force_solution_reference=force_solution_reference,
+        water_water_nonbond=WATER_WATER_NONBOND
     )
 
     # Turn off symmetry breaking thing in LinearOptimizer.Solver, and instead add a cost for the number of changes.
@@ -107,7 +114,7 @@ def evaluate_tangle(model, ground_truth):
     change_punish_factor=0
     if change_punish_factor<=0:
         print("WARNING: not doing minimal changes. Returned tangle level likely to be much higher than it is.")
-    swaps_file_path,bonds_replaced_each_loop=Solver.solve(atoms,connections,out_dir=os.path.join(UNTANGLER_WORKING_DIRECTORY,"output",""),
+    swaps_file_path,bonds_replaced_each_loop,distances=Solver.solve(atoms,connections,out_dir=os.path.join(UNTANGLER_WORKING_DIRECTORY,"output",""),
                 out_handle=out_handle,
                 num_solutions=1,
                 modify_forbid_conditions=False,
@@ -119,6 +126,8 @@ def evaluate_tangle(model, ground_truth):
     # Read ChangedConnections to see where bond changes occur.
 
     bonds_replaced=bonds_replaced_each_loop[0]
+    distance_from_truth = distances[0]
+
     out_str=""
     all_terms=[]
     for bond in bonds_replaced:
@@ -136,7 +145,7 @@ def evaluate_tangle(model, ground_truth):
     write_to_b_factors(model,all_terms,tangled_bonds_path)
     print(f"Written bad bonds to B factors in {tangled_bonds_path}")
 
-    return len(bonds_replaced)
+    return len(bonds_replaced), distance_from_truth
 
 
 

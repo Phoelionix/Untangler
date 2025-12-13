@@ -11,7 +11,7 @@ class OrderedAtomLookup: #TODO pandas?
         self.ordered_atoms:list[Atom] = []
         self.serial_num_to_disordered_num_dict={}
         self.residue_nums=[]
-        self.residue_sources=[]
+        # self.residue_sources:Residue=[]
         self.altlocs=[]
         self.protein_altlocs=[]
         self.res_names:dict[int,str]={}
@@ -65,7 +65,7 @@ class OrderedAtomLookup: #TODO pandas?
                     assert len(self.residue_nums)== 0 or res_num-1 in [self.residue_nums[-1],last_skipped_res_num], (res_num,self.residue_nums)
                 self.residue_nums.append(res_num)
                 self.res_names[res_num]=disorderedAtom.get_parent().get_resname()
-                self.residue_sources.append(disorderedAtom.get_parent())
+                #self.residue_sources.append(disorderedAtom.get_parent())
                 if is_water:
                     self.water_residue_nums.append(res_num)
             else: 
@@ -134,8 +134,8 @@ class OrderedAtomLookup: #TODO pandas?
         return self.serial_num_to_disordered_num_dict[atom.get_serial_number()] 
     def get_residue_nums(self)->list[int]:
         return self.residue_nums
-    def get_residue_sources(self)->list[Residue]:
-        return self.residue_sources
+    # def get_residue_sources(self)->list[Residue]:
+    #     return self.residue_sources
     def get_altlocs(self)->list[str]:
         return self.altlocs
     

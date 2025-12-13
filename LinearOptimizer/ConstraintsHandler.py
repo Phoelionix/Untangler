@@ -59,7 +59,7 @@ class ConstraintsHandler:
     class Constraint():
         def specific_weight_mod(self,atom_names):
             # An additional weight that is dependent on the specific atoms
-            raise Exception("abstract method")
+            raise NotImplementedError("abstract method")
         def __init__(self,pdb_ids:list[str],outlier_ok:bool,ideal:float,weight:float,sigma:float):
             if type(pdb_ids[0])==OrderedTag:
                 self.site_tags = [ot.disordered_tag() for ot in pdb_ids]
@@ -98,7 +98,7 @@ class ConstraintsHandler:
         def residues(self):
             return [site.resnum() for site in self.site_tags]
         def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float,float]:  # TODO this returns an ideal value, z_score, and a cost, but should make a class that holds this info and return that
-            raise Exception("abstract method")
+            raise NotImplementedError("Abstract method")
         def __repr__(self):
             return f"({ConstraintsHandler.Constraint.kind(type(self))} : {self.site_tags})"
         def __eq__(self, other:'ConstraintsHandler.Constraint'):
@@ -711,6 +711,26 @@ class ConstraintsHandler:
 class DisorderedTag():
     def __init__(self,res_num,atom_name):
         self._resnum, self._name = int(res_num),str(atom_name)
+    def is_entry(self,pdb_entry:UntangleFunctions.PDB_Atom_Entry)->bool:
+        if not pdb_entry.valid:
+            return False
+        return DisorderedTag(pdb_entry.res_num,pdb_entry.atom_name)==self
+    def is_riding_H_entry(self,H_pdb_entry:UntangleFunctions.PDB_Atom_Entry)->bool:
+        if not H_pdb_entry.valid:
+            return False
+        if not H_pdb_entry.atom_name[0]=="H":
+            return False
+        if not int(H_pdb_entry.res_num)==self.resnum():
+            return False
+        name_length = len(self.atom_name())
+        assert 1 <= name_length <= 4 
+        if name_length<4:
+            full_name = ' '+self.atom_name() + ' '*(3-name_length)
+        else:
+            full_name=self.atom_name()
+        if UntangleFunctions.H_get_parent_fullname(H_pdb_entry.atom_name,[full_name],debug_none_return=False)==full_name:
+            return True
+        return False
     def resnum(self):
         return self._resnum
     def atom_name(self):

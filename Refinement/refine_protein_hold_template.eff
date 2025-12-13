@@ -144,7 +144,7 @@ refinement {
                  *individual_adp group_adp tls occupancies group_anomalous \
                  den
     sites {
-      individual = None
+      individual = water
       torsion_angles = None
       rigid_body = None
     }

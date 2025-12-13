@@ -25,7 +25,7 @@ pdbID=$1
     bash ../GenerateConformationsForInitialRefine.sh $pdbID $numConformations 
     bash ../ReadySet.sh $pdbID $numConformations 
     python3.9 ../CombineStructuresToEnsemble.py ${pdbID}_ground_truth ${pdbID}_conf_1H.pdb ${pdbID}_conf_2H.pdb
-    bash ../GenerateScatteringData.sh $pdbID  
+    bash ../GenerateScatteringData.sh $pdbID.pdb
     python3.9 ../CombineStructuresToEnsemble.py ${pdbID}_initial_model ${pdbID}_starting_1H.pdb ${pdbID}_starting_2H.pdb
 
     bash ../GenerateRefinement.sh $pdbID

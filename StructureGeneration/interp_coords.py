@@ -1,3 +1,4 @@
+#Interpolate coordinates of two models
 
 import sys, os
 from Bio.PDB import PDBParser#, parse_pdb_header

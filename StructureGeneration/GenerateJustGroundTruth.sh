@@ -32,7 +32,7 @@ cd $(dirname "$0")/data
     structures=$(eval echo ${pdbID}_conf_{1..$numConformations}.pdb)
 
     python3.9 ../CombineStructuresToEnsemble.py ${pdbID}_simTruth-$numConformations $structures
-    bash ../GenerateScatteringData.sh ${pdbID}_simTruth-$numConformations
+    bash ../GenerateScatteringData.sh ${pdbID}_simTruth-$numConformations.pdb
 
     cd ../
     bash GenerateHoltonData.sh data/${pdbID}_simTruth-$numConformations.pdb

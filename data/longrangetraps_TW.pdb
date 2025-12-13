@@ -1,4 +1,5 @@
 longrangetraps.pdb with ground_truth_water.pdb
+Fixed atom 26 - H altloc b - in residue 1.
 REMARK   3
 REMARK   3 REFINEMENT.
 REMARK   3   PROGRAM     : PHENIX (1.21rc1_4903: ???)
@@ -175,7 +176,7 @@ ATOM     22  O  BVAL A   1      -3.552   2.059  13.086  0.50  7.35           O
 ATOM     23  CB BVAL A   1      -6.020   1.073  10.961  0.50  7.73           C
 ATOM     24  CG1BVAL A   1      -6.986  -0.058  10.609  0.50  7.32           C
 ATOM     25  CG2BVAL A   1      -6.715   2.218  11.705  0.50  7.74           C
-ATOM     26  H  BVAL A   1      -4.715   0.097  13.699  0.50  9.84           H
+ATOM     26  H  BVAL A   1      -6.000   0.188  13.569  0.50  8.83           H
 ATOM     27  H2 BVAL A   1      -4.776   0.430  13.771  0.50  9.84           H
 ATOM     28  H3 BVAL A   1      -5.178  -0.924  13.106  0.50  9.84           H
 ATOM     29  HA BVAL A   1      -4.450  -0.215  11.272  0.50  9.06           H

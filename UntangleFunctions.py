@@ -172,8 +172,9 @@ def assess_geometry_wE(pdb_file_path,ignore_H=False,turn_off_cdl=False):
     return get_score(score_file)
 
             
+WATER_RESNAMES = ["HOH"]
 def res_is_water(res):
-    return res.get_id()[0]!= " " or res.get_resname()=="HOH"
+    return res.get_id()[0]!= " " or res.get_resname() in WATER_RESNAMES
 
             
 
@@ -205,7 +206,7 @@ def get_R(pdb_file_path,reflections_path):
 
 # nonH_fullname_list is with whitespaces
 # quite possibly the worst parser ever written.
-def H_get_parent_fullname(H_name:str,nonH_fullname_list:list[str],debug_print=True): 
+def H_get_parent_fullname(H_name:str,nonH_fullname_list:list[str],debug_none_return=True): 
         parent_name=None
         H_name = H_name.strip()
         basic_dict = dict(
@@ -236,14 +237,14 @@ def H_get_parent_fullname(H_name:str,nonH_fullname_list:list[str],debug_print=Tr
                 if condition:
                     #print(H.name, identifier)
                     if parent_name is not None:
-                        #if debug_print:
+                        #if debug_none_return:
                         print(H_name, identifier)
                         for k in nonH_fullname_list:
                             print(k,k[2:].strip())
                         assert False
                     parent_name = k
         if parent_name is None:
-            if debug_print:
+            if debug_none_return:
                 print(H_name, identifier)
                 for k in nonH_fullname_list:
                     print(k,k[2:].strip())
@@ -668,4 +669,29 @@ def get_altlocs_from_pdb(pdb_path):
                     protein_altlocs.append(altloc) 
 
         return set(protein_altlocs),set(solvent_altlocs)
+
+class PDB_Atom_Entry:
+    # Functions return atom entry with changes applied. Does not change in place 
+    def __init__(self,atom_entry:str):
+        self.valid=False
+        self.atom_entry=atom_entry
+        valid_record_types=["ATOM","HETATM"]
+        if np.any([atom_entry.startswith(k) for k in valid_record_types]):
+            self.valid=True
+            self.res_name = atom_entry[17:20]
+            self.atom_name_unstripped = atom_entry[12:16] 
+            self.atom_name=self.atom_name_unstripped.strip()
+            self.altloc=atom_entry[16] # i.e. `from_altloc`
+            self.res_num =atom_entry[22:26].strip()
+    def is_water(self):
+        return self.res_name in WATER_RESNAMES
+    def new_altloc(self,new_altloc:str):
+        return self.atom_entry[:16]+new_altloc+self.atom_entry[17:]
+    
+
+    def new_coord(self,new_coord):
+        coord_str = ''.join([f"{v:8.4f}"for v in new_coord])
+        return self.atom_entry[:30]  + coord_str + self.atom_entry[54:] 
+            
+
 # %%

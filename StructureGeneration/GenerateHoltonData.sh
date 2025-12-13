@@ -54,9 +54,16 @@ fi
 
 out_handle=$handle
 if ! $keep_hydrogens; then 
-    out_handle=${handle}_ignoreH
-    args="${args} keep_hydrogens=$keep_hydrogens outprefix=$out_handle"
+    out_handle=${out_handle}_ignoreH
+    args="${args} keep_hydrogens=$keep_hydrogens"
 fi
+if ! $cdl; then 
+    out_handle=${out_handle}_noCDL
+fi
+
+args="${args} outprefix=$out_handle"
+
+
 if $Rwork_override; then
     args="${args} Rwork=$Rwork"
 fi 
