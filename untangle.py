@@ -681,7 +681,7 @@ class Untangler():
 
         return out_path
     
-    def get_untwist_moves(self,working_model,num_unrestrained_cycles=1,max_gap_close_frac=0.25,min_ratio_real_sep_on_fake_sep=0.95, debug_skip_refine=False):
+    def get_untwist_moves(self,working_model,num_unrestrained_cycles=1,max_gap_close_frac=0.25,min_ratio_real_sep_on_fake_sep=1, debug_skip_refine=False):
         if len(self.protein_altlocs)!=2:
             print("Skipping untwists due to more than 2 protein altlocs")
             return []

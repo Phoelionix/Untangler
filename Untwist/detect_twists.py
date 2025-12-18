@@ -348,7 +348,7 @@ def plot_it(A,B,C,twist_points,arcs,focus_twist=True,rot_speed=1,names=[]):
 
 def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_name:str, constraints_handler:ConstraintsHandler,
                      max_solution_conformer_sep=0.1,include_CB_angles=False, verbose=False, debug=False,
-                     ignore_no_twist_angles=True,**kwargs):
+                     ignore_no_twist_angles=False,**kwargs):
     # TODO Don't apply strong constraints, and return stats of the twists, so they can be filtered after calling this function.
 
     n=target_res_num # 50
