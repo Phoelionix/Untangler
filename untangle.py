@@ -72,7 +72,7 @@ class Untangler():
     debug_main_chain_swaps_only=False
     main_chain_swaps_only_after_first_loop=True
     default_scoring_function = staticmethod(ConstraintsHandler.log_chi)
-    debug_skip_to_loop=0
+    debug_skip_to_loop=1
     #untwist_loop=99
     num_loops_not_refine_H=0
     num_loops_not_untwist=0

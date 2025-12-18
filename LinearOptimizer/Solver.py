@@ -350,17 +350,20 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         def forbid_change_conditions():
             if not modify_forbid_conditions:
                 return False
-            for ch in disordered_connection[0].atom_chunks:
-                if constraint_type==VariableKind.Bond: 
-                    # TODO this allows water to change. But necessary.
-                    MCH=["N","CA","CB","C","O"]
-                    if MAIN_CHAIN_ONLY and (ch.name not in MCH) and (ch.get_resname() not in ["CYS","HOH"]):  # XXX tidy up and put in a separate python file for specifying what to optimize
-                        return True
-                    if SIDE_CHAIN_ONLY and ch.name in MCH and ch.get_resname()!="HOH":
-                        return True
-                    if NO_CB_CHANGES and ch.name == "CB":
-                        return True
-                    if forbid_ring_changes:
+            
+            MCH=["N","CA","CB","C","O"]
+            chunks = disordered_connection[0].atom_chunks
+            involves_main_chain=any(ch.name in MCH for ch in chunks)
+            if constraint_type==VariableKind.Bond: 
+                # TODO this allows water to change. But necessary.
+                if MAIN_CHAIN_ONLY and not involves_main_chain and (any(ch.get_resname() not in ["CYS","HOH"]) for ch in chunks):  # XXX tidy up and put in a separate python file for specifying what to optimize
+                    return True
+                if SIDE_CHAIN_ONLY and involves_main_chain and (any(ch.get_resname() != ["HOH"]) for ch in chunks):
+                    return True
+                if NO_CB_CHANGES and any(ch.name =="CB" for ch in chunks):
+                    return True
+                if forbid_ring_changes:
+                    for ch in chunks:
                         if ch.get_resname() in ["TYR","PHE"]:
                             if ch.name in ["CD1","CD2","CE1","CE2","CZ"]:
                                 return True
@@ -371,6 +374,27 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                             if ch.name not in MCH\
                             and ch.name not in ["CG"]:
                                 return True
+            # for ch in disordered_connection[0].atom_chunks:
+            #     if constraint_type==VariableKind.Bond: 
+            #         # TODO this allows water to change. But necessary.
+            #         MCH=["N","CA","CB","C","O"]
+            #         if MAIN_CHAIN_ONLY and (ch.name not in MCH) and (ch.get_resname() not in ["CYS","HOH"]):  # XXX tidy up and put in a separate python file for specifying what to optimize
+            #             return True
+            #         if SIDE_CHAIN_ONLY and ch.name in MCH and ch.get_resname()!="HOH":
+            #             return True
+            #         if NO_CB_CHANGES and ch.name == "CB":
+            #             return True
+            #         if forbid_ring_changes:
+            #             if ch.get_resname() in ["TYR","PHE"]:
+            #                 if ch.name in ["CD1","CD2","CE1","CE2","CZ"]:
+            #                     return True
+            #             elif ch.get_resname()=="PRO":
+            #                 if ch.name in ["CG"]: # Include CD?
+            #                     return True
+            #             elif ch.get_resname()=="TRP":
+            #                 if ch.name not in MCH\
+            #                 and ch.name not in ["CG"]:
+            #                     return True
 
 
             # Forbid changes that are costly to consider and don't seem to tangle
@@ -769,7 +793,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 continue
             reference_conn = list(connection_var_dict.values())[0][0]
             resnum = reference_conn.res_nums[0] # Anchor to first atom
-            if not all(ach.name in ["N","CA","C","CB","SG"] for ach in reference_conn.atom_chunks):
+            #if not all(ach.name in ["N","CA","C","CB","SG"] for ach in reference_conn.atom_chunks):
+            if not any(ach.name in ["N","CA","C","CB"] for ach in reference_conn.atom_chunks):
                 continue
             if resnum not in resnum_no_change_vars_dict:
                 resnum_no_change_vars_dict[resnum]=[]
