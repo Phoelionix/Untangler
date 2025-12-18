@@ -35,7 +35,8 @@ def get_untwist_atom_options(working_model)->list[DisorderedAtom]:
     assert all(type(v)==DisorderedAtom for v in disordered_atoms)
     return disordered_atoms
 
-def get_untwist_atom_options_that_survived_unrestrained(pos_refined_model, pre_untwist_model, changes_only_model,max_gap_close_frac,exclude_H):
+def get_untwist_atom_options_that_survived_unrestrained(pos_refined_model, pre_untwist_model, changes_only_model,max_gap_close_frac,exclude_H,min_ratio_real_sep_on_fake_sep):
+    
     untwist_atoms = {DisorderedTag.from_atom(a):a for a in PDBParser().get_structure("struct",changes_only_model).get_atoms()}
     original_atoms = {DisorderedTag.from_atom(a):a for a in PDBParser().get_structure("struct",pre_untwist_model).get_atoms()
                       if DisorderedTag.from_atom(a) in untwist_atoms}
@@ -65,10 +66,10 @@ def get_untwist_atom_options_that_survived_unrestrained(pos_refined_model, pre_u
             for ordered_post_ref_atm in post_ref_atm:
                 post_refined_min_sep = min(post_refined_min_sep,separation(ordered_og_atm,ordered_post_ref_atm))
 
-        frac_gap_closed = abs(post_refined_min_sep-pre_refined_min_sep)/pre_refined_min_sep
+        frac_gap_closed = (pre_refined_min_sep-post_refined_min_sep)/pre_refined_min_sep
         if frac_gap_closed>max_gap_close_frac:
             passed = False
-        if separation(*post_ref_atm)<separation(*og_atm):
+        if separation(*post_ref_atm)*min_ratio_real_sep_on_fake_sep<separation(*og_atm):
             passed = False
         if passed:
             alternate_atoms.append(post_ref_atm)

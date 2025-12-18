@@ -200,6 +200,7 @@ def detect_twist(
     arcs_to_plot=[]
     bond_lengths,angles = [],[]
     reliable=False
+    #reliable_dev_threshold=max(0.01,fake_separation/4)
     reliable_dev_threshold=fake_separation
     for altloc, (a,b,c) in ordered_atoms.items():
         bond_length,angle=separation(b,c),get_angle(a,b,c)
@@ -211,7 +212,7 @@ def detect_twist(
 
         arc, point_0 = get_arc(a.get_coord(),b.get_coord(),bond_length,angle,c.get_coord()) # TODO current phi... to speed things up
         if separation(point_0,c.get_coord()) <= reliable_dev_threshold:
-            reliable = True # Consider "reliable" if at least one bond length is as expected
+            reliable = True # Consider "reliable" if at least one satisfies the condition.
         arcs[altloc] = arc
         arcs_to_plot.append(arc)
         bond_lengths.append(bond_length)
@@ -346,7 +347,8 @@ def plot_it(A,B,C,twist_points,arcs,focus_twist=True,rot_speed=1,names=[]):
 
 
 def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_name:str, constraints_handler:ConstraintsHandler,
-                     max_solution_conformer_sep=0.1,include_CB_angles=False, verbose=False, debug=False,**kwargs):
+                     max_solution_conformer_sep=0.1,include_CB_angles=False, verbose=False, debug=False,
+                     ignore_no_twist_angles=True,**kwargs):
     # TODO Don't apply strong constraints, and return stats of the twists, so they can be filtered after calling this function.
 
     n=target_res_num # 50
@@ -438,7 +440,7 @@ def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_
         if verbose:
             print(f"reliable: {reliable}")
         
-        if reliable:
+        if reliable and (not ignore_no_twist_angles or len(twist_pairs)>0 ):
             twist_point_sets.append(twist_pairs) # pairs of points
             if verbose and len(twist_pairs)==1:
                 print(f"candidate sep: {separation(*twist_pairs[0]):.3f} original: {separation(*C):.3f}")
@@ -451,7 +453,7 @@ def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_
     if len(twist_point_sets)==1: # N-terminus, or C-terminus with CB angles off, or CB in CYS with only S-S-CB angle
         if len(twist_point_sets[0])>0:
             sol = twist_point_sets[0]
-    else:
+    elif len(twist_point_sets)>1:
         seps_unflipped=[]
         seps_flipped=[]
         if all([len(twist_point_set)==1 for twist_point_set in twist_point_sets]):
@@ -560,14 +562,14 @@ def create_untwist_file(pdb_path,geo_file_needs_generation=True):
         #for atom_name in "N","CA","C":
             if atom_name == "CB" and ordered_atom_lookup.res_names[res_num]!="CYS":
                 continue
-            if debug and ((res_num,atom_name) !=(46,"N")):
+            if debug and ((res_num,atom_name) !=(54,"C")):
                 continue 
             if debug:
                 print(res_num)
             indiv_twist_points,solutions,bond_needs_to_be_flipped=detect_twists(ordered_atom_lookup,res_num,atom_name,constraints_handler,
                                                 max_solution_conformer_sep=0.1,
                                                 plot_zoomed_in=debug,
-                                                plot_zoomed_out=debug,
+                                                plot_zoomed_out=False,
                                                 plot_rot_speed=3,
                                                 take_closest=True,
                                                 #take_average=True,

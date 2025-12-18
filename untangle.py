@@ -72,7 +72,7 @@ class Untangler():
     debug_main_chain_swaps_only=False
     main_chain_swaps_only_after_first_loop=True
     default_scoring_function = staticmethod(ConstraintsHandler.log_chi)
-    debug_skip_to_loop=1
+    debug_skip_to_loop=0
     #untwist_loop=99
     num_loops_not_refine_H=0
     num_loops_not_untwist=0
@@ -681,7 +681,7 @@ class Untangler():
 
         return out_path
     
-    def get_untwist_moves(self,working_model,num_unrestrained_cycles=1,max_gap_close_frac=0.25, debug_skip_refine=False):
+    def get_untwist_moves(self,working_model,num_unrestrained_cycles=1,max_gap_close_frac=0.25,min_ratio_real_sep_on_fake_sep=0.95, debug_skip_refine=False):
         if len(self.protein_altlocs)!=2:
             print("Skipping untwists due to more than 2 protein altlocs")
             return []
@@ -694,7 +694,7 @@ class Untangler():
         print("Refining model with all untwists")
         positions_refined_model = self.refine_for_positions(untwist_path,loops_override=num_unrestrained_cycles,debug_skip=debug_skip_refine,tag="Untwist") 
 
-        alternate_atoms,disallowed_alternates = untwist.get_untwist_atom_options_that_survived_unrestrained(positions_refined_model,working_model, changes_only_model,max_gap_close_frac=max_gap_close_frac,exclude_H=True)
+        alternate_atoms,disallowed_alternates = untwist.get_untwist_atom_options_that_survived_unrestrained(positions_refined_model,working_model, changes_only_model,max_gap_close_frac=max_gap_close_frac,min_ratio_real_sep_on_fake_sep=min_ratio_real_sep_on_fake_sep,exclude_H=True)
 
         print(f"Alternate atom positions (untwist moves that are consistent with X-ray data): {' '.join([str(DisorderedTag.from_atom(a)) for a in alternate_atoms])}")
         print(f"Disallowed (candidate untwist moves that disagree with X-ray data): {' '.join([str(DisorderedTag.from_atom(a)) for a in disallowed_alternates])}")
