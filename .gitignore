@@ -10,3 +10,6 @@ data/*
 *conformer_subsets/*
 *tmp_out/
 untwist_moves_*.txt
+*.png
+*coot-history.*
+*.log

@@ -53,8 +53,26 @@ from LinearOptimizer.OrderedAtomLookup import OrderedAtomLookup
 from LinearOptimizer.ConstraintsHandler import ConstraintsHandler
 from Untwist import untwist
 
+#ALTERNATE_POSITIONS_FACTOR=1
 ALTERNATE_POSITIONS_FACTOR=1
 ALTERNATE_POSITIONS_FACTOR_AFFECTS_Z_SCORE=False
+#HYDROGEN_RESTRAINTS=False # If False, hydrogen restraints will be ignored.
+NEVER_FORBID_HYDROGEN_GEOMETRIES=True
+hydrogen_restraint_scale=1 # scales cost of hydrogen restraints. E.g. angles for serine OG - CB - H will prevent a swap that improves OG - CB bond length, even though after refine the hydrogens will rearrange with no issues.  
+APPLY_TENSION_MOD=False
+TURN_OFF_MIN_SIGMAS=False
+ALLOW_OUTLIERS_FROM_POTENTIAL_OVERRIDES=False # Will not do min sigmas with  outliers identified as potentially genuine in {model_handle}_potential_overrides.txt.
+#weight_mod_for_allowed_outliers=1e-1
+weight_mod_for_allowed_outliers=1
+#high_tension_penalty=1.75  # Penalty for current connections (i.e. geometries? groups?) that correspond to a high tension (above min_tension_where_anything_goes). TODO should just be a penalty for not having any geometries involving the site change.
+#high_tension_penalty=10  # Penalty for current connections (i.e. geometries? groups?) that correspond to a high tension (above min_tension_where_anything_goes). TODO should just be a penalty for not having any geometries involving the site change.
+high_tension_penalty=1  # Penalty factor for current connections (i.e. geometries? groups?) that correspond to a high tension (above min_tension_where_anything_goes). TODO should just be a penalty for not having any geometries involving the site change.
+
+#TODO could try reverting model back to preswap model.
+
+assert high_tension_penalty>=1
+
+
 
 def is_atom(atom:Atom,resnum,name,altloc):
         if (atom.name==name and atom.get_altloc()==altloc and OrderedAtomLookup.atom_res_seq_num(atom)==resnum):
@@ -75,26 +93,6 @@ def atoms_in_LO_variable_string(variable:str,atoms:list[Atom]): # e.g. "30.C_B|3
         else: # did not find a match
             return False
     return True
-
-#HYDROGEN_RESTRAINTS=False # If False, hydrogen restraints will be ignored.
-NEVER_FORBID_HYDROGEN_GEOMETRIES=True
-hydrogen_restraint_scale=1 # scales cost of hydrogen restraints. E.g. angles for serine OG - CB - H will prevent a swap that improves OG - CB bond length, even though after refine the hydrogens will rearrange with no issues.  
-APPLY_TENSION_MOD=False
-TURN_OFF_MIN_SIGMAS=False
-ALLOW_OUTLIERS_FROM_POTENTIAL_OVERRIDES=False # Will not do min sigmas with  outliers identified as potentially genuine in {model_handle}_potential_overrides.txt.
-#weight_mod_for_allowed_outliers=1e-1
-weight_mod_for_allowed_outliers=1
-#high_tension_penalty=1.75  # Penalty for current connections (i.e. geometries? groups?) that correspond to a high tension (above min_tension_where_anything_goes). TODO should just be a penalty for not having any geometries involving the site change.
-#high_tension_penalty=10  # Penalty for current connections (i.e. geometries? groups?) that correspond to a high tension (above min_tension_where_anything_goes). TODO should just be a penalty for not having any geometries involving the site change.
-high_tension_penalty=1  # Penalty factor for current connections (i.e. geometries? groups?) that correspond to a high tension (above min_tension_where_anything_goes). TODO should just be a penalty for not having any geometries involving the site change.
-
-#TODO could try reverting model back to preswap model.
-
-assert high_tension_penalty>=1
-
-
-
-
 
 # Want to calculate wE for chunks of atoms and residues and side chains and main chains 
 # we then get the optimizer to minimize when choosing 
