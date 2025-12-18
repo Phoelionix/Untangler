@@ -53,8 +53,8 @@ MAX_BOND_CHANGES_SECOND_HALF_ONLY=False
 CHANGES_MUST_INVOLVE=None#["A"] # In testing.
 DEBUG_FIRST_100_SITES=False
 FORBID_MULTIPLE_LOCAL_CHANGES_WHEN_MAIN_CHAIN_ONLY=True
-ALLOW_ALL_POSITION_CHANGE_GEOMECTIONS= False # Only if modify_forbid_conditions = True
-
+ALLOW_ALL_POSITION_CHANGE_GEOMECTIONS= True # Only if modify_forbid_conditions = True
+FORCE_ALT_COORDS=False
 
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,LP_Input.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
@@ -297,8 +297,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     lpSum(site_altposvar_dict[site][from_altloc].values())==1,
                     f"altCoords_{site}_{from_altloc}"
                 )
-                debug_force_alt_coords=False
-                if debug_force_alt_coords:
+                
+                if FORCE_ALT_COORDS and modify_forbid_conditions:
                     lp_problem += (  
                         var_no_change==0,
                         f"forceAltCoords_{site}_{from_altloc}"

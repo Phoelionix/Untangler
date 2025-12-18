@@ -61,7 +61,7 @@ class Untangler():
     debug_phenix_ordered_solvent_on_initial=False
     debug_skip_initial_refine=True
     debug_skip_first_unrestrained_refine=True
-    debug_skip_first_swaps=True
+    debug_skip_first_swaps=False
     debug_skip_first_batch_refine=False # skip to assessing best model from batch refine
     debug_skip_first_focus_swaps=False # many swaps strategy only 
     debug_skip_unrestrained_refine=False
@@ -75,7 +75,7 @@ class Untangler():
     debug_skip_to_loop=0
     #untwist_loop=99
     num_loops_not_refine_H=0
-    num_loops_not_untwist=1
+    num_loops_not_untwist=0
     debug_skip_holton_data_generation=False
     debug_skip_initial_holton_data_generation =debug_skip_initial_refine or (debug_skip_to_loop!=0)
     refmac_refine_water_occupancies_initial=False
@@ -441,9 +441,9 @@ class Untangler():
         #scoring_function_list = [ConstraintsHandler.prob_weighted_stat,ConstraintsHandler.chi,ConstraintsHandler.e_density_scaled_dev]
         #scoring_function_list = [ConstraintsHandler.chi]
         #scoring_function_list = [ConstraintsHandler.dev_sqr]
-        #scoring_function_list = [ConstraintsHandler.log_chi] # TODO use prob weighted stat
-        #scoring_function_list = [ConstraintsHandler.chi] # TODO use prob weighted stat
-        scoring_function_list = [self.default_scoring_function] # TODO use prob weighted stat
+        #scoring_function_list = [ConstraintsHandler.log_chi] 
+        #scoring_function_list = [ConstraintsHandler.chi] #
+        scoring_function_list = [self.default_scoring_function]
         #scoring_function_list = [ConstraintsHandler.prob_weighted_stat]
         #scoring_function_list = [ConstraintsHandler.e_density_scaled_dev]
         scoring_function = scoring_function_list[self.loop%len(scoring_function_list)]
@@ -696,8 +696,8 @@ class Untangler():
 
         alternate_atoms,disallowed_alternates = untwist.get_untwist_atom_options_that_survived_unrestrained(positions_refined_model,working_model, changes_only_model,max_gap_close_frac=max_gap_close_frac,exclude_H=True)
 
-        print(f"Alternate atoms: {' '.join([str(DisorderedTag.from_atom(a)) for a in alternate_atoms])}")
-        print(f"Disallowed: {' '.join([str(DisorderedTag.from_atom(a)) for a in disallowed_alternates])}")
+        print(f"Alternate atom positions (untwist moves that are consistent with X-ray data): {' '.join([str(DisorderedTag.from_atom(a)) for a in alternate_atoms])}")
+        print(f"Disallowed (candidate untwist moves that disagree with X-ray data): {' '.join([str(DisorderedTag.from_atom(a)) for a in disallowed_alternates])}")
         return alternate_atoms
         
     
@@ -896,7 +896,7 @@ class Untangler():
         
         def refine_attempt(working_model,alternate_strategy=False):  # XXX
             if strategy == Untangler.Strategy.Batch:
-                # TODO refinements should be initiated after solution found.
+                # TODO refinements should be initiated after optimizer solution found.
                 refine_H_before_end=self.loop>=self.num_loops_not_refine_H 
                 refine_hydrogens_in_batch = False
                 refine_hydrogens_post_batch=False
@@ -1749,8 +1749,8 @@ def main():
         endloop_wc=1, num_end_loop_refine_cycles=6,
         #endloop_wc=3, num_end_loop_refine_cycles=1,
         refine_for_positions_geo_weight=0,
-        starting_num_best_swaps_considered=40,
-        max_num_best_swaps_considered=40,
+        starting_num_best_swaps_considered=20,
+        max_num_best_swaps_considered=20,
         altloc_subset_size=2,
         unrestrained_damp=0,
         #refine_for_positions_geo_weight=0.03,
@@ -1768,7 +1768,7 @@ def main():
         ).run(
         starting_model,
         xray_data,
-        desired_score=18.4,
+        desired_score=18.4, # score to stop at
         max_num_runs=8,
     )
 if __name__=="__main__":

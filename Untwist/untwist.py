@@ -49,6 +49,7 @@ def get_untwist_atom_options_that_survived_unrestrained(pos_refined_model, pre_u
     alternate_atoms:list[DisorderedAtom]=[]
     disallowed:list[DisorderedAtom]=[]
     for site_tag , untwist_atm in untwist_atoms.items():
+        passed=True
         if exclude_H and untwist_atm.element=="H":
             continue
         og_atm = original_atoms[site_tag]
@@ -66,9 +67,13 @@ def get_untwist_atom_options_that_survived_unrestrained(pos_refined_model, pre_u
 
         frac_gap_closed = abs(post_refined_min_sep-pre_refined_min_sep)/pre_refined_min_sep
         if frac_gap_closed>max_gap_close_frac:
-            disallowed.append(post_ref_atm)
-        else:
+            passed = False
+        if separation(*post_ref_atm)<separation(*og_atm):
+            passed = False
+        if passed:
             alternate_atoms.append(post_ref_atm)
+        else:
+            disallowed.append(post_ref_atm)
                 
     return alternate_atoms,disallowed
         
