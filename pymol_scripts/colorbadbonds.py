@@ -3,7 +3,7 @@
 from pymol import cmd, CmdException
 
 
-def colorbyb(model):
+def colorbadbonds(model):
     '''
 DESCRIPTION
 
@@ -30,14 +30,14 @@ EXAMPLE
     #cmd.set_bond("stick_radius",0.125,f"sidechain and {model}")
     bad_bonds = f"badBonds_{model}"
     model_copy = f"copy_{model}"
-    cmd.create(bad_bonds, f"{model_copy} and b > 0")
-    if not sele_exists(f"model {bad_bonds}"):
+    cmd.create(bad_bonds, f"{model} and b > 0")
+    if not sele_exists(f"{bad_bonds}"):
         print("No bad bonds")
         return 
+    cmd.create(model_copy, f"{model}")
         
     for m in [model_copy,bad_bonds]:
         cmd.show_as('sticks', f"model {m}")
-    cmd.create(model_copy, f"{model}")
     #cmd.set_bond("stick_radius",0.2*stick_factor,f"{bad_bonds} and b > 0")
     cmd.set_bond("stick_radius",0.125*stick_factor,model_copy)
     cmd.set_bond("stick_radius",0.16*stick_factor,bad_bonds)
@@ -51,8 +51,8 @@ EXAMPLE
 
 
 
-cmd.extend('colorbyb', colorbyb)
+cmd.extend('colorbadbonds', colorbadbonds)
 
-cmd.auto_arg[0]['colorbyb'] = [ cmd.object_sc, 'object', '']
+cmd.auto_arg[0]['colorbadbonds'] = [ cmd.object_sc, 'object', '']
 
 # vi: ts=4:sw=4:smarttab:expandtab

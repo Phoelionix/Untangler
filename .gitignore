@@ -9,3 +9,4 @@ data/*
 .vscode/*
 *conformer_subsets/*
 *tmp_out/
+untwist_moves_*.txt

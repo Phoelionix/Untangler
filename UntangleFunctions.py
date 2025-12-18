@@ -88,6 +88,9 @@ def get_score(score_file,phenixgeometry_only=False,verbose=True):
             return combined_score,wE_score,Rwork, Rfree
 
 
+def create_clashes_file(pdb_file_path,ignore_H=False,turn_off_cdl=False,reflections_for_R:str=None,skip_fail=False,timeout_mins=5): 
+    #TODO
+    return create_score_file(pdb_file_path,ignore_H=ignore_H,turn_off_cdl=turn_off_cdl,reflections_for_R=reflections_for_R,skip_fail=skip_fail,timeout_mins=timeout_mins)
 
 def create_score_file(pdb_file_path,ignore_H=False,turn_off_cdl=False,reflections_for_R:str=None,skip_fail=False,timeout_mins=5): 
     # model_and_reflections_for_R overrides the R and R free values in the pdb path.
@@ -141,6 +144,7 @@ def create_score_file(pdb_file_path,ignore_H=False,turn_off_cdl=False,reflection
     return score_file
 
 def copy_model_and_geo(source,dest):
+    # Copies the model to a path and the corresponding geometry/score files to the expected paths given the new model name
     shutil.copy(source,dest)
     old_handle,new_handle = [model_handle(f) for f in (source,dest)]
     geo_dir=f"{UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/"

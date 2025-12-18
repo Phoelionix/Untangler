@@ -1,26 +1,29 @@
 from Bio.PDB.Atom import Atom,DisorderedAtom
 from Bio.PDB.Residue import Residue # Note we don't want the disorderedresidue here, it refers to different residue types for same res seq num.
 import UntangleFunctions 
+from LinearOptimizer.Tag import *
 from LinearOptimizer.VariableID import *
 
 class OrderedAtomLookup: #TODO pandas?
-    def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False,altloc_subset=None,allowed_resnums=None,allowed_resnames=None): # TODO type hint for sequence?
+    def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False,altloc_subset=None,allowed_resnums=None,allowed_resnames=None,alternate_atoms:list[DisorderedAtom]=[]): # TODO type hint for sequence?
         assert allowed_resnums is None, "Not working"
         
         self.disordered_waters=[]
         self.ordered_atoms:list[Atom] = []
         self.serial_num_to_disordered_num_dict={}
         self.residue_nums=[]
+        self.res_names:dict[int,str]={} # key: res num
         # self.residue_sources:Residue=[]
         self.altlocs=[]
         self.protein_altlocs=[]
-        self.res_names:dict[int,str]={}
         self.better_dict:dict[str,dict[str,dict[str,Atom]]] = {}  # res_num, atom name, altloc
+        self.alt_pos_options:dict[DisorderedTag,list[dict[str,Atom]]]={}
         self.water_residue_nums:list[int]=[]
 
         self.waters_allowed=waters
 
         atoms = list(atoms)
+
 
 
         #TODO check whether zero occ affects wE/geom stuff. If not can skip zero occ safely. Otherwise need to deal with it.
@@ -96,6 +99,18 @@ class OrderedAtomLookup: #TODO pandas?
                 self.better_dict[res_num][disorderedAtom.name][altloc] = orderedAtom
         if num_zero_occ_skip>0:
             print(f"Skipped {num_zero_occ_skip} zero occupancy ordered atoms")
+
+        for disordered_other in alternate_atoms:
+            disordered_tag = DisorderedTag.from_atom(disordered_other)
+            if disordered_tag not in self.alt_pos_options:
+                self.alt_pos_options[disordered_tag]=[]
+            ordered_dict={ordered_other.get_altloc(): ordered_other for ordered_other in disordered_other}
+            self.alt_pos_options[disordered_tag].append(ordered_dict)
+                    
+    
+    def from_tag(self,ordered_tag:OrderedTag)->Atom:
+        return self.better_dict[ordered_tag.resnum()][ordered_tag.atom_name()][ordered_tag.altloc()]
+
     def output_as_pdb_file(self, reference_pdb_file,out_path):
         # Only outputs based on self.better_dict at present!!
         with open(reference_pdb_file) as R, open(out_path,'w') as O:

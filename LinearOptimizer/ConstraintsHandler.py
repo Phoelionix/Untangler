@@ -7,8 +7,10 @@ from multiprocessing import Pool
 import scipy.stats as st
 from statistics import NormalDist
 from LinearOptimizer.VariableID import *
+from LinearOptimizer.Tag import *
 from LinearOptimizer.OrderedAtomLookup import OrderedAtomLookup
 from LinearOptimizer import mon_lib_read
+from typing import Union
 
 
 
@@ -60,7 +62,7 @@ class ConstraintsHandler:
         def specific_weight_mod(self,atom_names):
             # An additional weight that is dependent on the specific atoms
             raise NotImplementedError("abstract method")
-        def __init__(self,pdb_ids:list[str],outlier_ok:bool,ideal:float,weight:float,sigma:float):
+        def __init__(self,pdb_ids:list[Union:[str,OrderedTag,DisorderedTag]],outlier_ok:bool,ideal:float,weight:float,sigma:float):
             if type(pdb_ids[0])==OrderedTag:
                 self.site_tags = [ot.disordered_tag() for ot in pdb_ids]
             elif type(pdb_ids[0])!=DisorderedTag:
@@ -628,12 +630,12 @@ class ConstraintsHandler:
                 if (confA.atom_name() == confB.atom_name()) and (confA.resnum()==confB.resnum()):
                     continue
                 #protein=True, waters=waters_outer_loop,exclude_H=IGNORE_HYDROGEN_CLASHES
-                atomA = confA.lookup_atom(ordered_atom_lookup)
+                atomA = ordered_atom_lookup.from_tag(confA)
                 if not waters_outer_loop\
                 and UntangleFunctions.res_is_water(atomA.get_parent()):
                     continue
                 #protein=protein_protein_nonbonds,waters=general_water_nonbond, exclude_H=IGNORE_HYDROGEN_CLASHES
-                atomB = confB.lookup_atom(ordered_atom_lookup)
+                atomB = ordered_atom_lookup.from_tag(confB)
                 if not general_water_nonbond\
                 and UntangleFunctions.res_is_water(atomB.get_parent()):
                     continue
@@ -707,75 +709,3 @@ class ConstraintsHandler:
                     #self.scale_constraint_weight(pdb_ids,ConstraintsHandler.ClashConstraint,10*badness)
                     self.add_two_atom_penalty(ConstraintsHandler.TwoAtomPenalty(pdb_ids,outlier_ok("PENALTY",pdb_ids)),None,altloc,100*badness)
 
-
-class DisorderedTag():
-    def __init__(self,res_num,atom_name):
-        self._resnum, self._name = int(res_num),str(atom_name)
-    def is_entry(self,pdb_entry:UntangleFunctions.PDB_Atom_Entry)->bool:
-        if not pdb_entry.valid:
-            return False
-        return DisorderedTag(pdb_entry.res_num,pdb_entry.atom_name)==self
-    def is_riding_H_entry(self,H_pdb_entry:UntangleFunctions.PDB_Atom_Entry)->bool:
-        if not H_pdb_entry.valid:
-            return False
-        if not H_pdb_entry.atom_name[0]=="H":
-            return False
-        if not int(H_pdb_entry.res_num)==self.resnum():
-            return False
-        name_length = len(self.atom_name())
-        assert 1 <= name_length <= 4 
-        if name_length<4:
-            full_name = ' '+self.atom_name() + ' '*(3-name_length)
-        else:
-            full_name=self.atom_name()
-        if UntangleFunctions.H_get_parent_fullname(H_pdb_entry.atom_name,[full_name],debug_none_return=False)==full_name:
-            return True
-        return False
-    def resnum(self):
-        return self._resnum
-    def atom_name(self):
-        return self._name 
-    def element(self):
-        return self.atom_name()[0]   # FIXME !!!!!!!!!!
-    def num_bound_e(self):
-        return UntangleFunctions.NUM_E[self.element()]
-    def __repr__(self):
-        return f"{self.resnum()}.{self.atom_name()}"
-    # def __format__(self,format_spec):
-    #     return str(self)
-    # def __str__(self):
-    #     return f"{self.resnum()}.{self.atom_name()}"
-    
-    def __hash__(self):
-        return hash((self._resnum, self.atom_name()))
-
-    def ordered_tag(self,altloc:str):
-        return OrderedTag(self.resnum(),self.atom_name(),altloc)
-
-    def __eq__(self, other:'DisorderedTag'):
-        return (self._resnum, self.atom_name()) == (other._resnum, other.atom_name())
-    def __ne__(self, other):
-        return not(self == other)
-    @staticmethod 
-    def from_atom(a:Atom):
-        return DisorderedTag(OrderedAtomLookup.atom_res_seq_num(a),a.get_name())
-
-class OrderedTag(DisorderedTag):
-    def __init__(self,res_num,atom_name,altloc):
-        super().__init__(res_num,atom_name)
-        self._altloc=altloc
-    def altloc(self):
-        return self._altloc
-    def lookup_atom(self,ordered_atom_lookup:OrderedAtomLookup)->Atom:
-        return ordered_atom_lookup.better_dict[self.resnum()][self.atom_name()][self.altloc()]
-    def disordered_tag(self):
-        return DisorderedTag(self.resnum(),self.atom_name())
-    def __repr__(self):
-        return f"{self.resnum()}.{self.atom_name()}.{self.altloc()}"
-    def __hash__(self):
-        return hash((self._resnum, self.atom_name(),self.altloc()))
-
-    def __eq__(self, other:'OrderedTag'):
-        return (self._resnum, self.atom_name(),self.altloc()) == (other._resnum, other.atom_name(),other.altloc())
-    def __ne__(self, other):
-        return not(self == other)

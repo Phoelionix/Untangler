@@ -45,12 +45,16 @@ from multiprocessing import Pool
 import scipy.stats as st
 from statistics import NormalDist
 from LinearOptimizer.VariableID import *
+from LinearOptimizer.Tag import *
 from LinearOptimizer.mon_lib_read import read_vdw_radii,read_lj_parameters,get_mon_lib_names
 #from PhenixEnvScripts.cross_conformation_nonbonds import get_cross_conf_nonbonds
 from LinearOptimizer.get_cross_conf_nonbonds_wrapper import get_cross_conf_nonbonds
 from LinearOptimizer.OrderedAtomLookup import OrderedAtomLookup
 from LinearOptimizer.ConstraintsHandler import ConstraintsHandler
+from Untwist import untwist
 
+ALTERNATE_POSITIONS_FACTOR=1
+ALTERNATE_POSITIONS_FACTOR_AFFECTS_Z_SCORE=False
 
 def is_atom(atom:Atom,resnum,name,altloc):
         if (atom.name==name and atom.get_altloc()==altloc and OrderedAtomLookup.atom_res_seq_num(atom)==resnum):
@@ -99,7 +103,7 @@ assert high_tension_penalty>=1
 class Chunk():
     def __init__(self,depth_tag,site_num,altloc,atoms:list[Atom],start_resnum,end_resnum,start_resname,end_resname):
         self.altloc=altloc
-        self.site_num_at_depth=site_num
+        self.site_num_at_depth=site_num # Chunks at same disordered site have same site num
         self.atoms_dict:dict[int,list[Atom]]={}
         for atom in atoms:
             res_num = OrderedAtomLookup.atom_res_seq_num(atom)
@@ -131,7 +135,7 @@ class OrderedResidue(Chunk):
     def __init__(self,altloc,resnum,referenceResidue,atoms,site_num_override=None):
         self.resnum=resnum
         self._res=referenceResidue
-        site_num = self.get_resnum()
+        site_num = self.get_resnum() # Index of disordered 
         if site_num_override is not None:
             site_num =site_num_override
         super().__init__("RESI",site_num,altloc,atoms,
@@ -153,18 +157,20 @@ class OrderedResidue(Chunk):
 # Ugh, never do inheritance. TODO refactor to composition.
 class AtomChunk(OrderedResidue): 
     # Just an atom c:
-    def __init__(self,site_num,altloc,resnum,referenceResidue,atom:Atom,is_water:bool,constraints_handler):
+    def __init__(self,site_num,altloc,resnum,referenceResidue,atom:Atom,is_water:bool,constraints_handler,alt_pos_options:List[tuple[int,'Any']]):
         self.name=atom.get_name()
         self.is_water = is_water
         self.element = atom.element
         self.coord = atom.get_coord()
+        self.alt_pos_options:dict[int,Atom] = alt_pos_options
         super().__init__(altloc,resnum,referenceResidue,[atom],site_num)
         self.generate_uninitialized_constraints(constraints_handler)
         self.depth_tag="ATOM"
     def generate_uninitialized_constraints(self,constraints_handler:ConstraintsHandler):
         self.constraints_holder:ConstraintsHandler = \
             constraints_handler.get_constraints(self.get_disordered_tag(),no_constraints_ok=self.is_water)
-            
+    def has_alternate_coords(self):
+        return len(self.alt_pos_options)>0
     def get_coord(self):
         return self.coord
     def get_disordered_tag(self):
@@ -175,58 +181,8 @@ class AtomChunk(OrderedResidue):
         return f"{self.depth_tag}&{self.get_site_num()}.{self.get_altloc()}&{self.get_disordered_tag()}"
 
 
-class DisorderedTag():
-    def __init__(self,res_num,atom_name):
-        self._resnum, self._name = int(res_num),str(atom_name)
-    def resnum(self):
-        return self._resnum
-    def atom_name(self):
-        return self._name 
-    def element(self):
-        return self.atom_name()[0]   # FIXME !!!!!!!!!!
-    def num_bound_e(self):
-        return UntangleFunctions.NUM_E[self.element()]
-    def __repr__(self):
-        return f"{self.resnum()}.{self.atom_name()}"
-    # def __format__(self,format_spec):
-    #     return str(self)
-    # def __str__(self):
-    #     return f"{self.resnum()}.{self.atom_name()}"
-    
-    def __hash__(self):
-        return hash((self._resnum, self.atom_name()))
-
-    def ordered_tag(self,altloc:str):
-        return OrderedTag(self.resnum(),self.atom_name(),altloc)
-
-    def __eq__(self, other:'DisorderedTag'):
-        return (self._resnum, self.atom_name()) == (other._resnum, other.atom_name())
-    def __ne__(self, other):
-        return not(self == other)
-
-class OrderedTag(DisorderedTag):
-    def __init__(self,res_num,atom_name,altloc):
-        super().__init__(res_num,atom_name)
-        self._altloc=altloc
-    def altloc(self):
-        return self._altloc
-    def lookup_atom(self,ordered_atom_lookup:OrderedAtomLookup)->Atom:
-        return ordered_atom_lookup.better_dict[self.resnum()][self.atom_name()][self.altloc()]
-    def disordered_tag(self):
-        return DisorderedTag(self.resnum(),self.atom_name())
-    def __repr__(self):
-        return f"{self.resnum()}.{self.atom_name()}.{self.altloc()}"
-    def __hash__(self):
-        return hash((self._resnum, self.atom_name(),self.altloc()))
-
-    def __eq__(self, other:'OrderedTag'):
-        return (self._resnum, self.atom_name(),self.altloc()) == (other._resnum, other.atom_name(),other.altloc())
-    def __ne__(self, other):
-        return not(self == other)
-
-
 class LP_Input:
-    MODE= "LOW_TOL" # "NONBOND_RESTRICTIONS" #"LOW_TOL" #"HIGH_TOL" #"NO_RESTRICTIONS" # PHENIX REFMAC
+    MODE="LOW_TOL" # "NONBOND_RESTRICTIONS" #"LOW_TOL" #"HIGH_TOL" #"NO_RESTRICTIONS" # PHENIX REFMAC
     #MODE= "NO_RESTRICTIONS" # "NONBOND_RESTRICTIONS" #"LOW_TOL" #"HIGH_TOL" #"NO_RESTRICTIONS" # PHENIX REFMAC
 
     if MODE=="NO_RESTRICTIONS":
@@ -258,6 +214,24 @@ class LP_Input:
             # ConstraintsHandler.AngleConstraint:7,
             # ConstraintsHandler.NonbondConstraint:7,
             # ConstraintsHandler.ClashConstraint:7,
+        } 
+    elif MODE=="MED_TOL":
+        max_sigmas={
+            ConstraintsHandler.BondConstraint:8,
+            ConstraintsHandler.AngleConstraint:3,
+        }    
+        min_sigmas_where_anything_goes={
+            #ConstraintsHandler.BondConstraint:99,
+            #ConstraintsHandler.AngleConstraint:99,
+            #ConstraintsHandler.NonbondConstraint:2,
+        } 
+        min_tension_where_anything_goes={
+            ConstraintsHandler.BondConstraint:8,
+            ConstraintsHandler.AngleConstraint:4,
+            #ConstraintsHandler.BondConstraint:8,
+            #ConstraintsHandler.AngleConstraint:8,
+            ConstraintsHandler.NonbondConstraint:8,
+            ConstraintsHandler.ClashConstraint:8,
         } 
     elif MODE=="LOW_TOL":
         max_sigmas={
@@ -374,9 +348,15 @@ class LP_Input:
     #     [ deleted ]
     #         _,self.ts_distance,_ = UntangleFunctions.assess_geometry_wE(connection_structure_save_path,tmp_out_folder_path,phenixgeometry_only=quick_wE) 
 
-    class AtomChunkConnection(): # TODO really need to have a disordered connection class to have some of these properties (e.g. max site tension, outlier_ok)
 
-        def __init__(self, atom_chunks:list[AtomChunk],ts_distance,connection_type,hydrogen_names,ideal,z_score,max_site_tension,outlier_ok):
+    @staticmethod
+    def make_hydrogen_tag(hydrogen_names):
+        return "_"+''.join(hydrogen_names) if hydrogen_names is not None else ""
+    
+    # Connection between ordered atoms
+    class Geomection(): # TODO really need to have a disordered connection class to have some of these properties (e.g. max site tension, outlier_ok)
+
+        def __init__(self, atom_chunks:list[AtomChunk],ts_distance,position_option_indices:list[int],connection_type,hydrogen_names,ideal,z_score,max_site_tension,outlier_ok):
             assert hydrogen_names==None or len(hydrogen_names)==len(atom_chunks)
             self.atom_chunks = atom_chunks
             self.from_altlocs=[a.get_altloc() for a in atom_chunks]
@@ -384,7 +364,9 @@ class LP_Input:
             self.atom_names=[a.name for a in atom_chunks]
             self.connection_type=connection_type
             self.ts_distance=ts_distance  # NOTE As in the travelling salesman problem sense
-            self.hydrogen_tag=""
+            self.position_option_indices=position_option_indices
+            self.hydrogen_tag = LP_Input.make_hydrogen_tag(hydrogen_names)
+            self.poschange_tag=""
             self.hydrogen_name_set=set([])
             self.ideal=ideal
             self.z_score=z_score # i.e. sigma
@@ -396,18 +378,32 @@ class LP_Input:
             self.forbidden= (connection_type in LP_Input.max_sigmas) and (self.z_score > LP_Input.max_sigmas[self.connection_type]) 
                 
             if hydrogen_names is not None:
-                self.hydrogen_tag = "_"+''.join(hydrogen_names)
                 self.hydrogen_name_set = set(hydrogen_names)
                 if NEVER_FORBID_HYDROGEN_GEOMETRIES:
                     self.forbidden=False
+            if self.involves_position_changes():
+                self.poschange_tag = '_'+'.'.join([str(i) for i in self.position_option_indices])
+        def involves_position_changes(self):
+            return any([i != 0 for i in self.position_option_indices])
         def single_altloc(self):
             return len({ch.altloc for ch in self.atom_chunks})==1
+        # Whether geomection is active in preswap structure
+        def original(self):
+            return self.single_altloc() and not self.involves_position_changes()
         def get_disordered_connection_id(self):
             kind = ConstraintsHandler.Constraint.kind(self.connection_type)
             return f"{kind}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
 
+        # TODO TEMPORARY
+        @staticmethod
+        def construct_disordered_connection_id(connection_type,disordered_tags:list[DisorderedTag],hydrogen_names=None):
+            kind = ConstraintsHandler.Constraint.kind(connection_type)
+            hydrogen_tag = LP_Input.make_hydrogen_tag(hydrogen_names)
+            return f"{kind}{hydrogen_tag}_{'_'.join([str(dtag) for dtag in disordered_tags])}"
 
-    def __init__(self,pdb_file_path:str,restrained_refine_pdb_file_path:str,APPLY_TENSION_MOD:dict[DisorderedTag,float], symmetries, align_uncertainty=False,ignore_waters=False,altloc_subset=None,resnums=None,resnames=None): 
+
+    def __init__(self,pdb_file_path:str,restrained_refine_pdb_file_path:str,APPLY_TENSION_MOD:dict[DisorderedTag,float], symmetries, align_uncertainty=False,ignore_waters=False,altloc_subset=None,resnums=None,resnames=None,
+                 alternate_atoms=[]): 
         # TODO when subset size > 2, employ fragmentation/partitioning.
          
         # Note if we ignore waters then we aren't considering nonbond clashes between macromolecule and water.
@@ -429,7 +425,8 @@ class LP_Input:
         self.ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),
                                                      protein=True,waters=not ignore_waters,
                                                      altloc_subset=altloc_subset,
-                                                     allowed_resnums=resnums,allowed_resnames=resnames)   
+                                                     allowed_resnums=resnums,allowed_resnames=resnames,
+                                                     alternate_atoms=alternate_atoms)   
         self.model_path=LP_Input.subset_model_path(pdb_file_path,altloc_subset)
         self.restrained_model_path=restrained_refine_pdb_file_path # TODO make optional arg default None. And if None, then in calculate_paths, set original clashes to [].
         self.APPLY_TENSION_MOD=APPLY_TENSION_MOD
@@ -466,6 +463,7 @@ class LP_Input:
 
         original_structure = PDBParser().get_structure("struct",base_model_path)
         subset_model_paths=[]
+
         for altloc_subset in all_altloc_subsets:
             ordered_atom_lookup = OrderedAtomLookup(original_structure.get_atoms(),
                                                      protein=True,waters=waters,
@@ -562,7 +560,7 @@ class LP_Input:
                         suppress_worse=False, # Suppresses cost of ordered connections for a geometry when they are worse than the current worst ordered connection. This is to encourage improvements in other measures. 
                         improvement_factor=1, # improvements are weighted by this much. Might need to be implemented in LinearOptimizer.Solver
                         weight_for_range=False, # increases weight of restraints that currently have a wide range in z scores. 
-                        )->tuple[list[Chunk],dict[str,list[AtomChunkConnection]]]: #disorderedResidues:list[Residue]
+                        )->tuple[list[Chunk],dict[str,list[Geomection]]]: #disorderedResidues:list[Residue]
         print("Calculating geometric costs for all possible connections between chunks of atoms (pairs for bonds, triplets for angles, etc.)")
         
         if constraint_weights is None:
@@ -659,27 +657,21 @@ class LP_Input:
                 #nonbond_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_scorednonbond.txt"
                 clashes_path = UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+f"StructureGeneration/HoltonOutputs/{handle}_clashes.txt"
                 print(f"Reading clashes from {clashes_path}")
-                assert os.path.exists(clashes_path), f"{clashes_path} does not exist. Was LP_Input.prepare_geom_files() run?" 
+                assert os.path.exists(clashes_path), f"{clashes_path} does not exist." 
                 assert os.path.isfile(clashes_path), f"{clashes_path} is a directory!" 
                 with open(clashes_path) as clashes_file:
                     for line in clashes_file:
                         #pdb1 = f"{name}     ARES     A      {res_num}"
                         res_num = [int(entry.split()[1]) for entry in line.split("|")[1:]] 
-                        #  NOTE At the moment altlocs will all be the same. But hope to 
-                        # one day read from file that does clashes between all altlocs!!!!
+                        #  NOTE Altlocs will all be the same. 
                         altlocs = [entry.split()[-2][0] for entry in line.split("|")[1:]] 
+                        
                         name = [entry.strip().split()[-1] for entry in line.split("|")[1:]] 
                         badness = float(line.split()[1])
                         #new_line = f"CLASH   {badness} XXXXX XXXXX XXXXX X |  {name[0]}_{res_num[0]} {name[1]}_{res_num[1]}"
-                        clashes.append((name, res_num, badness, altlocs))
+                        if all([altloc in self.ordered_atom_lookup.get_altlocs() for altloc in altlocs]): # XXX
+                            clashes.append((name, res_num, badness, altlocs))
                 return clashes
-
-            
-
-            nonbond_scores_path = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{model_handle}.geo"
-
-
-            model_water_swapped_handle=self.water_swapped_handle(self.model_path)
 
             unflipped_water_dict = {}
             for altloc in self.ordered_atom_lookup.get_altlocs():
@@ -729,6 +721,16 @@ class LP_Input:
             if atom.element=="H":
                 continue
             is_water = UntangleFunctions.res_is_water(atom.get_parent())
+            
+            # Add alternate coord options for each disordered atom (coords and index of the option for each ordered atom)
+            alt_pos_options:dict[int,Atom] = {}
+            site_tag=DisorderedTag.from_atom(atom)
+            if site_tag in self.ordered_atom_lookup.alt_pos_options:
+                for option_index, alt_coords_dict in enumerate(self.ordered_atom_lookup.alt_pos_options[site_tag]):
+                    if atom.get_altloc() in alt_coords_dict:
+                        alt_pos_options[option_index+1]=alt_coords_dict[atom.get_altloc()]
+                
+            
             atom_chunks[atom_id(atom)]=AtomChunk(
                                          altloc_counts[atom.get_altloc()]+1,
                                          atom.get_altloc(),
@@ -736,13 +738,14 @@ class LP_Input:
                                          atom.get_parent(),
                                          atom,
                                          is_water,
-                                         constraints_handler
+                                         constraints_handler,
+                                         alt_pos_options,
                                          )
             
             
         del ordered_atoms
         chunk_sets.append(atom_chunks)
-        connection_types.append(LP_Input.AtomChunkConnection)
+        connection_types.append(LP_Input.Geomection)
 
 
         ############ Calculate wE for different combinations (don't need known constraints).
@@ -756,10 +759,10 @@ class LP_Input:
                 for m,B in enumerate(chunk_set):
                     if B==A:
                         continue
-                    if connection_type is LP_Input.AtomChunkConnection:
+                    if connection_type is LP_Input.Geomection:
                         if n>=m:
                             continue
-                        connection = self.AtomChunkConnection(A,B)
+                        connection = self.Geomection(A,B)
                         connection.calculate_distance()
                         if connection.ts_distance is not None:
                             #print(connection.ts_distance)
@@ -779,27 +782,12 @@ class LP_Input:
 
         #################################################################
         print("Computing connection costs")
-        possible_connections:list[LP_Input.AtomChunkConnection]=[]
+        possible_connections:list[LP_Input.Geomection]=[]
+        constraints_that_include_H=[ConstraintsHandler.TwoAtomPenalty]  # Since the purpose of two atom penalty is to say "the current thing is wrong", in which case using the hydrogens is fine.
         for c, constraint in enumerate(constraints_handler.constraints):
             if c%1000 == 0: 
                 print(f"Calculating constraint {c} / {len(constraints_handler.constraints)} ({constraint}) ")
-            #constraints_that_include_H = [ConstraintsHandler.AngleConstraint,ConstraintsHandler.NonbondConstraint,ConstraintsHandler.ClashConstraint]
-            #if not HYDROGEN_RESTRAINTS:
-            constraints_that_include_H=[ConstraintsHandler.ClashConstraint,ConstraintsHandler.TwoAtomPenalty]  # Since the purpose of clash constraints is to say "the current thing is wrong", in which case using the hydrogens is fine.
-            #if force_solution_reference is not None:
-                #constraints_that_include_H.append(ConstraintsHandler.BondConstraint)
-            # atoms_for_constraint = self.ordered_atom_lookup.select_atoms_by(
-            #     names=constraint.atom_names(),
-            #     res_nums=constraint.residues(),
-            #     exclude_H=type(constraint) not in constraints_that_include_H
-            # )
-            
-            # contains_H = False
-            # for site_tag in constraint.site_tags:
-            #     if site_tag.atom_name()[0]=="H":
-            #         contains_H=True
-            # if contains_H:
-            #     continue
+
             atoms_for_constraint = self.ordered_atom_lookup.select_atoms_for_sites(
                 constraint.site_tags,
                 exclude_H=type(constraint) not in constraints_that_include_H
@@ -837,7 +825,8 @@ class LP_Input:
                 output = constraint.get_cost(atoms,scoring_function)
                 if output is not None:
                     ideal,z_score,distance = output
-                    distance*=constraint_weights[type(constraint)]
+                    weight_mod=1
+                    weight_mod*=constraint_weights[type(constraint)]
 
                     # print(constraint.atom_id)
                     # print(constraint.atom_names(),constraint.residues())
@@ -881,6 +870,12 @@ class LP_Input:
                             #parent_atom = parent_atom[0]
                             atom_chunks[atom_id(parent_atom)].constraints_holder.add(constraint,None) # NOTE XXX
                             atom_chunks_selection.append(atom_chunks[atom_id(parent_atom)])
+                    
+
+
+                    
+                    
+                    
                     # if impossible_H_parent:
                     #     continue # Commenting out for now because breaks plotting code
 
@@ -893,14 +888,50 @@ class LP_Input:
                         assert constraint in ach.constraints_holder.constraints, (constraint, ach.get_disordered_tag(), [c for c in ach.constraints_holder.constraints])
 
                     if tension_mod is not None:
-                        distance*=tension_mod
+                        weight_mod*=tension_mod
                     if constraint.outlier_ok:
-                        distance*=weight_mod_for_allowed_outliers
+                        weight_mod*=weight_mod_for_allowed_outliers
                     if contains_H:
-                        distance*=hydrogen_restraint_scale
+                        weight_mod*=hydrogen_restraint_scale
 
-                    connection = self.AtomChunkConnection(atom_chunks_selection,distance,type(constraint),hydrogens,ideal,z_score,constraint.get_max_site_tension(),constraint.outlier_ok)  # XXX putting max site tension in here is bad
-                    possible_connections.append(connection)
+
+
+                    z_scores=[z_score]
+                    distances=[distance]
+                    position_option_indices_list=[(0,)*len(atom_chunks_selection)]
+
+                    # Duct-tape in alternate costs/constraints/geomections for alternate positions XXX
+                    # XXX redundancy, atom chunks have access to atoms.
+                    
+                    have_alternate_positions=False
+                    for ch in atom_chunks_selection:
+                        if len(ch.alt_pos_options)>0:
+                            have_alternate_positions=True
+                            break
+                    if have_alternate_positions:
+                        idx_altatom_tuples = [[(0,a)]+ [(i,alt_atoms) for i,alt_atoms in ch.alt_pos_options.items()] for a, ch in zip(atoms,atom_chunks_selection)]
+                        alternate_combinations = itertools.product(*idx_altatom_tuples)
+                        for alt_comb in alternate_combinations:
+                            alt_position_indices, alt_atoms = zip(*alt_comb)
+                            if all([i==0 for i in alt_position_indices]):
+                                # Non-alternate position - already calculated. # XXX 
+                                continue
+                            assert len(alt_position_indices)==len(position_option_indices_list[0])
+                            position_option_indices_list.append(alt_position_indices)
+                            alt_ideal,alt_z,alt_d = constraint.get_cost(alt_atoms,scoring_function)
+                            assert alt_ideal==ideal
+                            distances.append(alt_d)
+                            z_scores.append(alt_z)
+                    
+                    for d,z,pos_indices in zip(distances,z_scores,position_option_indices_list):
+                        if any([i != 0 for i in pos_indices]):
+                            d*=ALTERNATE_POSITIONS_FACTOR
+                            if ALTERNATE_POSITIONS_FACTOR_AFFECTS_Z_SCORE:
+                                z*=ALTERNATE_POSITIONS_FACTOR
+                        connection = self.Geomection(atom_chunks_selection,d*weight_mod,pos_indices,
+                                                     type(constraint),hydrogens,ideal,z,
+                                                     constraint.get_max_site_tension(),constraint.outlier_ok)  # XXX putting max site tension in here is bad
+                        possible_connections.append(connection)
             if debug_print:
                 print("added:",len(list(possible_connections))-old_num_connections)
                 print("total:",len(list(possible_connections)))
@@ -909,7 +940,7 @@ class LP_Input:
 
         
 
-        disordered_connections:dict[str,list[LP_Input.AtomChunkConnection]] ={} # options for each alt connection
+        disordered_connections:dict[str,list[LP_Input.Geomection]] ={} # options for each alt connection
         
         
         for connection in possible_connections:
@@ -918,7 +949,8 @@ class LP_Input:
                 disordered_connections[connection_id]=[]
             assert connection not in disordered_connections[connection_id] 
             for other in disordered_connections[connection_id]:
-                assert (connection.atom_chunks!=other.atom_chunks) or (connection.hydrogen_tag!=other.hydrogen_tag) or (connection.connection_type!=other.connection_type), f"duplicate connections of kind {connection.connection_type}, involving ordered atoms {[ch.unique_id() for ch in connection.atom_chunks]}, with badness {connection.ts_distance} and {other.ts_distance}!"
+                assert (connection.atom_chunks!=other.atom_chunks) or (connection.hydrogen_tag!=other.hydrogen_tag) \
+                or (connection.connection_type!=other.connection_type) or (connection.position_option_indices != other.position_option_indices) , f"duplicate connections of kind {connection.connection_type}, involving ordered atoms {[ch.unique_id() for ch in connection.atom_chunks]}, with badness {connection.ts_distance} and {other.ts_distance}!"
             disordered_connections[connection_id].append(connection)
     
         if weight_for_range:
@@ -940,8 +972,7 @@ class LP_Input:
                     pass
         if suppress_worse:
             for disordered_connection_id, ordered_connections in disordered_connections.items():
-                distances = [conn.ts_distance for conn in ordered_connections if conn.single_altloc()]
-                max_dist = max(distances)   
+                max_dist  = max([conn.ts_distance for conn in ordered_connections if conn.single_altloc()])
 
                 for conn in ordered_connections:
                     if conn.ts_distance > max_dist:

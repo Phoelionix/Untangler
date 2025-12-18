@@ -25,34 +25,48 @@ import gc
 
 class Swapper():
     class Swap():
-        def __init__(self,res_num:int,atom_name:str,from_altloc:str,to_altloc:str):
+        def __init__(self,res_num:int,atom_name:str,from_altloc:str,to_altloc:str,new_pos=None):
             self.res_num = int(res_num)
             self.atom_name = atom_name 
             self.from_altloc = from_altloc
             self.to_altloc = to_altloc
+            self.new_pos=new_pos
         def atom_id(self):
             return (self.res_num,self.atom_name,self.from_altloc)
         def matches_id(self,res_num,atom_name:str,from_altloc:str):
             return self.atom_id() == (int(res_num),atom_name,from_altloc)
             #return (self.res_num,self.atom_name,self.from_altloc) == (int(res_num),atom_name,from_altloc)
+    
     class SwapGroup:
         def __init__(self,badness):
             self.badness =badness
             self.swaps: list[Swapper.Swap] = [] 
-        def add(self,res_seq_num,atom_name:str,from_altloc,to_altloc:str):
-            self.swaps.append(Swapper.Swap(int(res_seq_num),atom_name,from_altloc=from_altloc,to_altloc=to_altloc))
+        def add(self,res_seq_num,atom_name:str,from_altloc,to_altloc:str,new_pos=None):
+            self.swaps.append(Swapper.Swap(int(res_seq_num),atom_name,from_altloc=from_altloc,to_altloc=to_altloc,new_pos=new_pos))
         def get_atom_names(self):
             return [swap.atom_name for swap in self.swaps]
         def get_atom_ids(self):
             return [swap.atom_id() for swap in self.swaps]
+        # Why not just use a dict?
         def get_to_altloc(self,res_num,atom_name:str,from_altloc:str):
             for swap in self.swaps:
-                if type(swap)!=Swapper.Swap:
-                    print("WARNING, UNEXPECTED BUG!!!",swap)
-                    return from_altloc 
                 if swap.matches_id(res_num,atom_name,from_altloc):
                     return swap.to_altloc
             return from_altloc # No swap!
+        def get_new_coord(self,res_num,atom_name:str,from_altloc:str):
+            for swap in self.swaps:
+                if swap.matches_id(res_num,atom_name,from_altloc):
+                    return swap.new_pos
+            return None # No swap!
+        def get_line(self,P:PDB_Atom_Entry,name_for_altloc_override=None):
+            atom_name_for_altloc=P.atom_name if name_for_altloc_override is None else name_for_altloc_override  #XXX
+            to_altloc = self.get_to_altloc(P.res_num,atom_name_for_altloc, P.altloc)
+            new_coord = self.get_new_coord(P.res_num,P.atom_name, P.altloc)
+            new_line = P.new_altloc(to_altloc)
+            if new_coord is not None:
+                new_line = P.new_coord(new_coord)
+            return new_line
+
         def __repr__(self):
             return str(self.swaps)  
         
@@ -86,7 +100,7 @@ class Swapper():
             solutions =  copy.deepcopy(json.load(f))["solutions"]  # May avoid memory leak? TODO test. https://stackoverflow.com/questions/49369778/python-memory-increases-despite-garbage-collection
             for solution_name, solution_dict in solutions.items():
                 badness:float = solution_dict["badness"]
-                moves: dict[str,dict[str]] = solution_dict["moves"]
+                moves: dict[str,dict[str,str]] = solution_dict["moves"]
                 swap_group = Swapper.SwapGroup(badness)
                 # LinearOptimizer.Solver: solution_dict[site_key][from_altloc] = to_altloc
                 swap_group_candidates.append(swap_group)
@@ -94,7 +108,14 @@ class Swapper():
                     res_num, atom_name = site_key.split()[-1].split('.')
                     #_atom_name = _atom_name.strip("\n") 
                     for from_altloc, to_altloc in moves[site_key].items():
-                        swap_group.add(res_num, atom_name,from_altloc,to_altloc)
+                        new_pos=None
+                        if len(to_altloc.split())!=1:
+                            to_altloc, new_pos_str = to_altloc.split(maxsplit=1)
+                            i1,i2=new_pos_str.index("[")+1,new_pos_str.index("]")
+                            new_pos= np.fromstring(new_pos_str[i1:i2],dtype=float,sep=' ')
+                            #new_pos= np.fromstring(new_pos_str[i1:i2],dtype=float,sep=' ')
+
+                        swap_group.add(res_num, atom_name,from_altloc,to_altloc,new_pos)
 
         assert len(swap_group_candidates)>0, f"nothing ({swap_group_candidates}) parsed from {swaps_file_path}"
 
@@ -179,8 +200,7 @@ class Swapper():
                     new_lines+=line
                     continue
                 if P.res_name == "HOH":
-                    to_altloc = swap_group.get_to_altloc(P.res_num,P.atom_name, P.altloc)
-                    new_lines += P.new_altloc(to_altloc)
+                    new_lines += swap_group.get_line(P)
                     continue
                 if P.res_num!=last_resnum:
                     nonHatom_full_names=[]
@@ -191,13 +211,12 @@ class Swapper():
                 if P.atom_name[0]=="H":
                     anchored_atom_name = H_get_parent_fullname(P.atom_name_unstripped,nonHatom_full_names).strip()
                 assert P.res_num.isnumeric()
-                to_altloc = swap_group.get_to_altloc(P.res_num,anchored_atom_name, P.altloc)
 
 
                 
 
                 # Alter line if polarity is negative 1
-                new_lines+= P.new_altloc(to_altloc)
+                new_lines+= swap_group.get_line(P,name_for_altloc_override=anchored_atom_name)
 
                 # Sorry for this
                 if P.atom_name[0]!="H" and P.atom_name_unstripped not in nonHatom_full_names:

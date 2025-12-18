@@ -4,12 +4,14 @@ from LinearOptimizer.Input import *
 from LinearOptimizer import Solver 
 from UntangleFunctions import parse_symmetries_from_pdb, prepare_pdb, UNTANGLER_WORKING_DIRECTORY
 from LinearOptimizer.Swapper import Swapper
+import copy
 
 # How many bonds need to change to get it right?
 
 WATER_WATER_NONBOND=False
 
-def evaluate_tangle(model, ground_truth,weight_factors=None):
+def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False,scoring_function=None):
+    scoring_function = ConstraintsHandler.log_chi if scoring_function is None else scoring_function
     def get_out_path(model_handle,out_tag):
         output_dir = os.path.join(UNTANGLER_WORKING_DIRECTORY,"output","")
         return f"{output_dir}{model_handle}_{out_tag}.pdb"
@@ -22,6 +24,12 @@ def evaluate_tangle(model, ground_truth,weight_factors=None):
             ConstraintsHandler.ClashConstraint: 0, 
             ConstraintsHandler.TwoAtomPenalty: 0,
         }
+    else:
+        weight_factors=copy.deepcopy(weight_factors)
+    if ignore_nonbond:
+        weight_factors[ConstraintsHandler.NonbondConstraint]=0
+        weight_factors[ConstraintsHandler.ClashConstraint]=0 
+        weight_factors[ConstraintsHandler.TwoAtomPenalty]=0
 
         
 
@@ -103,10 +111,10 @@ def evaluate_tangle(model, ground_truth,weight_factors=None):
     
     LP_Input.prepare_geom_files(model,None)
     atoms, connections = LP_Input(model, model, None, symmetries).calculate_paths(
-        scoring_function=ConstraintsHandler.log_chi,
+        scoring_function=scoring_function,
         constraint_weights=weight_factors,
         force_solution_reference=force_solution_reference,
-        water_water_nonbond=WATER_WATER_NONBOND
+        water_water_nonbond=WATER_WATER_NONBOND,
     )
 
     # Turn off symmetry breaking thing in LinearOptimizer.Solver, and instead add a cost for the number of changes.
@@ -120,9 +128,9 @@ def evaluate_tangle(model, ground_truth,weight_factors=None):
                 modify_forbid_conditions=False,
                 change_punish_factor=change_punish_factor,#0.01 # Need to make non-zero 
                 )
-    swapper=Swapper()
-    swapper.add_candidates(swaps_file_path) #
-    working_model, swapGroup = swapper.run(model)
+    # swapper=Swapper()
+    # swapper.add_candidates(swaps_file_path) #
+    # working_model, swapGroup = swapper.run(model)
     # Read ChangedConnections to see where bond changes occur.
 
     bonds_replaced=bonds_replaced_each_loop[0]
