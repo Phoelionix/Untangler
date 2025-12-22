@@ -8,25 +8,6 @@ import shutil
 from LinearOptimizer.ConstraintsHandler  import DisorderedTag 
 import numpy as np
 def apply_untwists(model_path, untwist_file):
-    print("Applying untwists")
-    untwist_candidates = []
-    untwist_names_used = []
-    with open(untwist_file) as f:
-        for line in f:
-            if line[0]=="#":
-                continue
-            site_string,altlocs = line.split('[')[0].split()
-            coord_strings =  re.findall(r"\[([^\]]*)\]", line) #re.findall(r"\[[^\]]*\]", line)
-            requires_altloc_optimization = line.split(']')[-1].strip() == "Y"
-
-            assert len(altlocs)==len(coord_strings), (altlocs,coord_strings)
-
-            site = DisorderedTag(*site_string.split("."))
-            coords = [np.fromstring(cs,dtype=float,sep=' ') for cs in coord_strings]
-            untwist_name = f"{site}{altlocs}"
-            assert untwist_name not in untwist_names_used
-            untwist_names_used.append(untwist_name)
-            untwist_candidates.append((untwist_name,site,altlocs,coords))
 
     def create_untwisted(model_path,untwist_move:tuple[str,DisorderedTag,str,np.typing.NDArray],out_path,allow_overwrite=False):
         _,site,altlocs,coords = untwist_move 
@@ -101,22 +82,54 @@ def apply_untwists(model_path, untwist_file):
         with open(out_path,'w') as f:
             f.writelines(new_lines)
     
+
+    print("Applying untwists")
+    untwist_candidates = {}
+    with open(untwist_file) as f:
+        for line in f:
+            if line[0]=="#":
+                continue
+            site_string,altlocs = line.split('[')[0].split()
+            coord_strings =  re.findall(r"\[([^\]]*)\]", line) #re.findall(r"\[[^\]]*\]", line)
+            requires_altloc_optimization = line.split(']')[-1].strip() == "Y"
+
+            assert len(altlocs)==len(coord_strings), (altlocs,coord_strings)
+
+            site = DisorderedTag(*site_string.split("."))
+            coords = [np.fromstring(cs,dtype=float,sep=' ') for cs in coord_strings]
+            untwist_name = f"{site}{altlocs}"
+            if untwist_name not in untwist_candidates:
+                untwist_candidates[untwist_name]=[]
+            untwist_candidates[untwist_name].append((untwist_name,site,altlocs,coords))
+    # the maximum number of untwists for a single atom site has.
+    num_models_needed = max(len(cndts) for cndts in untwist_candidates.items())
+
     if os.path.isdir(get_candidate_model_dir()):
         shutil.rmtree(get_candidate_model_dir())
     os.makedirs(get_candidate_model_dir())
-    for untwist_move in untwist_candidates:
-        untwist_name = untwist_move[0]
-        out_path =  f"{get_candidate_model_dir()}{untwist_move[0]}.pdb"
-        create_untwisted(model_path, untwist_move,out_path)
-    all_applied_out_path =  f"{get_candidate_model_dir()}all_untwists.pdb"
-    shutil.copy(model_path,all_applied_out_path)
-    for untwist_move in untwist_candidates:
-        create_untwisted(all_applied_out_path, untwist_move,all_applied_out_path,allow_overwrite=True)
-    changes_only_path =  f"{get_candidate_model_dir()}untwists_isolated.pdb"
-    changed_entries_only(model_path,all_applied_out_path,changes_only_path)
+    # for untwist_move in untwist_candidates:
+    #     untwist_name = untwist_move[0]
+    #     out_path =  f"{get_candidate_model_dir()}{untwist_move[0]}.pdb"
+    #     create_untwisted(model_path, untwist_move,out_path)
+
+    all_applied_models=[]
+    changes_only_models=[]
+    for model_idx in range(num_models_needed):
+
+        all_applied_out_path =  f"{get_candidate_model_dir()}all_untwists-{model_idx}.pdb"
+        shutil.copy(model_path,all_applied_out_path)
+        for untwist_moves in untwist_candidates.values():
+            if model_idx < len(untwist_moves):
+                move = untwist_moves[model_idx]
+                create_untwisted(all_applied_out_path, move,all_applied_out_path,allow_overwrite=True)
+        all_applied_models.append(all_applied_out_path)
+        changes_only_path =  f"{get_candidate_model_dir()}untwists_isolated-{model_idx}.pdb"
+        changed_entries_only(model_path,all_applied_out_path,changes_only_path)
+        changes_only_models.append(changes_only_path)
 
 
-    return get_candidate_model_dir(), all_applied_out_path, changes_only_path
+
+    return get_candidate_model_dir(), all_applied_models, changes_only_models
 
 if __name__=="__main__":
     apply_untwists(*sys.argv[1:])

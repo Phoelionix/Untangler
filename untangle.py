@@ -65,7 +65,7 @@ class Untangler():
     debug_skip_first_batch_refine=False # skip to assessing best model from batch refine
     debug_skip_first_focus_swaps=False # many swaps strategy only 
     debug_skip_unrestrained_refine=False
-    debug_always_accept_proposed_model=False
+    debug_always_accept_proposed_model=True
     auto_group_waters=False
     never_do_unrestrained=False # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
     always_allow_O_swaps=False
@@ -413,12 +413,12 @@ class Untangler():
 
                 if measure_wE_after:
                     struct=PDBParser().get_structure("struct",working_model)
-                    ordered_atom_lookup = OrderedAtomLookup(struct.get_atoms(),
+                    a_coordstom_lookup = OrderedAtomLookup(struct.get_atoms(),
                                                                 protein=True,waters=not allot_protein_independent_of_waters,
                                                                 altloc_subset=altloc_subset)   
                     #temp_path=working_model[:-4]+"_subsetOut.pdb"
                     temp_path=Solver.LP_Input.subset_model_path(working_model,altloc_subset)[:-4]+"Out.pdb"
-                    ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=working_model,out_path=temp_path)
+                    a_coordstom_lookup.output_as_pdb_file(reference_pdb_file=working_model,out_path=temp_path)
                     assess_geometry_wE(temp_path)
 
                     if conformer_stats:
@@ -587,12 +587,12 @@ class Untangler():
                 modified_model = model
             else:
                 struct=PDBParser().get_structure("struct",model)
-                ordered_atom_lookup = OrderedAtomLookup(struct.get_atoms(),
+                a_coordstom_lookup = OrderedAtomLookup(struct.get_atoms(),
                                                             protein=True,waters=True,
                                                             altloc_subset=altloc_subset)   
                 #temp_path=working_model[:-4]+"_subsetOut.pdb"
                 temp_path=Solver.LP_Input.subset_model_path(model,altloc_subset)[:-4]+"Out.pdb"
-                ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=model,out_path=temp_path)
+                a_coordstom_lookup.output_as_pdb_file(reference_pdb_file=model,out_path=temp_path)
                 modified_model=temp_path
             models_for_scoring.append(modified_model)
 
@@ -681,20 +681,54 @@ class Untangler():
 
         return out_path
     
-    def get_untwist_moves(self,working_model,num_unrestrained_cycles=1,max_gap_close_frac=0.25,min_ratio_real_sep_on_fake_sep=1, debug_skip_refine=False):
+    #TODO only allow the atoms untwisted to be refined.
+    def get_untwist_moves(self,working_model,num_unrestrained_cycles=2, debug_skip_refine=False):
         if len(self.protein_altlocs)!=2:
             print("Skipping untwists due to more than 2 protein altlocs")
             return []
                     
-        untwist_path = self.get_out_path("untwist")
+
         print("Performing untwist moves")
-        untwisted_model,changes_only_model = untwist.apply_all_untwists_for_two_conformations(working_model)
-        shutil.copy(untwisted_model,untwist_path)
+        untwisted_models,changes_only_models = untwist.apply_all_untwists_for_two_conformations(working_model)
+        
 
-        print("Refining model with all untwists")
-        positions_refined_model = self.refine_for_positions(untwist_path,loops_override=num_unrestrained_cycles,debug_skip=debug_skip_refine,tag="Untwist") 
 
-        alternate_atoms,disallowed_alternates = untwist.get_untwist_atom_options_that_survived_unrestrained(positions_refined_model,working_model, changes_only_model,max_gap_close_frac=max_gap_close_frac,min_ratio_real_sep_on_fake_sep=min_ratio_real_sep_on_fake_sep,exclude_H=True)
+        from Untwist.detect_twists import relative_orientation
+
+        for i, (untwisted_model,changes_only_model) in enumerate(zip(untwisted_models,changes_only_models)):
+            print(f"Refining model with set of untwist moves {i+1}/{len(untwisted_models)} with all untwists")
+            # copy_path = self.get_out_path(f"untwist-{i}_")
+            # shutil.copy(untwisted_model,copy_path)
+            positions_refined_model = self.refine_for_positions(untwisted_model,loops_override=num_unrestrained_cycles,debug_skip=debug_skip_refine,tag=f"Untwist-{i}_") 
+            this_run_alternates,this_run_disallowed_alternates = untwist.get_untwist_atom_options_that_survived_unrestrained(
+                positions_refined_model,working_model, changes_only_model,
+                min_ratio_real_sep_on_fake_sep=1,
+                min_twist_angle=45,
+                max_gap_close_frac=0.5,
+                exclude_H=True)
+            new_alternate_atoms=[]
+            new_alternate_atoms_already_with_moves=[]
+            if i == 0:
+                alternate_atoms, disallowed_alternates=this_run_alternates, this_run_disallowed_alternates
+                new_alternate_atoms=alternate_atoms
+            else: 
+                for b in this_run_alternates:
+                    rel_orient_diff_min=20
+                    for a in alternate_atoms:
+                        if DisorderedTag.from_atom(b)==DisorderedTag.from_atom(a):
+                            a_coords,b_coords=[ordrd.get_coord() for ordrd in a], [ordrd.get_coord() for ordrd in b]
+                            assert len(a_coords)==len(b_coords)==2
+                            rel_orient = relative_orientation(a_coords[0]-a_coords[1],b_coords[0]-b_coords[1])
+                            if rel_orient_diff_min <= abs(rel_orient) <=180-rel_orient_diff_min:
+                                new_alternate_atoms_already_with_moves.append(b)
+                    for a in disallowed_alternates:
+                        if DisorderedTag.from_atom(b)==DisorderedTag.from_atom(a):
+                            new_alternate_atoms.append(b)
+                            disallowed_alternates.remove(a)
+                alternate_atoms.extend(new_alternate_atoms_already_with_moves)
+                alternate_atoms.extend(new_alternate_atoms)
+            print(f"New allowed not already with moves: {' '.join([str(DisorderedTag.from_atom(a)) for a in new_alternate_atoms])}")
+            print(f"New allowed that already had moves: {' '.join([str(DisorderedTag.from_atom(a)) for a in new_alternate_atoms_already_with_moves])}")
 
         print(f"Alternate atom positions (untwist moves that are consistent with X-ray data): {' '.join([str(DisorderedTag.from_atom(a)) for a in alternate_atoms])}")
         print(f"Disallowed (candidate untwist moves that disagree with X-ray data): {' '.join([str(DisorderedTag.from_atom(a)) for a in disallowed_alternates])}")
@@ -831,13 +865,13 @@ class Untangler():
                 ## TENSIONS ##  #TODO make the one generated for post unrestrained be the same path as generated by candidate_models_From_Swapper so don't need to reuse.
                 def get_subset_model(full_model):
                     struct=PDBParser().get_structure("struct",full_model)
-                    ordered_atom_lookup = OrderedAtomLookup(struct.get_atoms(),
+                    a_coordstom_lookup = OrderedAtomLookup(struct.get_atoms(),
                                                                 protein=True,
                                                                 waters=True,
                                                                 altloc_subset=altloc_subset)   
                     #temp_path=working_model[:-4]+"_subsetOut.pdb"
                     out_path=Solver.LP_Input.subset_model_path(full_model,altloc_subset)[:-4]+"Out.pdb"
-                    ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=full_model,out_path=out_path)
+                    a_coordstom_lookup.output_as_pdb_file(reference_pdb_file=full_model,out_path=out_path)
                     return out_path
                 need_to_prepare_geom_models=True 
                 if not skip_swaps:
@@ -1464,10 +1498,10 @@ class Untangler():
                 resnum=OrderedAtomLookup.atom_res_seq_num(atom)
                 starting_resnum=int(min(starting_resnum,resnum))
                 water_residues[resnum]=atom.get_parent()
-                for ordered_atom in atom:
-                    ordered_atom:Atom
+                for a_coordstom in atom:
+                    a_coordstom:Atom
                     ordered_ordered_waters.append(atom)
-                    water_coords.append(ordered_atom.get_coord())
+                    water_coords.append(a_coordstom.get_coord())
 
         
         neighbours = NearestNeighbors(n_neighbors=k).fit(np.array(water_coords))
@@ -1749,8 +1783,8 @@ def main():
         endloop_wc=1, num_end_loop_refine_cycles=6,
         #endloop_wc=3, num_end_loop_refine_cycles=1,
         refine_for_positions_geo_weight=0,
-        starting_num_best_swaps_considered=20,
-        max_num_best_swaps_considered=20,
+        starting_num_best_swaps_considered=50,
+        max_num_best_swaps_considered=50,
         altloc_subset_size=2,
         unrestrained_damp=0,
         #refine_for_positions_geo_weight=0.03,

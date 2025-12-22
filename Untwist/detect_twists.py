@@ -103,7 +103,7 @@ def get_arc(start_anchor:tuple[float],mid_anchor:tuple[float],bond_length,atom_a
     c=bond_length
 
     v = mid_anchor-start_anchor 
-    v =  v/norm(v) # unit vector along cone axis.
+    v /= norm(v) # unit vector along cone axis.
     
     h = c*np.cos(phi) # cone height
     r = c*np.sin(phi) # cone radius
@@ -142,10 +142,50 @@ def separation_condition(atom_pair,max_separation):
     assert type(A) == type(B)==Atom, (A,B)
     return separation(A,B)<=max_separation
 
+# TODO just return acute angle
 def relative_orientation(v1,v2):
+    v1,v2 = np.array(v1),np.array(v2)
+    if len(v1.shape)==2 :
+        assert v1.shape==(2,3)
+        v1 = v1[1]-v1[0]
+    if len(v2.shape)==2:
+        assert v2.shape==(2,3)
+        v2 = v2[1]-v2[0]
+    
     v1/=norm(v1)
     v2/=norm(v2)
-    return np.arctan2(norm(np.cross(v1, v2)), np.dot(v1, v2))*180/np.pi
+
+    theta = np.arctan2(norm(np.cross(v1, v2)), np.dot(v1, v2))*180/np.pi
+    # if theta > 90:
+    #     theta = 180-theta
+    return theta
+
+
+def signed_relative_orientation(v1,v2,reference_direction, debug_crash=False):
+    v1,v2 = np.array(v1),np.array(v2)
+    if len(v1.shape)==2 :
+        assert v1.shape==(2,3)
+        v1 = v1[1]-v1[0]
+    if len(v2.shape)==2:
+        assert v2.shape==(2,3)
+        v2 = v2[1]-v2[0]
+    
+    v1/=norm(v1)
+    v2/=norm(v2)
+    cross_prod = np.cross(v1, v2)
+    sign = np.dot(reference_direction,cross_prod); sign/=abs(sign)
+
+    if debug_crash:
+        # v2=np.array([0,0,-1.])
+        # v1=np.array([0,-0.1,-1])
+        # reference_direction/=norm(reference_direction)
+        # v1/=norm(v1)
+        # v2/=norm(v2)
+        # print(np.dot(np.cross(v1, v2),reference_direction))
+        # #assert False, (np.cross(v1, v2),np.arctan2(norm(np.cross(v1, v2)), np.dot(v1, v2))*180/np.pi)
+        #assert False, np.arctan2(norm(cross_prod), np.dot(v1, v2))*180/np.pi
+        assert False, np.arctan2(sign*norm(cross_prod), np.dot(v1, v2))*180/np.pi
+    return np.arctan2(sign*norm(cross_prod), np.dot(v1, v2))*180/np.pi
     
 
 def detect_twist(
@@ -164,6 +204,7 @@ def detect_twist(
     max_difference_real_fake_sep=0.1, # TODO should be replaced with a check for gaussian overlap with tolerance determined by the resolution
     take_average = False, # Takes average of all twist point pairs that satisfy the conditions
     take_closest = False, # Takes the twist point pair that satisfies the conditions that has a separation most similar to the current atoms.
+    take_second_closest = False, # Takes the twist point pair that satisfies the conditions that has a separation most similar to the current atoms.
     verbose=False,
 ):
     
@@ -173,7 +214,7 @@ def detect_twist(
         assert 0 < snap_interp <=1
         assert constraints_handler is not None 
 
-    assert not (take_average and take_closest)
+    assert take_average + take_closest + take_second_closest <=1
 
     twist_points=[]
     
@@ -181,7 +222,7 @@ def detect_twist(
     # Check C is close enough. 
     if not separation_condition(C,max_fake_separation):
         reliable=True
-        return twist_points, reliable # empty list
+        return twist_points, None, reliable # empty list
     
     ordered_atoms:dict[str,list[Atom]]={}
     for i, disordered_atom in enumerate(atoms):
@@ -199,9 +240,8 @@ def detect_twist(
     arcs={}
     arcs_to_plot=[]
     bond_lengths,angles = [],[]
-    reliable=False
-    #reliable_dev_threshold=max(0.01,fake_separation/4)
-    reliable_dev_threshold=fake_separation
+    point_0_devs=[]
+    point_0s=[]
     for altloc, (a,b,c) in ordered_atoms.items():
         bond_length,angle=separation(b,c),get_angle(a,b,c)
         if snap_to_ideal:
@@ -211,12 +251,36 @@ def detect_twist(
                 print(f"Snapping to bond length {bond_length} and angle {angle}")
 
         arc, point_0 = get_arc(a.get_coord(),b.get_coord(),bond_length,angle,c.get_coord()) # TODO current phi... to speed things up
-        if separation(point_0,c.get_coord()) <= reliable_dev_threshold:
-            reliable = True # Consider "reliable" if at least one satisfies the condition.
+        point_0s.append(point_0)
+        point_0_devs.append(separation(point_0,c.get_coord()))
         arcs[altloc] = arc
         arcs_to_plot.append(arc)
         bond_lengths.append(bond_length)
         angles.append(angle)
+
+
+
+    # reliable=True
+
+
+    #reliable_dev_threshold=max(0.01,fake_separation/4)
+    reliable_dev_threshold=fake_separation
+    reliable=False
+    for point_0_dev in point_0_devs:
+        if point_0_dev <= reliable_dev_threshold:
+            reliable = True # Consider "reliable" if at least one satisfies the condition.
+    reliable_midpoint_diff_threshold=fake_separation/4
+    point_0s_midpoint = np.mean(point_0s,axis=0)
+
+    # if separation(point_0s_midpoint,midpoint)>reliable_midpoint_diff_threshold:
+    #     reliable=False
+
+
+    # threshold_to_consider_similarity_in_deviations=max(0.01,fake_separation/10)
+    # similar_enough_deviation_threshold_factor=2
+    # if min(point_0_devs)>threshold_to_consider_similarity_in_deviations and  (max(point_0_devs)>similar_enough_deviation_threshold_factor*min(point_0_devs)):
+    #     reliable=False
+
     
     assert 0 < min_twist_angle <=90
 
@@ -231,36 +295,27 @@ def detect_twist(
             #     args=C[0].get_coord(),C[1].get_coord(),(arcA_coord+arcB_coord)/2
             if match_midpoint(*args,tol_frac=midpoint_match_tol_frac): # May be empty list
                 possible_true_coords.append((arcA_coord,arcB_coord))
-    c_vector=c_coords[1]-c_coords[0]
+    assert len(point_0s)==len(c_coords)==2
     for p in possible_true_coords:
-        p_vector=p[1]-p[0]
 
         # multivariate_normal.pdf()
         #TODO Condition A should change to the electron density overlap of the two atoms
-        condition_A = max(fake_separation*min_ratio_real_sep_on_fake_sep,separation(*p)-max_difference_real_fake_sep) <= separation(*p) <= min(max_true_separation,separation(*p)+max_difference_real_fake_sep)
-        condition_B = min_twist_angle < relative_orientation(p_vector,c_vector) < 180-min_twist_angle
-
+        min_sep = max(fake_separation*min_ratio_real_sep_on_fake_sep,
+                      separation(*C)-max_difference_real_fake_sep)
+        max_sep = min(max_true_separation,separation(*C)+max_difference_real_fake_sep)
+        condition_A = min_sep <= separation(*p) <= max_sep 
+        #condition_B = min_twist_angle < relative_orientation(p,c_coords) < 180-min_twist_angle
+        condition_B = min_twist_angle < abs(relative_orientation(p,point_0s)) < 180-min_twist_angle
+        #print(relative_orientation(p_vector,p0_vector))
         if all((condition_A,condition_B)):
             twist_points.append(p)
-    if take_closest:
-        smallest_diff=np.inf # difference in separation
-        for pair in twist_points:
-            diff = abs(separation(*C)-separation(*pair))
-            if diff < smallest_diff:
-                twist_points=np.array([pair])
-                smallest_diff=diff
-        # lowest_perp_dev=np.inf
-        # for pair in twist_points:
-        #     rel_orient=relative_orientation(C[0].get_coord()-C[1].get_coord(),pair[0]-pair[1])
-        #     perp_dev = abs(90-rel_orient) 
-        #     if perp_dev < lowest_perp_dev:
-        #         twist_points=np.array([pair])
-        #         lowest_perp_dev=perp_dev
-                
+            # print(separation(*p))
+            # print(max_difference_real_fake_sep)
+            # print(max(fake_separation*min_ratio_real_sep_on_fake_sep,separation(*p)-max_difference_real_fake_sep))
+    
+    if take_closest or take_second_closest or take_average:
+        twist_points = select_points_from_single_constraint(twist_points,C,take_closest=take_closest,take_second_closest=take_second_closest,take_average=take_average)
 
-
-    if take_average and len(twist_points)>0:
-        twist_points = np.array([[np.mean(np.array(twist_points)[:,i],axis=0) for i in range(2)]])
     if plot_zoomed_in or plot_zoomed_out:
         a_coords,b_coords,c_coords = [],[],[]
         for altloc in ordered_atoms:
@@ -278,8 +333,50 @@ def detect_twist(
                     names=names,
                     focus_twist=False,rot_speed=plot_rot_speed)
         
-    return twist_points, reliable
+    return twist_points, point_0s, reliable
         
+
+def select_points_from_single_constraint(twist_points,point_0,C,take_closest=True,take_average=False):    
+    if len(twist_points)==0:
+        return []
+    
+    if take_average and len(twist_points)>0:
+        assert False
+        return np.array([[np.mean(np.array(twist_points)[:,i],axis=0) for i in range(2)]])
+
+    if take_closest:
+    # Get most similar separation solutions in both directions along the twist points arcs
+        def sep_diff(pair):
+            return abs(separation(*C)-separation(*pair))
+
+        def sep_sort(pair):
+            return separation(*pair)
+        reference_pair=sorted(twist_points,key=sep_sort)[-1]
+        reference_dir = np.cross(point_0[0]-point_0[1],reference_pair[0]-reference_pair[-1][1])
+        reference_dir/=norm(reference_dir) 
+
+        
+
+        
+
+        pos_orient_sols =  [t for t in twist_points if signed_relative_orientation(t,point_0,reference_dir)>=0]    
+        neg_orient_sols =  [t for t in twist_points if signed_relative_orientation(t,point_0,reference_dir)<0]    
+        pos_orient_sols.sort(key=sep_diff)
+        neg_orient_sols.sort(key=sep_diff)  
+
+        if False: # Debugging
+            print([relative_orientation(t,point_0) for t in pos_orient_sols])
+            print()
+            print([relative_orientation(t,point_0) for t in neg_orient_sols])
+
+            plot_it(C,C,C,neg_orient_sols,None)
+            plot_it(C,C,C,pos_orient_sols,None)
+            assert False
+
+        points_selected=[l[0] for l in (pos_orient_sols,neg_orient_sols) if len(l)>0]
+
+        return points_selected
+    assert False
 
 def match_midpoint(coordA,coordB,needed_midpoint,tol_frac):
     tol = tol_frac*separation(coordA,coordB)
@@ -289,22 +386,26 @@ def match_midpoint(coordA,coordB,needed_midpoint,tol_frac):
 
 
 def plot_it(A,B,C,twist_points,arcs,focus_twist=True,rot_speed=1,names=[]):
+    if type(A[0]) == type(B[0])==type(C[0])== Atom:
+        A,B,C = [[a.get_coord() for a in atoms] for atoms in (A,B,C)]
+        
     ((a,b,c),(a2,b2,c2)) = zip(A,B,C)
 
 
     fig = plt.figure()
     ax = fig.add_subplot(projection='3d')
-    X,Y,Z = zip(*arcs[0]) 
     ax.scatter(*zip(a,b,c),color=["red","purple","blue"],s=100)
     for i, x,y,z, name in zip(range(3),*zip(a,b,c),names):
         ax.text(x,y,z,name)
-
-    ax.scatter(X,Y,Z,s=10,color="blue")
-    
-    
-    X,Y,Z = zip(*arcs[1])
-    ax.scatter(X,Y,Z,s=10,color="cyan")
+    if arcs is not None:
+        X,Y,Z = zip(*arcs[0]) 
+        ax.scatter(X,Y,Z,s=10,color="blue")
+        
     ax.scatter(*zip(a2,b2,c2),color=["brown","orange","cyan"],s=100)
+    if arcs is not None:
+        X,Y,Z = zip(*arcs[1])
+        ax.scatter(X,Y,Z,s=10,color="cyan")
+
     ax.view_init(0, 0, 0)
 
     for pair in twist_points:
@@ -321,7 +422,8 @@ def plot_it(A,B,C,twist_points,arcs,focus_twist=True,rot_speed=1,names=[]):
 
     # Rotate the axes and update
     # https://matplotlib.org/stable/gallery/mplot3d/rotate_axes3d_sgskip.html
-    for cam_angle in range(0, int(180*3/rot_speed) + 1):
+    #for cam_angle in range(0, int(180*3/rot_speed) + 1):
+    for cam_angle in range(0, int(180*2/rot_speed) + 1):
         # Normalize the angle to the range [-180, 180] for display
         cam_angle=cam_angle*rot_speed
         angle_norm = (cam_angle + 180) % 360 - 180
@@ -332,8 +434,8 @@ def plot_it(A,B,C,twist_points,arcs,focus_twist=True,rot_speed=1,names=[]):
             elev = angle_norm
         elif cam_angle <= 180*2:
             azim = angle_norm
-        elif cam_angle <= 180*3:
-            roll = angle_norm
+        # elif cam_angle <= 180*3:
+        #     roll = angle_norm
         # else:
         #     elev = azim = roll = angle_norm
 
@@ -347,9 +449,10 @@ def plot_it(A,B,C,twist_points,arcs,focus_twist=True,rot_speed=1,names=[]):
 
 
 def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_name:str, constraints_handler:ConstraintsHandler,
-                     max_solution_conformer_sep=0.1,include_CB_angles=False, verbose=False, debug=False,
-                     ignore_no_twist_angles=False,**kwargs):
+                     include_CB_angles=False, verbose=False, debug=False,
+                     num_twist_angles_required_to_ignore_no_twist_angles=1,
     # TODO Don't apply strong constraints, and return stats of the twists, so they can be filtered after calling this function.
+                     minimum_degrees_solution_difference=60, split_incompatible_solution_pairs=True, **kwargs):
 
     n=target_res_num # 50
 
@@ -363,13 +466,21 @@ def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_
             (("CA",n-1),("C",n-1),("N",n)), # CA_{n-1} -- C_{n-1} -- **N_n**
             (("C",n),("CA",n),("N",n)), # #  **N_n** -- CA_n -- C_n 
         ]
+        if include_CB_angles:
+            angles.extend([
+                (("CB",n),("CA",n),("N",n)),
+            ])
     elif atom_name=="CA":
         angles = [
             (("C",n-1),("N",n),("CA",n)),
             (("N",n+1),("C",n),("CA",n)),
         ]
-        if include_CB_angles:
-            raise NotImplementedError()
+        if include_CB_angles and "CG" in ordered_atom_lookup.better_dict[n]:
+            angles.extend([
+                (("CG",n),("CB",n),("CA",n)),
+            ])
+            # TODO other angles...
+
     elif atom_name=="C":
         angles = [
             (("N",n),("CA",n),("C",n)),
@@ -419,6 +530,7 @@ def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_
         if all([n in protein_resnums for _name,n in angle]):
             new_angles.append(angle) 
     angles=new_angles
+    point_0_sets=[]
     for name_resnums in angles:
         disordered_atoms={} # The atoms involved in the angle 
         for name, resnum in name_resnums:
@@ -433,62 +545,85 @@ def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_
         atoms_in_a_row = [disordered_atoms[name_resnum] for name_resnum in name_resnums ]
         assert atoms_in_a_row[-1]==C
             
-        twist_pairs,reliable=detect_twist(atoms_in_a_row,
+        twist_pairs,point_0s,reliable=detect_twist(atoms_in_a_row,
                                  constraints_handler=constraints_handler,
                                  verbose=verbose,
                                  **kwargs)
         if verbose:
             print(f"reliable: {reliable}")
         
-        if reliable and (not ignore_no_twist_angles or len(twist_pairs)>0 ):
+        if reliable:
+            point_0_sets.append(point_0s) # pairs of points
             twist_point_sets.append(twist_pairs) # pairs of points
             if verbose and len(twist_pairs)==1:
                 print(f"candidate sep: {separation(*twist_pairs[0]):.3f} original: {separation(*C):.3f}")
                 #print(np.mean(twist_pairs,axis=0))
-
-    twist_point_combined_constraint_solutions=[]
     
-    bond_needs_to_be_flipped=None
-    sol = None
+    nonempty = [t for t in twist_point_sets if len(t)>0]
+    if len(nonempty) < len(twist_point_sets):
+        if len(nonempty) >= num_twist_angles_required_to_ignore_no_twist_angles:
+            #print(f"Ignoring an angle with no result due to finding {len(nonempty)} suitable other angles")
+            twist_point_sets = nonempty
+        else:
+            return [],[]
+
+
     if len(twist_point_sets)==1: # N-terminus, or C-terminus with CB angles off, or CB in CYS with only S-S-CB angle
         if len(twist_point_sets[0])>0:
-            sol = twist_point_sets[0]
-    elif len(twist_point_sets)>1:
-        seps_unflipped=[]
-        seps_flipped=[]
-        if all([len(twist_point_set)==1 for twist_point_set in twist_point_sets]):
-            twist_point_sets = np.array(twist_point_sets)
+            solutions=select_points_from_single_constraint(twist_point_sets[0],point_0_sets[0],C)      
+    for t1,p0_1 in zip(twist_point_sets, point_0_sets):
+        for t2,p0_2 in [(t,p0) for t,p0 in zip(twist_point_sets,point_0_sets) if t is not t1]:
+            solutions = find_compatible_solutions_for_separate_pairs(t1,t2,C)
+            if len(solutions) == 0 and split_incompatible_solution_pairs:
+                split_solutions = [select_points_from_single_constraint(t,p0,C) for t,p0 in zip((t1,t2),(p0_1,p0_2))]
+                solutions = list(itertools.chain.from_iterable(split_solutions))  
+                # Get the individual ones 
+
+    if verbose:
+        print(solutions)
+        print(separation(*C))
+        print([separation(s[0],s[1]) for s in solutions])
+    # find different-enough solutions
+    distinct_solutions = []
+    for sol in solutions:
+        for other_sol in distinct_solutions:
+            if not (minimum_degrees_solution_difference <= abs(relative_orientation(sol,other_sol)) <= 180 - minimum_degrees_solution_difference):
+                break
+        else:
+            distinct_solutions.append(sol)
+
+    return twist_point_sets, np.array(distinct_solutions) 
+
+# Really scrappy
+def find_compatible_solutions_for_separate_pairs(pair_set_1,pair_set_2,C:DisorderedAtom, verbose=False,max_solution_conformer_sep=0.1):
+    
+    solutions=[]      
+    seps_unflipped=[]
+    seps_flipped=[]
+
+
+
+    for pair in pair_set_1:
+        for other_pair in pair_set_2:
+            sol = None
             # Get the deviation in the conformer coordinates for the solutions found for each geometric constraint. 
             # Since there is a bond either side of nitrogen, we need to account for the possibility that one of the bonds is "flipped" relative to the other. 
             # NOTE flipped does NOT refer to the atom site, it asks whether the bond has been flipped 
             for i in range(2):
-                conformer_separation = separation(twist_point_sets[0][0][i],twist_point_sets[1][0][i])
+                conformer_separation = separation(pair[i],other_pair[i])
                 if verbose:
                     print(f"conformer {i} separation: {conformer_separation}")
                 seps_unflipped.append(conformer_separation)
                 # reverse
-                conformer_separation = separation(twist_point_sets[0][0][i],twist_point_sets[1][0][1-i])
+                conformer_separation = separation(pair[i],other_pair[1-i])
                 if verbose:
                     print(f"conformer {i} separation flipped: {conformer_separation}")
                 seps_flipped.append(conformer_separation)
 
-            unflipped_sol = np.mean(twist_point_sets,axis=0)
-            flipped_sol = np.zeros(shape=unflipped_sol.shape)
-            for i, point in enumerate(unflipped_sol):
-                flipped_sol[i]=point[::-1]
-
-            unflipped_sol= np.mean(twist_point_sets,axis=0)
-            assert twist_point_sets.shape[-3:]==(1,2,3)
-            flipped_twist_point_sets = np.zeros(shape=twist_point_sets.shape)
-            flipped_twist_point_sets[0]=twist_point_sets[0]
-            flipped_twist_point_sets[1]=twist_point_sets[1,:,::-1]
-            flipped_sol= np.mean(flipped_twist_point_sets,axis=0)
-
-
-
-            rmsd_unflipped = np.sqrt( np.sum(np.array(seps_unflipped)**2) )
-            rmsd_flipped = np.sqrt( np.sum(np.array(seps_flipped)**2) )
-            #print(rmsd_unflipped,rmsd_flipped)
+            unflipped_points = np.array([pair,other_pair])
+            unflipped_sol = np.mean(unflipped_points,axis=0)
+            flipped_points = np.array([pair,other_pair[::-1]])
+            flipped_sol = np.mean(flipped_points,axis=0)
 
             options = [(unflipped_sol,seps_unflipped,False),(flipped_sol,seps_flipped,True)]
             valid_options=[]
@@ -500,6 +635,7 @@ def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_
                 else:
                     valid_options.append(option)
             
+            assert len(valid_options)<=2
             HIGHEST_SEP=0
             HIGHEST_ANGLE=1
             mode = HIGHEST_SEP
@@ -510,35 +646,30 @@ def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_
                     highest_sep=-1
                     for option in valid_options:
                         option_sol=option[0]
-                        sep = separation(*option_sol[0])
+                        sep = separation(*option_sol)
                         
                         if sep > highest_sep:
                             highest_sep=sep
                             sol,_,bond_needs_to_be_flipped = option
-                    print(f"Separation {separation(*C)} --> {highest_sep}")
+                    #print(f"Separation {separation(*C)} --> {highest_sep}")
                 elif mode == HIGHEST_ANGLE:
                     # Choose highest sep option
                     #print(list(opt[0] for opt in valid_options))
                     lowest_perp_dev=np.inf
                     for option in valid_options:
                         option_sol=option[0]
-                        rel_orient=relative_orientation(option_sol[0][0]-option_sol[0][1],C[0].get_coord()-C[1].get_coord())
+                        rel_orient=relative_orientation(option_sol[0],[c.get_coord() for c in C])
                         perp_dev = abs(90-rel_orient) 
                         if perp_dev < lowest_perp_dev:
                             lowest_perp_dev=perp_dev
                             twist_amnt=rel_orient
                             sol,_,bond_needs_to_be_flipped = option
-                    print(f"Angle twisted --> {twist_amnt}")
-                else: raise Exception()
+                    #print(f"Angle twisted --> {twist_amnt}")
+                else: 
+                    raise Exception()
+                solutions.append(sol)
 
-        elif len(twist_point_sets[0])>1 or len(twist_point_sets[1]) > 1:
-            print("Multiple points for sets not handled")
-            assert False
-        else:
-            pass
-    if sol is not None:
-        twist_point_combined_constraint_solutions.append(sol)    # XXX stupid         
-    return twist_point_sets,np.array(twist_point_combined_constraint_solutions),bond_needs_to_be_flipped  
+    return solutions
 
 def create_untwist_file(pdb_path,geo_file_needs_generation=True):
     struct = PDBParser().get_structure("struct",pdb_path)
@@ -548,13 +679,15 @@ def create_untwist_file(pdb_path,geo_file_needs_generation=True):
     twist_atom_ids:list[DisorderedTag]=[]
     bond_flips_needed:list[bool]=[]
     altlocs_involved:list[str]=[]
+    solution_tuples=[]
     debug = False
-    single_res_debug=False
+    debug_plot=False
+    debug_single_res_num=None
     print("Computing twists...")
     first_resnum=1
     last_resnum= max(ordered_atom_lookup.get_residue_nums())
-    if single_res_debug:
-        first_resnum=last_resnum=35
+    if debug_single_res_num is not None:
+        first_resnum=last_resnum=debug_single_res_num
     for res_num in range(first_resnum,last_resnum+1):
         if res_num%10==1:
             print(f"residue {res_num}/{last_resnum}")
@@ -562,31 +695,34 @@ def create_untwist_file(pdb_path,geo_file_needs_generation=True):
         #for atom_name in "N","CA","C":
             if atom_name == "CB" and ordered_atom_lookup.res_names[res_num]!="CYS":
                 continue
-            if debug and ((res_num,atom_name) !=(54,"C")):
+            if debug and ((res_num,atom_name) !=(51,"CA")):
                 continue 
             if debug:
                 print(res_num)
-            indiv_twist_points,solutions,bond_needs_to_be_flipped=detect_twists(ordered_atom_lookup,res_num,atom_name,constraints_handler,
-                                                max_solution_conformer_sep=0.1,
-                                                plot_zoomed_in=debug,
+            indiv_twist_points,solutions=detect_twists(ordered_atom_lookup,res_num,atom_name,constraints_handler,
+                                                plot_zoomed_in=debug and debug_plot,
                                                 plot_zoomed_out=False,
                                                 plot_rot_speed=3,
-                                                take_closest=True,
+                                                # take_closest=take_closest,
+                                                # take_second_closest=take_second_closest,
                                                 #take_average=True,
                                                 verbose =debug,
                                             )
-            if len(solutions!=0):
+            if len(solutions)!=0:
                 twists_found.append(solutions)
-                twist_atom_ids.append(DisorderedTag(res_num,atom_name))
-                bond_flips_needed.append(bond_needs_to_be_flipped)
-                altlocs_involved.append("AB") # Temporary FIXME 
+                site_tag=DisorderedTag(res_num,atom_name)
+                altlocs="AB"
+                bond_flip_needed=None
+                twist_atom_ids.append(site_tag)
+                bond_flips_needed.append(bond_flip_needed)
+                altlocs_involved.append(altlocs) # Temporary FIXME 
+                #bond_flips_needed.append(bond_needs_to_be_flipped)
+                solution_tuples.append((solutions,site_tag,altlocs,bond_flip_needed))
             if debug:
                 print("====")
-                print(indiv_twist_points)
-                print("---")
+                # print(indiv_twist_points)
+                # print("---")
                 print(solutions)
-                print("---")
-                print(bond_needs_to_be_flipped)
                 print("====")
     print()
     if len(twists_found)>0:
@@ -597,17 +733,20 @@ def create_untwist_file(pdb_path,geo_file_needs_generation=True):
     else:
         print("No twists detected.")
     
-    if len(twists_found)==0:
-        solutions_chosen=[]
-    else:
-        solutions_chosen=np.array(twists_found)[:,0,0] # XXX
+
+    solutions_chosen=[]
+    for sol_tuple in solution_tuples: # sol_tuple = (list_of_alternate_coordinate_pairs, ...)
+        for sol in sol_tuple[0]:
+            solutions_chosen.append((sol,*sol_tuple[1:])) 
+    print("Total num candidate untwist moves:", len(solutions_chosen))
     out_handle = os.path.basename(pdb_path)[:-4]
     out_str="# resnum.name | new coords \n"
     np.set_printoptions(formatter={'float': lambda x: "{:.3f}".format(x)})
-    out_str+="\n".join([f"{site_tag} {altlocs} {' '.join(str(coord) for coord in coord_pair)} {'Y' if tangled else 'N'}" \
-                        for (coord_pair,  site_tag, altlocs, tangled) in zip(solutions_chosen, twist_atom_ids,altlocs_involved, bond_flips_needed)]
+    out_str+="\n".join([f"{site_tag} {altlocs} {' '.join(str(coord) for coord in coord_pair)} {'-' if tangled is None else 'Y' if tangled else 'N'}" \
+                        for (coord_pair,  site_tag, altlocs, tangled) in solutions_chosen]
                       )
     untwist_file=f"untwist_moves_{out_handle}.txt"
+    print(f"writing to {untwist_file}")
     with open(untwist_file,'w') as f:
         f.write(out_str)
     print("Done")
@@ -620,7 +759,7 @@ if __name__=="__main__":
     # Two-conformer implementation 
 
     #pdb_path="/home/speno/Untangler/output/longrangetraps_TW_unrestrained1.pdb"
-    pdb_path="/home/speno/Untangler/output/longrangetraps_TW_fresh_unrestrained1_fmtd.pdb"
+    pdb_path="/home/speno/Untangler/output/longrangetraps_TW_fresh_unrestrained0_fmtd.pdb"
     create_untwist_file(pdb_path,geo_file_needs_generation=False)
 
     # python3.9 Untwist/apply_untwists.py /home/speno/Untangler/output/longrangetraps_TW_fresh_unrestrained0.pdb untwist_moves_longrangetraps_TW_fresh_unrestrained0_fmtd.txt 
