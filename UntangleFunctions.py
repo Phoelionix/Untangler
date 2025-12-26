@@ -88,11 +88,11 @@ def get_score(score_file,phenixgeometry_only=False,verbose=True):
             return combined_score,wE_score,Rwork, Rfree
 
 
-def create_clashes_file(pdb_file_path,ignore_H=False,turn_off_cdl=False,reflections_for_R:str=None,skip_fail=False,timeout_mins=5): 
+def create_clashes_file(pdb_file_path,turn_off_cdl=False,reflections_for_R:str=None,skip_fail=False,timeout_mins=5): 
     #TODO
-    return create_score_file(pdb_file_path,ignore_H=ignore_H,turn_off_cdl=turn_off_cdl,reflections_for_R=reflections_for_R,skip_fail=skip_fail,timeout_mins=timeout_mins)
+    return create_score_file(pdb_file_path,turn_off_cdl=turn_off_cdl,reflections_for_R=reflections_for_R,skip_fail=skip_fail,timeout_mins=timeout_mins)
 
-def create_score_file(pdb_file_path,ignore_H=False,turn_off_cdl=False,reflections_for_R:str=None,skip_fail=False,timeout_mins=5): 
+def create_score_file(pdb_file_path,turn_off_cdl=False,reflections_for_R:str=None,skip_fail=False,timeout_mins=5): 
     # model_and_reflections_for_R overrides the R and R free values in the pdb path.
 
     holton_folder_path = UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/"
@@ -103,7 +103,7 @@ def create_score_file(pdb_file_path,ignore_H=False,turn_off_cdl=False,reflection
     #generate_holton_data_shell_file=self.holton_folder_path+'GenerateHoltonDataOriginal.sh' # for testing...
     generate_holton_data_shell_file=holton_folder_path+'GenerateHoltonData.sh'
 
-    score_file=score_file_name(pdb_file_path,ignore_H=ignore_H,turn_off_cdl=turn_off_cdl)
+    score_file=score_file_name(pdb_file_path,turn_off_cdl=turn_off_cdl)
     if os.path.exists(score_file):
         os.remove(score_file)
 
@@ -120,8 +120,6 @@ def create_score_file(pdb_file_path,ignore_H=False,turn_off_cdl=False,reflection
         rel_path = os.path.relpath(pdb_file_path,start=holton_folder_path)
 
         args = ["bash", f"{generate_holton_data_shell_file}",f"{rel_path}"]
-        if ignore_H:
-            args.append("-H")
         if turn_off_cdl:
             args.append("-C")
         if reflections_for_R is not None:
@@ -163,16 +161,16 @@ def clear_geo(excluded_suffixes=["_start.geo","_fmtd.geo"]):
             else: 
                 os.remove(os.path.join(geo_path,filename))
 
-def score_file_name(model_handle_or_path,ignore_H=False,turn_off_cdl=False):
-    handle = model_handle(model_handle_or_path)+("_ignoreH" if ignore_H else "")+("_noCDL" if turn_off_cdl else "")
+def score_file_name(model_handle_or_path,turn_off_cdl=False):
+    handle = model_handle(model_handle_or_path)+("_noCDL" if turn_off_cdl else "")
     return os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration",'HoltonOutputs',f'{handle}_score.txt')
 
-def geo_file_name(model_handle_or_path,ignore_H=False,turn_off_cdl=False):
-    handle = model_handle(model_handle_or_path)+("_ignoreH" if ignore_H else "")+("_noCDL" if turn_off_cdl else "")
+def geo_file_name(model_handle_or_path,turn_off_cdl=False):
+    handle = model_handle(model_handle_or_path)+("_noCDL" if turn_off_cdl else "")
     return os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration","HoltonOutputs",f"{handle}.geo")
 
-def assess_geometry_wE(pdb_file_path,ignore_H=False,turn_off_cdl=False):
-    score_file = create_score_file(pdb_file_path,ignore_H=ignore_H,turn_off_cdl=turn_off_cdl)
+def assess_geometry_wE(pdb_file_path,turn_off_cdl=False):
+    score_file = create_score_file(pdb_file_path,turn_off_cdl=turn_off_cdl)
     return get_score(score_file)
 
             

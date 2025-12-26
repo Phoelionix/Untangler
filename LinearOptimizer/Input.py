@@ -55,7 +55,7 @@ from Untwist import untwist
 
 #ALTERNATE_POSITIONS_FACTOR=1
 ALTERNATE_POSITIONS_FACTOR=1
-ALTERNATE_POSITIONS_FACTOR_AFFECTS_Z_SCORE=False
+ALTERNATE_POSITIONS_Z_SCORE_FACTOR=1
 #HYDROGEN_RESTRAINTS=False # If False, hydrogen restraints will be ignored.
 NEVER_FORBID_HYDROGEN_GEOMETRIES=True
 hydrogen_restraint_scale=1 # scales cost of hydrogen restraints. E.g. angles for serine OG - CB - H will prevent a swap that improves OG - CB bond length, even though after refine the hydrogens will rearrange with no issues.  
@@ -924,8 +924,7 @@ class LP_Input:
                     for d,z,pos_indices in zip(distances,z_scores,position_option_indices_list):
                         if any([i != 0 for i in pos_indices]):
                             d*=ALTERNATE_POSITIONS_FACTOR
-                            if ALTERNATE_POSITIONS_FACTOR_AFFECTS_Z_SCORE:
-                                z*=ALTERNATE_POSITIONS_FACTOR
+                            z*=ALTERNATE_POSITIONS_Z_SCORE_FACTOR
                         connection = self.Geomection(atom_chunks_selection,d*weight_mod,pos_indices,
                                                      type(constraint),hydrogens,ideal,z,
                                                      constraint.get_max_site_tension(),constraint.outlier_ok)  # XXX putting max site tension in here is bad

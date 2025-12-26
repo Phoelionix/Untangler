@@ -73,7 +73,6 @@ set sigma_fudge = 3
 set writefudge = 0
 
 set wxray = 1
-set keep_hydrogens = True
 set cdl = True # conformer-dependent-library
 
 # const_shrink_donor_acceptor override
@@ -289,7 +288,6 @@ cp $pdbfile $tmpdir/this.pdb
 ( cd $tmpdir ;\
 phenix.molprobity flip_symmetric_amino_acids=True $ciffiles \
     outliers_only=False output.probe_dots=False \
-    keep_hydrogens=$keep_hydrogens\
     output.coot=True this.pdb ) >&! ${outprefix}_molprobity.log
 cp ${tmpdir}/molprobity_coot.py ${t}molprobity_coot.py
 

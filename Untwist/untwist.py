@@ -38,6 +38,7 @@ def get_untwist_atom_options(working_model,take_second_closest=False)->list[Diso
 
 def get_untwist_atom_options_that_survived_unrestrained(pos_refined_model, pre_untwist_model, changes_only_model,
                                                         min_ratio_real_sep_on_fake_sep,min_twist_angle,
+                                                        max_gap_close_frac_to_ignore_angle_condition=None,
                                                         max_gap_close_frac=None,exclude_H=True):
     
     untwist_atoms = {DisorderedTag.from_atom(a):a for a in PDBParser().get_structure("struct",changes_only_model).get_atoms()}
@@ -64,22 +65,25 @@ def get_untwist_atom_options_that_survived_unrestrained(pos_refined_model, pre_u
         pre_refined_min_sep=np.inf
         post_refined_min_sep=np.inf
         
+        for ordered_og_atm in og_atm:
+            for ordered_untwist_atm in untwist_atm:
+                pre_refined_min_sep = min(pre_refined_min_sep,separation(ordered_og_atm,ordered_untwist_atm))
+            for ordered_post_ref_atm in post_ref_atm:
+                post_refined_min_sep = min(post_refined_min_sep,separation(ordered_og_atm,ordered_post_ref_atm))
+        frac_smallest_dist_closed = (pre_refined_min_sep-post_refined_min_sep)/pre_refined_min_sep
+        
         if max_gap_close_frac is not None:
-            for ordered_og_atm in og_atm:
-                for ordered_untwist_atm in untwist_atm:
-                    pre_refined_min_sep = min(pre_refined_min_sep,separation(ordered_og_atm,ordered_untwist_atm))
-                for ordered_post_ref_atm in post_ref_atm:
-                    post_refined_min_sep = min(post_refined_min_sep,separation(ordered_og_atm,ordered_post_ref_atm))
-            frac_smallest_dist_closed = (pre_refined_min_sep-post_refined_min_sep)/pre_refined_min_sep
-            
             if frac_smallest_dist_closed>max_gap_close_frac:
                 passed = False
 
+
+        
         if separation(*post_ref_atm)<separation(*og_atm)*min_ratio_real_sep_on_fake_sep:
             passed = False
 
-        if not (min_twist_angle <= abs(relative_orientation([a.get_coord() for a in post_ref_atm],[a.get_coord() for a in og_atm])) <= 180-min_twist_angle):
-            passed = False
+        if max_gap_close_frac_to_ignore_angle_condition is None or frac_smallest_dist_closed > max_gap_close_frac_to_ignore_angle_condition:
+            if not (min_twist_angle <= abs(relative_orientation([a.get_coord() for a in post_ref_atm],[a.get_coord() for a in og_atm])) <= 180-min_twist_angle):
+                passed = False
 
         if passed:
             alternate_atoms.append(post_ref_atm)

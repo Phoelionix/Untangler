@@ -38,9 +38,6 @@ PHENIX_ORDERED_SOLVENT=False
 TENSIONS=False  # Enables behaviours of re-enabling connection options involving high-tension sites, and, if option enabled, to scale cost by tensions
 PHENIX_FREEZE_WATER=False
 PHENIX_DISABLE_CDL=False # Disables the conformation-dependent library for phenix.refine. 
-PROPOSE_IGNORES_H=False
-
-assert not PROPOSE_IGNORES_H, "Comparison with previous best not implemented properly"
 
 TIMEOUT_MINS_FACTOR=1
 
@@ -74,7 +71,7 @@ class Untangler():
     default_scoring_function = staticmethod(ConstraintsHandler.log_chi)
     debug_skip_to_loop=0
     #untwist_loop=99
-    num_loops_not_refine_H=0
+    num_loops_not_refine_H=999
     num_loops_not_untwist=0
     debug_skip_holton_data_generation=False
     debug_skip_initial_holton_data_generation =debug_skip_initial_refine or (debug_skip_to_loop!=0)
@@ -567,11 +564,9 @@ class Untangler():
     
     def get_candidate_model_dir(self):
         return os.path.join(self.output_dir,"swapOptions",f"{self.model_handle}_{self.loop}","")
-    def determine_best_model(self,model_dir, altloc_subset=None, minimize_R=True,minimize_wE=True,regenerate_R=False,ignore_H=None):
+    def determine_best_model(self,model_dir, altloc_subset=None, minimize_R=True,minimize_wE=True,regenerate_R=False):
         assert minimize_R or minimize_wE # both is okay too
 
-        if ignore_H is None:
-            ignore_H = PROPOSE_IGNORES_H
 
         models = os.listdir(model_dir)
         models = [os.path.join(model_dir,m)  for m in models]
@@ -598,7 +593,7 @@ class Untangler():
 
 
         def pooled_method(i):
-            create_score_file(models_for_scoring[i],ignore_H=ignore_H,
+            create_score_file(models_for_scoring[i],
                               reflections_for_R = self.hkl_path if regenerate_R else None,
                               skip_fail=True)
 
@@ -618,7 +613,7 @@ class Untangler():
         best_model_idx=None
         for i, model_for_scoring in enumerate(models_for_scoring):
             print(models[i])
-            score_file=score_file_name(model_for_scoring,ignore_H=ignore_H)
+            score_file=score_file_name(model_for_scoring)
             if not os.path.exists(score_file):
                 continue
             combined, wE, Rwork, Rfree = get_score(score_file)
@@ -647,7 +642,7 @@ class Untangler():
                     best = combined # this score is not used if looking for best where both decrease AND a result is found where both wE and Rfree decrease
                     best_model_idx = i
         best_model = models[best_model_idx]
-        best_untangler_score=Untangler.Score(*get_score(score_file_name(models_for_scoring[best_model_idx],ignore_H=ignore_H),verbose=False))
+        best_untangler_score=Untangler.Score(*get_score(score_file_name(models_for_scoring[best_model_idx]),verbose=False))
         print(f"Best: {os.path.basename(best_model)} ({best_untangler_score})")
         return best_model
                 
@@ -957,8 +952,7 @@ class Untangler():
                         continue
                         
                     subset_best_model = self.determine_best_model(subset_dir,altloc_subset=altloc_string, 
-                                                            minimize_R=minimize_R,minimize_wE=minimize_wE,
-                                                            ignore_H=refine_hydrogens_post_batch or PROPOSE_IGNORES_H) 
+                                                            minimize_R=minimize_R,minimize_wE=minimize_wE) 
                     if altloc_string == "full": #XXX
                         assert len(subset_folders)==1
                         working_model=subset_best_model
@@ -1021,11 +1015,9 @@ class Untangler():
             else:
                 raise Exception(f"Invalid strategy {strategy}")
             
-            if PROPOSE_IGNORES_H:
-                score_file_needs_generation=True
 
             if score_file_needs_generation:
-                create_score_file(working_model,ignore_H=PROPOSE_IGNORES_H)
+                create_score_file(working_modelH)
             return working_model,swaps
         
         # XXX
@@ -1039,8 +1031,8 @@ class Untangler():
             
             out_path,swaps2 = refine_attempt(working_model,alternate_strategy=True)
             UntangleFunctions.copy_model_and_geo(out_path,model_option_2)
-            score_1 = Untangler.Score(*get_score(score_file_name(model_option_1,ignore_H=PROPOSE_IGNORES_H)))
-            score_2 = Untangler.Score(*get_score(score_file_name(model_option_2,ignore_H=PROPOSE_IGNORES_H)))
+            score_1 = Untangler.Score(*get_score(score_file_name(model_option_1)))
+            score_2 = Untangler.Score(*get_score(score_file_name(model_option_2)))
             if score_2.combined < score_1.combined:
                 working_model, swaps=model_option_1,swaps1
             else:
@@ -1089,7 +1081,7 @@ class Untangler():
         print(self.reference_score_labels)
 
     def propose_model(self,working_model):
-        new_score = Untangler.Score(*get_score(score_file_name(working_model,ignore_H=PROPOSE_IGNORES_H)))
+        new_score = Untangler.Score(*get_score(score_file_name(working_model)))
         
 
         # Get the distance from the solution reference

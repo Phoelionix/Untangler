@@ -5,7 +5,7 @@ modelPDBPath=$1; shift 1
 cd $(dirname "$0")
 
 cdl='true'
-keep_hydrogens='true'
+# keep_hydrogens='true'
 Rwork_override='false'
 Rfree_override='false'
 while getopts ":F:W:CH" flag; do
@@ -18,8 +18,8 @@ while getopts ":F:W:CH" flag; do
     ;;
     C) cdl='false'
     ;;
-    H) keep_hydrogens='false'
-    ;;
+    # H) keep_hydrogens='false'
+    # ;;
    \?)
    echo INVALID FLAG
    exit 0
@@ -53,10 +53,10 @@ if $auto_ignore_geometries; then
 fi
 
 out_handle=$handle
-if ! $keep_hydrogens; then 
-    out_handle=${out_handle}_ignoreH
-    args="${args} keep_hydrogens=$keep_hydrogens"
-fi
+# if ! $keep_hydrogens; then 
+#     out_handle=${out_handle}_ignoreH
+#     args="${args} keep_hydrogens=$keep_hydrogens"
+# fi
 if ! $cdl; then 
     out_handle=${out_handle}_noCDL
 fi
