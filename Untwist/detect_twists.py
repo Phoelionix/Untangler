@@ -142,7 +142,6 @@ def separation_condition(atom_pair,max_separation):
     assert type(A) == type(B)==Atom, (A,B)
     return separation(A,B)<=max_separation
 
-# TODO just return acute angle
 def relative_orientation(v1,v2):
     v1,v2 = np.array(v1),np.array(v2)
     if len(v1.shape)==2 :
@@ -156,12 +155,11 @@ def relative_orientation(v1,v2):
     v2/=norm(v2)
 
     theta = np.arctan2(norm(np.cross(v1, v2)), np.dot(v1, v2))*180/np.pi
-    # if theta > 90:
-    #     theta = 180-theta
     return theta
 
 
 def signed_relative_orientation(v1,v2,reference_direction, debug_crash=False):
+    # Returns angle in range -180 - 180
     v1,v2 = np.array(v1),np.array(v2)
     if len(v1.shape)==2 :
         assert v1.shape==(2,3)
@@ -192,7 +190,7 @@ def detect_twist(
     atoms:tuple[Atom,Atom,Atom],
     constraints_handler=None,
     snap_to_ideal=True,  # Snap to ideal angle and bond length. Otherwise, uses current (potentially warped angle and bond length)
-    snap_interp=0.5,  # NOTE higher snap interp means will find less candidates. # for angles and bonds: (1-snap_interp)*current + snap_interp*ideal
+    snap_interp=0.5,  # for angles and bonds: (1-snap_interp)*current + snap_interp*ideal  # NOTE higher snap interp means will find less candidates. 
     plot_zoomed_in=False,
     plot_zoomed_out=False,
     plot_rot_speed=1,
@@ -201,7 +199,7 @@ def detect_twist(
     max_true_separation=0.25,
     midpoint_match_tol_frac=0.1,
     min_ratio_real_sep_on_fake_sep=1.1, # note that at 1, requires separation of real conformers are at least as large
-    max_difference_real_fake_sep=0.1, # TODO should be replaced with a check for gaussian overlap with tolerance determined by the resolution
+    max_difference_real_fake_sep=0.1, # TODO much room for improved method. Something like a check for gaussian overlap with tolerance determined by the resolution
     take_average = False, # Takes average of all twist point pairs that satisfy the conditions
     take_closest = False, # Takes the twist point pair that satisfies the conditions that has a separation most similar to the current atoms.
     take_second_closest = False, # Takes the twist point pair that satisfies the conditions that has a separation most similar to the current atoms.
@@ -351,6 +349,8 @@ def select_points_from_single_constraint(twist_points,point_0,C,take_closest=Tru
 
         def sep_sort(pair):
             return separation(*pair)
+        # def orientation_sort(pair):
+        #     return relative_orientation(pair,point_0)
         reference_pair=sorted(twist_points,key=sep_sort)[-1]
         reference_dir = np.cross(point_0[0]-point_0[1],reference_pair[0]-reference_pair[-1][1])
         reference_dir/=norm(reference_dir) 
@@ -452,7 +452,7 @@ def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_
                      include_CB_angles=False, verbose=False, debug=False,
                      num_twist_angles_required_to_ignore_no_twist_angles=1,
     # TODO Don't apply strong constraints, and return stats of the twists, so they can be filtered after calling this function.
-                     minimum_degrees_solution_difference=60, split_incompatible_solution_pairs=True, **kwargs):
+                     minimum_degrees_solution_difference=30, split_incompatible_solution_pairs=True, **kwargs):
 
     n=target_res_num # 50
 
@@ -671,7 +671,7 @@ def find_compatible_solutions_for_separate_pairs(pair_set_1,pair_set_2,C:Disorde
 
     return solutions
 
-def create_untwist_file(pdb_path,geo_file_needs_generation=True):
+def create_untwist_file(pdb_path,geo_file_needs_generation=True,verbose=False):
     struct = PDBParser().get_structure("struct",pdb_path)
     ordered_atom_lookup=OrderedAtomLookup(struct.get_atoms(),waters=False)
     constraints_handler = get_constraints_handler(pdb_path,geo_file_needs_generation=geo_file_needs_generation)
@@ -695,7 +695,7 @@ def create_untwist_file(pdb_path,geo_file_needs_generation=True):
         #for atom_name in "N","CA","C":
             if atom_name == "CB" and ordered_atom_lookup.res_names[res_num]!="CYS":
                 continue
-            if debug and ((res_num,atom_name) !=(51,"CA")):
+            if debug and ((res_num,atom_name) !=(57,"CA")):
                 continue 
             if debug:
                 print(res_num)
@@ -724,18 +724,18 @@ def create_untwist_file(pdb_path,geo_file_needs_generation=True):
                 # print("---")
                 print(solutions)
                 print("====")
-    print()
-    if len(twists_found)>0:
-        print("Possible twists detected:")
-        for _,  site_tag, tangled in zip(twists_found, twist_atom_ids, bond_flips_needed):
-            #print(f"Atom {site_tag}, requires flipping one bond relative to another: {tangled}")
-            print(f"Atom {site_tag}")
-    else:
-        print("No twists detected.")
-    
+
+    if verbose:
+        if len(twists_found)>0:
+            print("Possible twists detected:")
+            for _,  site_tag, tangled in zip(twists_found, twist_atom_ids, bond_flips_needed):
+                print(f"Atom {site_tag}")
+        else:
+            print("No twists detected.")
+        
 
     solutions_chosen=[]
-    for sol_tuple in solution_tuples: # sol_tuple = (list_of_alternate_coordinate_pairs, ...)
+    for sol_tuple in solution_tuples: # NOTE sol_tuple = (list_of_alternate_coordinate_pairs, ...)
         for sol in sol_tuple[0]:
             solutions_chosen.append((sol,*sol_tuple[1:])) 
     print("Total num candidate untwist moves:", len(solutions_chosen))
@@ -759,7 +759,7 @@ if __name__=="__main__":
     # Two-conformer implementation 
 
     #pdb_path="/home/speno/Untangler/output/longrangetraps_TW_unrestrained1.pdb"
-    pdb_path="/home/speno/Untangler/output/longrangetraps_TW_fresh_unrestrained0_fmtd.pdb"
+    pdb_path="/home/speno/Untangler/output/longrangetraps_TW_fresh_unrestrained1_fmtd.pdb"
     create_untwist_file(pdb_path,geo_file_needs_generation=False)
 
     # python3.9 Untwist/apply_untwists.py /home/speno/Untangler/output/longrangetraps_TW_fresh_unrestrained0.pdb untwist_moves_longrangetraps_TW_fresh_unrestrained0_fmtd.txt 

@@ -56,8 +56,8 @@ class Untangler():
     # As of writing, untwist step is skipped if the unrestrained step is skipped.
     debug_skip_refine = False  # Note: Can set to True alongside debug_skip_first_swaps to skip to first proposal
     debug_phenix_ordered_solvent_on_initial=False
-    debug_skip_initial_refine=True
-    debug_skip_first_unrestrained_refine=True
+    debug_skip_initial_refine=False
+    debug_skip_first_unrestrained_refine=False
     debug_skip_first_swaps=False
     debug_skip_first_batch_refine=False # skip to assessing best model from batch refine
     debug_skip_first_focus_swaps=False # many swaps strategy only 
@@ -71,8 +71,10 @@ class Untangler():
     default_scoring_function = staticmethod(ConstraintsHandler.log_chi)
     debug_skip_to_loop=0
     #untwist_loop=99
-    num_loops_not_refine_H=999
-    num_loops_not_untwist=0
+    num_loops_not_refine_H=0
+    untwist_moves_enabled=True
+    num_loops_not_untwist=0 
+    final_untwist_loop=0 # if equal to num_loops_not_untwist, will do untwist in that loop only
     debug_skip_holton_data_generation=False
     debug_skip_initial_holton_data_generation =debug_skip_initial_refine or (debug_skip_to_loop!=0)
     refmac_refine_water_occupancies_initial=False
@@ -83,7 +85,7 @@ class Untangler():
     ##
     O_bond_change_period=5
     ####
-    num_threads=20
+    num_threads=25
     ## 
     if debug_skip_first_batch_refine:
         debug_skip_first_swaps=True
@@ -469,7 +471,7 @@ class Untangler():
             
         if not read_prior_run:
             alternate_atoms=[]
-            if self.loop>=self.num_loops_not_untwist:
+            if self.num_loops_not_untwist<=self.loop<=self.final_untwist_loop and self.untwist_moves_enabled:
                 # Get allowed untwist moves 
                 alternate_atoms = self.get_untwist_moves(model_to_swap)
             atoms, connections = Solver.LP_Input(model_to_swap, restrained_refine_pdb_file_path, tensions, self.symmetries, ignore_waters=False,altloc_subset=altloc_subset,resnums=resnums,resnames=resnames,alternate_atoms=alternate_atoms).calculate_paths(
@@ -491,7 +493,7 @@ class Untangler():
                                             forbidden_atom_any_connection_changes=dict(name=forbidden_atom_any_connection_changes),
                                             MAIN_CHAIN_ONLY=MAIN_CHAIN_ONLY,SIDE_CHAIN_ONLY=SIDE_CHAIN_ONLY,NO_CB_CHANGES=NO_CB_CHANGES,
                                             max_bond_changes=self.max_bond_changes,
-                                            NO_ISOLATED_O_BOND_CHANGES=self.no_isolated_O_bond_swaps()
+                                            NO_ISOLATED_O_BOND_CHANGES=self.no_isolated_O_bond_swaps(),
                                             #water_sites=False,
                                             )
         else:
@@ -542,7 +544,7 @@ class Untangler():
                                                         forbidden_atom_any_connection_changes=dict(name=forbidden_atom_any_connection_changes),
                                                         MAIN_CHAIN_ONLY=MAIN_CHAIN_ONLY,SIDE_CHAIN_ONLY=SIDE_CHAIN_ONLY,NO_CB_CHANGES=NO_CB_CHANGES,
                                                         max_bond_changes=self.max_bond_changes,
-                                                        NO_ISOLATED_O_BOND_CHANGES=self.no_isolated_O_bond_swaps()
+                                                        NO_ISOLATED_O_BOND_CHANGES=self.no_isolated_O_bond_swaps(),
                                                         )
                 water_swapper = Swapper()
                 water_swapper.add_candidates(waters_swapped_path)
@@ -682,7 +684,6 @@ class Untangler():
             print("Skipping untwists due to more than 2 protein altlocs")
             return []
                     
-
         print("Performing untwist moves")
         untwisted_models,changes_only_models = untwist.apply_all_untwists_for_two_conformations(working_model)
         
@@ -708,7 +709,7 @@ class Untangler():
                 new_alternate_atoms=alternate_atoms
             else: 
                 for b in this_run_alternates:
-                    rel_orient_diff_min=20
+                    rel_orient_diff_min=20 # degrees
                     for a in alternate_atoms:
                         if DisorderedTag.from_atom(b)==DisorderedTag.from_atom(a):
                             a_coords,b_coords=[ordrd.get_coord() for ordrd in a], [ordrd.get_coord() for ordrd in b]
@@ -1185,7 +1186,7 @@ class Untangler():
                 print(f"After: {get_R(next_model,self.hkl_path)}")
         if self.refinement==self.PHENIX:
             num_loops = self.num_refine_for_positions_macro_cycles_phenix if loops_override is None else loops_override
-            for n in range(num_loops):
+            for n in range(num_loops): # Workaround phenix using decreasing geo weight each loop.
                 if n > 0:
                     moved_path=f"{next_model[:-4]}_last.pdb"
                     shutil.move(next_model,moved_path)
@@ -1333,6 +1334,32 @@ class Untangler():
                 assert  new_args["model_path"] is not None
                 extra_H_refine_param_set.append(self.get_refine_params_phenix(**new_args))
             param_sets.append(extra_H_refine_param_set)
+            '''
+            extra_H_refine_param_setA=[]
+            # snap to riding H
+            NUM_SINGLE_RIDING_H_LOOPS=3
+            for _ in range(NUM_SINGLE_RIDING_H_LOOPS): # Workaround phenix using decreasing geo weight each loop.
+                for phenix_kwargs in all_phenix_kwargs: 
+                    new_args=dict(phenix_kwargs)
+                    new_args["model_path"]=self.get_phenix_out_path(phenix_kwargs["out_tag"])
+                    new_args["num_macro_cycles"]=1
+                    new_args["refine_hydrogens"]=False
+                    new_args["water_and_H_only"]=True
+                    assert  new_args["model_path"] is not None
+                    extra_H_refine_param_setA.append(self.get_refine_params_phenix(**new_args))
+                param_sets.append(extra_H_refine_param_setA)
+            # Fix waters
+            extra_H_refine_param_setB=[]
+            for phenix_kwargs in all_phenix_kwargs:
+                new_args=dict(phenix_kwargs)
+                new_args["model_path"]=self.get_phenix_out_path(phenix_kwargs["out_tag"])
+                #new_args["num_macro_cycles"]=1 #NOTE
+                new_args["refine_hydrogens"]=False
+                new_args["water_and_H_only"]=True
+                assert  new_args["model_path"] is not None
+                extra_H_refine_param_setB.append(self.get_refine_params_phenix(**new_args))
+            param_sets.append(extra_H_refine_param_setB)
+            '''
         return self.batch_refine(f"loopEnd{self.loop}",param_sets, **kwargs)
 
 
@@ -1552,7 +1579,8 @@ class Untangler():
                           hold_water_positions=False,hold_protein_positions=False,
                           refine_occupancies=False,turn_off_bulk_solvent=TURN_OFF_BULK_SOLVENT,ordered_solvent=False,
                           no_restrain_movement=False,max_sigma_movement_of_selected=0.1,refine_hydrogens=False, # restraining movement refers to the reference_coordinate_restraints option
-                          altloc_subset=None,disable_NQH_flips=False,restrain_protein_movement=False):
+                          altloc_subset=None,disable_NQH_flips=False,restrain_protein_movement=False,
+                          water_and_H_only=False):
         if altloc_subset is not None:
             altloc_subset = ''.join(altloc_subset)  
         if wc is None:
@@ -1597,7 +1625,8 @@ class Untangler():
         for bool_param, flag in ([P.hold_water_positions,"-h"],[P.refine_hydrogens,"-H"],[P.optimize_R,"-r"],
                                  [P.hold_protein_positions,"-p"],[P.refine_occupancies,"-O"],[P.turn_off_bulk_solvent,"-t"],
                                  [P.ordered_solvent,"-S"],[P.no_restrain_movement,"-R"],[P.disable_CDL,"-C"],
-                                 [P.disable_NQH_flips,"-N"],[P.restrain_protein_movement,"-P"]):
+                                 [P.disable_NQH_flips,"-N"],[P.restrain_protein_movement,"-P"], 
+                                 [P.water_and_H_only, "-Z"]):
             if bool_param:
                 args.append(flag)
         return P, args
@@ -1795,7 +1824,7 @@ def main():
         starting_model,
         xray_data,
         desired_score=18.4, # score to stop at
-        max_num_runs=8,
+        max_num_runs=5,
     )
 if __name__=="__main__":
     main()

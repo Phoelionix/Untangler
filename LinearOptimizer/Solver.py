@@ -70,7 +70,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
           max_bond_changes=None,
           modify_forbid_conditions=True,  # Whether the function is allowed to modify (generally, turn off) the "forbidden" flags of the connections
           change_punish_factor=0, # Adds cost of: change_punish_factor x num_conformer_labels_changed/num_conformers x original_cost. Num conformers excludes conformers that are being ignore (see `site_being_considered()`).
-          forbid_ring_changes=False
+          forbid_ring_changes=False,
+          forbid_solutions_composed_of_better_solutions=False,
           ):  
           #max_bond_changes=None):  
     # protein_sites, water_sites: Whether these can be swapped.
@@ -307,7 +308,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         need_anchor = ( 
             not (have_water and inert_water_sites)     # if water sites are inert they break the symmetry
             and change_punish_factor==0
-        )        
+        )
+
         if (force_no_flips
             or ((site.site_num == lowest_site_num) and need_anchor) # Anchor solution to one where first disordered atom is unchanged.  
             or (not site.is_water and inert_protein_sites)
@@ -353,12 +355,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             
             MCH=["N","CA","CB","C","O"]
             chunks = disordered_connection[0].atom_chunks
-            involves_main_chain=any(ch.name in MCH for ch in chunks)
+            #involves_main_chain=any(ch.name in MCH for ch in chunks)
+            in_main_chain=all(ch.name in MCH for ch in chunks)
             if constraint_type==VariableKind.Bond: 
                 # TODO this allows water to change. But necessary.
-                if MAIN_CHAIN_ONLY and not involves_main_chain and (any(ch.get_resname() not in ["CYS","HOH"]) for ch in chunks):  # XXX tidy up and put in a separate python file for specifying what to optimize
+                if MAIN_CHAIN_ONLY and not in_main_chain and (any(ch.get_resname() not in ["CYS","HOH"]) for ch in chunks):  # XXX tidy up and put in a separate python file for specifying what to optimize
                     return True
-                if SIDE_CHAIN_ONLY and involves_main_chain and (any(ch.get_resname() != ["HOH"]) for ch in chunks):
+                if SIDE_CHAIN_ONLY and in_main_chain and (any(ch.get_resname() != ["HOH"]) for ch in chunks):
                     return True
                 if NO_CB_CHANGES and any(ch.name =="CB" for ch in chunks):
                     return True
@@ -626,6 +629,12 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             # if allowed:
             #     active_subvars = []
 
+            # # TEMPORARY
+            # tmp_tags = [DisorderedTag(num,name) for num,name in [(54,"C"),(55,"N")]]
+            # if ordered_connection_option.get_disordered_connection_id()==LP_Input.Geomection.construct_disordered_connection_id(ConstraintsHandler.BondConstraint,tmp_tags):
+            #     allowed = not ordered_connection_option.original()
+            # #####
+
             #### CONSTRAINT 1 "If all atoms are active in a connection, that connection is active" #####
             for to_altloc, assignment_vars in assignment_options.items():
                 #assert len(ordered_connection_option.atom_chunks)==len(assignment_vars) or ordered_connection_option.involves_position_changes()                
@@ -754,25 +763,44 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             resnum = reference_conn.res_nums[0] # Anchor to first atom
             # if not "C" in [ach.name for ach in reference_conn.atom_chunks]:
             
+            c_beta=False
             if not all([ach.name in ["O","C"] for ach in reference_conn.atom_chunks]):
-                continue
-            for altlocs_key, (CO_bond, CO_bond_unchanged_var) in connection_var_dict.items():
+                if all([ach.name in ["OG","CB"] for ach in reference_conn.atom_chunks]):
+                    c_beta=True
+                else:
+                    continue    
+            altpos_vars=[]
+            
+            isolated_altpos_changes_okay=False
+            if isolated_altpos_changes_okay:
+                for ch in reference_conn.atom_chunks:
+                    site = VariableID.Atom(ch)
+                    if site not in site_altposvar_dict:
+                        continue
+                    altpos_vars.extend([v for k, v in site_altposvar_dict[site][ch.get_altloc()].items() if k != 0])
+            for altlocs_key, (CO_bond, CO_bond_var) in connection_var_dict.items():
                 if not CO_bond.original():
                     continue
                 from_altloc = CO_bond.from_altlocs[0]
                 
                 # Get all other bonds involving the C that are same altloc
                 other_bond_nochange_vars=[]
-                for atom_names,resnums in [(("N","C"),(resnum+1,resnum)), (("CA","C"),(resnum,resnum)),(("C","CA"),(resnum,resnum)), (("C","N"),(resnum,resnum+1))]: # TODO shouldn't need to do this. Should be sorted in Geomection class
+                other_bond_list = [(("N","C"),(resnum+1,resnum)), (("CA","C"),(resnum,resnum)),(("C","CA"),(resnum,resnum)), (("C","N"),(resnum,resnum+1))]
+                if c_beta:
+                    other_bond_list = [(("CA","CB"),(resnum,resnum))]
+                for atom_names,resnums in other_bond_list: # TODO shouldn't need to do this. Should be sorted in Geomection class
                     disordered_tags= [DisorderedTag(num,name) for num,name in zip(resnums,atom_names)]
                     other_d_id= LP_Input.Geomection.construct_disordered_connection_id(ConstraintsHandler.BondConstraint,disordered_tags)
                     if other_d_id in mega_connection_var_dict: # XXX
                         _other_bond, other_var = mega_connection_var_dict[other_d_id][altlocs_key]
                         other_bond_nochange_vars.append(other_var)
                 assert len(other_bond_nochange_vars)<=2, (len(other_bond_nochange_vars),other_bond_nochange_vars,other_d_id)
+                bond_name = "CO"
+                if c_beta:
+                    bond_name = "CBOG"
                 lp_problem +=  (
-                    CO_bond_unchanged_var>=1+lpSum(other_bond_nochange_vars)-len(other_bond_nochange_vars),
-                    f"forbidIsolatedCOBondChangeRes{resnum}.{from_altloc}"
+                    CO_bond_var>=1+lpSum(other_bond_nochange_vars)-len(other_bond_nochange_vars) - lpSum(altpos_vars),
+                    f"forbidIsolated{bond_name}BondChangeRes{resnum}.{from_altloc}"
                 )
 
         #print(resnum_no_change_vars_dict[4])
@@ -974,6 +1002,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 except:
                     raise Exception(v,v.value())
             f.write(f"Total distance = {value(lp_problem.objective)}")
+
+
+    inverted_active_variables = []
+    inverted_active_variable_names = []
+    non_original_variable_history = []
 
     for l in range(num_solutions):
         if l > 0 and l <= len(forced_swap_solutions):
@@ -1226,12 +1259,16 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                         if site not in site_altloc_dict:
                             site_altloc_dict[site]=""
                         site_altloc_dict[site]+=from_altloc
+            if len(site_altposvar_dict)==0:
+                return # No changes
             for site, altlocs in site_altloc_dict.items():
                 out_str+= f"{site} {altlocs}\n"
             with open(out_path,'w') as f:
                 f.write(out_str)
         write_bonds_replaced_to_file(bonds_replaced,f"{log_out_dir}/ChangedBonds-{l+1}.txt")
-        write_poschanges_to_file(f"{log_out_dir}/ChangedCoords-{l+1}.txt")
+
+        if len(site_altposvar_dict)>0:
+            write_poschanges_to_file(f"{log_out_dir}/ChangedCoords-{l+1}.txt")
 
 
         if PLOTTING:
@@ -1293,36 +1330,22 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
                                      
                 assert to_altloc_found, (site, from_altloc)
-
-            # if site.name==str(DisorderedTag(10,"CA")) or site.name==str(DisorderedTag(2,"CA")) :
-            #     for from_altloc in site_var_dict[site]:
-            #         for to_altloc in site_var_dict[site][from_altloc]:
-
-            #             print(from_altloc,to_altloc)
-            #             print(round(site_var_dict[site][from_altloc][to_altloc].value()))
-            #             print(site_var_dict[site][from_altloc][to_altloc].value())
-            #             print(site_var_dict[site][from_altloc][to_altloc])
-
-
-        # print("KEYS")
-        # for key in nonzero_variables:
-        #     print(key)
         distances.append(value(lp_problem.objective))
         
         update_swaps_file(distances,site_assignment_arrays)  #,record_notable_improvements_threshold=0.03)
       
        
-        # solution = [var.value() for var in lp_problem.variables()] 
-        # lp_variables = lp_problem.variables()
-        # lp_problem += (  
-        #         pulp.lpSum(solution[i]*lp_variables[i] for i in range(len(solution))) <= len(solution)-1,
-        #         f"forceNextBest_{l}"
-        #     )
-
-
-        flipped_flip_variables = []
+        #  Conditions  imposed for next best solutions
+        include_alt_pos_as_next_best_options=False
         flip_variables=[]
-        #TODO Critical - for some reason the 'next-best' solutions can be better. Maybe the gap tolerance is not 0?
+        if not forbid_solutions_composed_of_better_solutions:
+            inverted_active_variables = []
+            inverted_active_variable_names = []
+        else:
+            assert False
+
+
+        include_alt_pos_as_next_best_options=False # Allow solutions that only differ by alternate positions # TODO Need to forbid solutions that differ only by alternate positions and by a label reassignment (it is equivalent to no label reassignment as position changes are blind to conformer labels) 
         for chunk in chunk_sites:
             site = VariableID.Atom(chunk)
             if not site_being_considered(site):
@@ -1330,24 +1353,82 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             if protein_sites and site.is_water: # not interested in different solutions for water. 
                 continue # This means water atoms may or may not swap for the single solution where no protein atoms swap.
             from_altloc = chunk.get_altloc()
-            for to_altloc, var in site_var_dict[site][from_altloc].items():
+
+            vars_to_force_change = list(site_var_dict[site][from_altloc].values())
+            if site in site_altposvar_dict and include_alt_pos_as_next_best_options:
+                vars_to_force_change.extend(site_altposvar_dict[site][from_altloc].values())
+            
+            
+            for var in vars_to_force_change:
                 val = var.value()
                 flip_variables.append(var)
-                if val > 0.5:
-                    #if (1-var) not in flipped_flip_variables:
-                    flipped_flip_variables.append(1-var)
-        if len(flipped_flip_variables) == 0:
+                if (val > 0.5) and not (str(var) in inverted_active_variable_names):
+                    inverted_active_variables.append(1-var)
+                    inverted_active_variable_names.append(str(var))
+        if len(inverted_active_variables) == 0:
             # Require one variable to be flipped
-            lp_problem += pulp.lpSum(flip_variables) >= 1, f"force_swaps_loop_{l}"
+            lp_problem += pulp.lpSum(flip_variables) >= 1, f"force_swaps_loop_{l}"  # TODO remove?
         else:
-            # require at least one flip to be different
-            lp_problem += pulp.lpSum(flipped_flip_variables) >= 1, f"force_next_best_solution_{l}"
+            # require at least one assignment to be different
+            lp_problem += pulp.lpSum(inverted_active_variables) >= 1, f"force_next_best_solution_{l}"
+
+        '''
+        non_original_variables=[]
+        non_original_variable_history.append(non_original_variables)
         
+        for disordered_connection_var_dict in mega_connection_var_dict.values():
+            active_bonds=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if var.value()>0.5]
+            reference_conn=active_bonds[0][0]
+            if reference_conn.connection_type!=ConstraintsHandler.BondConstraint:
+                continue
+
+            
+
+            for constraint,var in active_bonds:
+                val = var.value()
+                flip_variables.append(var)
+                if (val > 0.5): 
+                    if not constraint.original():
+                        non_original_variables.append(var)
+                    if not (str(var) in inverted_active_variable_names):
+                        inverted_active_variables.append(1-var)
+                        inverted_active_variable_names.append(str(var))
+
+            if not include_alt_pos_as_next_best_options:
+                assert False
+                for constraint in [constraint for constraint,var in active_bonds]:
+                    if not constraint.involves_position_changes():
+                        continue
+                    also_exclude = [var for constraint,var in disordered_connection_var_dict.values() if\
+                                    constraint.position_option_indices==reference_conn.position_option_indices\
+                                    and var.value()<0.5]
+                    for var in also_exclude:
+                        val = var.value()
+                        flip_variables.append(var)
+                        if not (str(var) in inverted_active_variable_names):
+                            inverted_active_variables.append(1-var)
+                            inverted_active_variable_names.append(str(var))
+     
+        # TODO unions of more than two ?
+        for j, previous_non_original_vars in enumerate(non_original_variable_history[:-1]):
+            combined_list = []
+            for var in non_original_variables + previous_non_original_vars:
+                if var not in combined_list:
+                    combined_list.append(var)
+                
+                combined_list.append(all_mutually_exclusive_vars)
+            lp_problem += pulp.lpSum(combined_list) >= 1, f"forbid_union_loop_{l}_idx_{j}"  # TODO remove?
+        '''
+
         if max_bond_changes_tuple is not None:
             assert MAX_BOND_CHANGES_SECOND_HALF_ONLY
             assert l <= int(num_solutions/2) 
             if l == int(num_solutions/2):
                 limit_bond_changes()
+
+
+
+            
 
 
 

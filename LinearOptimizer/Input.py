@@ -392,7 +392,7 @@ class LP_Input:
             kind = ConstraintsHandler.Constraint.kind(self.connection_type)
             return f"{kind}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
 
-        # TODO TEMPORARY
+        # TODO TEMPORARY XXX
         @staticmethod
         def construct_disordered_connection_id(connection_type,disordered_tags:list[DisorderedTag],hydrogen_names=None):
             kind = ConstraintsHandler.Constraint.kind(connection_type)

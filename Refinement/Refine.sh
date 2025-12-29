@@ -34,6 +34,8 @@ disable_movement_restraint='false'
 refine_occupancies='false'
 ordered_solvent='false'
 disable_ADP='false'
+ADP_only='false'
+water_and_H_only='false'
 disable_CDL='false' # Disable conformation-dependent library
 disable_nqh_flips='false'
 altlocs_to_refine=''
@@ -45,7 +47,7 @@ refine_hydrogens='false'
 restrain_movement_of_protein='false' # Note this does nothing when True if disable_movement_restraint is True
 
 
-while getopts ":a:o:u:c:n:s:q:whprgtzACHNOPRS" flag; do
+while getopts ":a:o:u:c:n:s:q:whprgtzACDHNOPRSZ" flag; do
  case $flag in
     a) altlocs_to_refine=$OPTARG
     ;;
@@ -80,6 +82,8 @@ while getopts ":a:o:u:c:n:s:q:whprgtzACHNOPRS" flag; do
     ;;
     C) disable_CDL='true'
     ;;
+    D) ADP_only='true'
+    ;;
     H) refine_hydrogens='true'
     ;;
     N) disable_nqh_flips='true'
@@ -91,6 +95,8 @@ while getopts ":a:o:u:c:n:s:q:whprgtzACHNOPRS" flag; do
     R) disable_movement_restraint='true' 
     ;;
     S) ordered_solvent='true'
+    ;;
+    Z) water_and_H_only='true'
     ;;
    \?)
    echo INVALID FLAG
@@ -216,13 +222,18 @@ sed  "s/      sigma = 0.1/      sigma = ${max_sigma_movement_restraint}/g" $para
 mv tmp.$$ $paramFile
 
 
-  if $refine_hydrogens; then
-    if $hold_protein; then 
-      #echo "Hydrogens are the only protein atoms that will be refined"
-      sed "s/individual = water/individual = water or element H/g" $paramFile > tmp.$$ 
-      mv tmp.$$ $paramFile
-    fi
+if $refine_hydrogens; then
+  if $hold_protein; then 
+    #echo "Hydrogens are the only protein atoms that will be refined"
+    sed "s/individual = water/individual = water or element H/g" $paramFile > tmp.$$ 
+    mv tmp.$$ $paramFile
   fi
+fi
+
+if $water_and_H_only; then 
+    sed "s/individual = TEMPLATE_SITES_INDIVIDUAL/individual = water or element H/g" $paramFile > tmp.$$ 
+    mv tmp.$$ $paramFile
+fi
 
 if $no_mlhl; then
   sed "s/target = auto ml \*mlhl ml_sad ls mli/target = *auto ml mlhl ml_sad ls mli/g" $paramFile > tmp.$$ 
@@ -260,6 +271,15 @@ if $ordered_solvent; then
   mv tmp.$$ $paramFile
 fi
 
+if $ADP_only; then 
+  if $disable_ADP; then
+    echo "ADP only but ADP disabled!"
+    exit 
+  fi 
+  sed "s/\*individual_sites/individual_sites/g" $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
+fi 
+
 if $disable_ADP; then 
   sed "s/\*individual_adp/individual_adp/g" $paramFile  > tmp.$$ 
   mv tmp.$$ $paramFile
@@ -289,6 +309,8 @@ if $disable_nqh_flips; then
 fi
 
 
+sed "s/individual = TEMPLATE_SITES_INDIVIDUAL/individual = None/g" $paramFile > tmp.$$ 
+mv tmp.$$ $paramFile
 
 # Broad sweep attempt to stop phenix segfaulting when run in parallel
 export OMP_NUM_THREADS=1
