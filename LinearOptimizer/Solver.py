@@ -42,6 +42,7 @@ import gc;
 import sys
 import shutil
 import matplotlib.pyplot as plt
+import matplotlib
 from typing import Union
 
 
@@ -1050,8 +1051,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         threads=10
         logPath=log_out_dir+"solver_log.txt"
         #logPath=None
-        pulp_solver = Solver.CPLX_PY # https://stackoverflow.com/questions/10035541/what-causes-a-python-segmentation-fault
-        #pulp_solver = Solver.COIN
+        #pulp_solver = Solver.CPLX_PY
+        pulp_solver = Solver.COIN
         warmStart=True
         #gapRel=0.0003
         #gapRel=0.001
@@ -1285,8 +1286,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     else:
                         xlim=xlim_dict[variable_kind]
                         
-                    
-
+                    matplotlib.use("Agg")
                     plt.hist(X,bins=20,range=xlim)
                     plt.yscale('log')
                     plt.ylim([0.9,None])
