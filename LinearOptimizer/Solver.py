@@ -563,6 +563,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             local_score_tolerate_threshold=worst_no_change_score  # * len(altlocs)?   # TODO This should be done in input when setting what is forbidfden.
             always_tolerate_score_threshold = max(local_score_tolerate_threshold,global_score_tolerate_threshold) #worst_no_change_score*10+1e4
 
+        num_original_connections = len([conn for conn,_ in connection_var_dict.values() if conn.original()])
 
         for altlocs_key, (ordered_connection_option, var_active) in connection_var_dict.items():
 
@@ -651,11 +652,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     )
         dID = disordered_connection[0].get_disordered_connection_id()
         
-        ## CONSTRAINT 2 "Num ordered geometries (i.e. 'connections') per disordered geometry must equal num altlocs"
-        num_conformations_involved_in_preswap = len(altlocs)
+        ## CONSTRAINT 2 "Num ordered geometries (i.e. 'connections') per disordered geometry must be unchanged"
         lp_problem += (
-            lpSum([var_active for (_,var_active) in connection_var_dict.values()])==num_conformations_involved_in_preswap,  # less than number of FROM altlocs. i.e. number of conformations it's currently involved in. 
-            f"{dID}_{num_conformations_involved_in_preswap}_connections"
+            lpSum([var_active for (_,var_active) in connection_var_dict.values()])==num_original_connections,  # less than number of FROM altlocs. i.e. number of conformations it's currently involved in. 
+            f"{dID}_{num_original_connections}_connections"
         )
 
         # # Debugging
@@ -1051,8 +1051,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         threads=10
         logPath=log_out_dir+"solver_log.txt"
         #logPath=None
-        #pulp_solver = Solver.CPLX_PY
-        pulp_solver = Solver.COIN
+        pulp_solver = Solver.CPLX_PY
+        #pulp_solver = Solver.COIN
         warmStart=True
         #gapRel=0.0003
         #gapRel=0.001
