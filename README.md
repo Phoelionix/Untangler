@@ -1,6 +1,6 @@
 # Untangler
 
-Code for treating [confused conformers](https://bl831.als.lbl.gov/~jamesh/challenge/twoconf/).
+Altloc optimizer to [untangle confused conformers](https://bl831.als.lbl.gov/~jamesh/challenge/twoconf/).
 
 ## Setup 
 (Optional) make a virtual Python environment
