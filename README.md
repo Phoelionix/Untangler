@@ -28,10 +28,11 @@ Tested with python 3.9. Requires `phenix`.
 ## What is this?
 
 
-This program refines an ensemble of model protein conformations to fit the 
+This program refines an ensemble model of protein conformations to fit the 
 electron density represented by X-ray data (using `phenix.refine`), while 
-simultaneously freeing the models from local minima traps that occur when a 
+simultaneously freeing the models from local minima traps that occur when 
 the conformers of a single model conformation are "fitting" the electron density 
-of multiple true conformations. The goal is to reallot or "reconnect" conformers 
-in a way that not only improves the fit, but also reduces the potential energy 
-of the conformations.
+of multiple true conformations. The goal is to reallot conformer labels to "reconnect"
+them in conformations with better geometries and which better fit the X-ray data.
+
+
