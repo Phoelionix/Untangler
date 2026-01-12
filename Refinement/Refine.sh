@@ -359,7 +359,8 @@ phenix.refine $paramFile 2>$error_file 1> $log_file
 unset TMPDIR
 
 if [ -s $error_file ]; then
-        (exit 1); echo "Failed"
+  echo "Failed"
+  exit 1 
 else
   rm $error_file
 fi
