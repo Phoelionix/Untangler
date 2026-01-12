@@ -46,6 +46,7 @@ refine_hydrogens='false'
 
 restrain_movement_of_protein='false' # Note this does nothing when True if disable_movement_restraint is True
 
+fixed_water_occupancy='false' # Fix water occupancies at value of ordered_solvent_occupancy
 
 while getopts ":a:o:u:c:n:s:q:whprgtzACDHNOPRSZ" flag; do
  case $flag in
@@ -57,6 +58,9 @@ while getopts ":a:o:u:c:n:s:q:whprgtzACDHNOPRSZ" flag; do
     u) wu=$OPTARG
     ;;
     c) wc=$OPTARG
+    ;;
+    f) ordered_solvent_occupancy=$OPTARG
+       fixed_water_occupancy='true' 
     ;;
     n) macro_cycles=$OPTARG
     ;;
@@ -308,6 +312,15 @@ if $disable_nqh_flips; then
   mv tmp.$$ $paramFile
 fi
 
+if $fixed_water_occupancy; then  
+  sed "s/occupancy_min = 0.02/occupancy_min = $ordered_solvent_occupancy/g" $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
+  sed "s/occupancy_max = 1.0/occupancy_max = $ordered_solvent_occupancy/g" $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
+  sed "s/occupancy = 0.33/occupancy = $ordered_solvent_occupancy/g" $paramFile  > tmp.$$
+  mv tmp.$$ $paramFile
+fi
+
 
 sed "s/individual = TEMPLATE_SITES_INDIVIDUAL/individual = None/g" $paramFile > tmp.$$ 
 mv tmp.$$ $paramFile
@@ -319,6 +332,13 @@ export MKL_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 
+export PYTHONFAULTHANDLER=1
+export PYTHONMALLOC=debug
+export MALLOC_CHECK_=3
+#export MALLOC_PERTURB_=$((RANDOM%255+1))
+
+
+
 export TMPDIR=$PWD/tmp_${out_handle}
 mkdir -p $TMPDIR
 
@@ -329,8 +349,20 @@ if [ -f $final_structure ]; then
   mv $final_structure $final_structure#
 fi
 echo "Refining $out_handle"
-phenix.refine $paramFile > $logs_path/${out_handle}.log
+#echo $(realpath $paramFile) 
+export PYTHONNOUSERSITE=1
+
+#phenix.refine $paramFile > $logs_path/${out_handle}.log
+error_file=$logs_path/${out_handle}_err.log
+log_file=$logs_path/${out_handle}.log
+phenix.refine $paramFile 2>$error_file 1> $log_file
 unset TMPDIR
+
+if [ -s $error_file ]; then
+        (exit 1); echo "Failed"
+else
+  rm $error_file
+fi
 
 
 if [ ! -f $final_structure ]; then 

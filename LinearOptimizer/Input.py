@@ -47,8 +47,6 @@ from statistics import NormalDist
 from LinearOptimizer.VariableID import *
 from LinearOptimizer.Tag import *
 from LinearOptimizer.mon_lib_read import read_vdw_radii,read_lj_parameters,get_mon_lib_names
-#from PhenixEnvScripts.cross_conformation_nonbonds import get_cross_conf_nonbonds
-from LinearOptimizer.get_cross_conf_nonbonds_wrapper import get_cross_conf_nonbonds
 from LinearOptimizer.OrderedAtomLookup import OrderedAtomLookup
 from LinearOptimizer.ConstraintsHandler import ConstraintsHandler
 from Untwist import untwist
@@ -180,8 +178,9 @@ class AtomChunk(OrderedResidue):
 
 
 class LP_Input:
-    MODE="LOW_TOL" # "NONBOND_RESTRICTIONS" #"LOW_TOL" #"HIGH_TOL" #"NO_RESTRICTIONS" # PHENIX REFMAC
-    #MODE= "NO_RESTRICTIONS" # "NONBOND_RESTRICTIONS" #"LOW_TOL" #"HIGH_TOL" #"NO_RESTRICTIONS" # PHENIX REFMAC
+    #MODE="LOW_TOL" # "NONBOND_RESTRICTIONS" #"LOW_TOL" #"HIGH_TOL" #"NO_RESTRICTIONS" # PHENIX REFMAC
+    #MODE= "NO_RESTRICTIONS"
+    MODE= "HIGH_TOL"
 
     if MODE=="NO_RESTRICTIONS":
         max_sigmas=min_sigmas_where_anything_goes=min_tension_where_anything_goes={}
@@ -675,11 +674,14 @@ class LP_Input:
             for altloc in self.ordered_atom_lookup.get_altlocs():
                 unflipped_water_dict[altloc]=altloc
             #clashes =  get_clashes(model_handle) 
-            original_clashes = get_clashes(UntangleFunctions.model_handle(self.restrained_model_path))
-            print(f"Original structure has {len(original_clashes)} clashes")
-            if len(original_clashes) <= 5:
-                for clash in original_clashes:
-                    print(clash)
+            if constraint_weights[ConstraintsHandler.TwoAtomPenalty]>0:
+                original_clashes = get_clashes(UntangleFunctions.model_handle(self.restrained_model_path))
+                print(f"Original structure has {len(original_clashes)} clashes")
+                if len(original_clashes) <= 5:
+                    for clash in original_clashes:
+                        print(clash)
+            else:
+                original_clashes=[]
 
 
         
@@ -781,14 +783,21 @@ class LP_Input:
         #################################################################
         print("Computing connection costs")
         possible_connections:list[LP_Input.Geomection]=[]
-        constraints_that_include_H=[ConstraintsHandler.TwoAtomPenalty]  # Since the purpose of two atom penalty is to say "the current thing is wrong", in which case using the hydrogens is fine.
+        # Apply when constraints don't involve water
+        protein_constraints_that_include_H=[ConstraintsHandler.TwoAtomPenalty]  # Since the purpose of two atom penalty is to say "the current thing is wrong", in which case using the hydrogens is fine.
+        # Apply when constraints involve water
+        water_constraints_that_include_H=[ConstraintsHandler.TwoAtomPenalty,ConstraintsHandler.ClashConstraint,ConstraintsHandler.NonbondConstraint]
         for c, constraint in enumerate(constraints_handler.constraints):
             if c%1000 == 0: 
                 print(f"Calculating constraint {c} / {len(constraints_handler.constraints)} ({constraint}) ")
 
+            if any([tag.resnum() in self.ordered_atom_lookup.water_residue_nums for tag in constraint.site_tags]):
+                constraints_that_include_H=water_constraints_that_include_H
+            else:
+                constraints_that_include_H=protein_constraints_that_include_H
             atoms_for_constraint = self.ordered_atom_lookup.select_atoms_for_sites(
                 constraint.site_tags,
-                exclude_H=type(constraint) not in constraints_that_include_H
+                exclude_H=type(constraint) not in constraints_that_include_H 
             )
             res_name_num_dict={}
             for a in atoms_for_constraint:
@@ -1046,3 +1055,14 @@ class LP_Input:
         #finest_depth_chunks=orderedResidues
         finest_depth_chunks=list(atom_chunks.values())
         return finest_depth_chunks,disordered_connections
+
+    @staticmethod
+    def create_altloc_subset_model(model,altloc_subset):
+        struct=PDBParser().get_structure("struct",model)
+        atom_lookup = OrderedAtomLookup(struct.get_atoms(),
+                                                    protein=True,waters=True,
+                                                    altloc_subset=altloc_subset)   
+        #temp_path=working_model[:-4]+"_subsetOut.pdb"
+        temp_path=LP_Input.subset_model_path(model,altloc_subset)[:-4]+"Out.pdb"
+        atom_lookup.output_as_pdb_file(reference_pdb_file=model,out_path=temp_path)
+        return temp_path

@@ -54,6 +54,9 @@ set ciffiles = ""
 set rstfile = ""
 set topfile = ""
 
+set Rwork=""
+set Rfree=""
+
 set tempfile = /dev/shm/${USER}/tempfile_$$_
 
 set overridefile = ""
@@ -69,10 +72,13 @@ set sigma_fudge = 3
 # flag to write out restraint files for reducing outliers
 set writefudge = 0
 
+set wxray = 1
+set cdl = True # conformer-dependent-library
+
 # const_shrink_donor_acceptor override
 set csda = 0.6
 # sigma of omega
-#set sigomega = 4.01398721805631
+set sigomega = 4.01398721805631
 
 # flag to debug things
 set debug = 0
@@ -85,6 +91,7 @@ foreach arg ( $* )
     set assign = `echo $arg | awk '{print ( /=/ )}'`
     set num = `echo $Val | awk '{print $1+0}'`
     set int = `echo $Val | awk '{print int($1+0)}'`
+    
 
     if( $assign ) then
       # re-set any existing variables
@@ -296,6 +303,7 @@ echo "geometry"
 phenix.geometry_minimization $pdbfile $ciffiles macro_cycles=0 \
   stop_for_unknowns=false \
   const_shrink_donor_acceptor=$csda \
+  cdl=$cdl \
   output_file_name_prefix=${t} >! ${outprefix}_geom.log
 # logfile is "greatest hits" only
 
@@ -399,13 +407,12 @@ sort -u |\
 sort -k2,2 -k3g >! ${t}sequence.txt
 
 
-
 # convert other logs to parsable forms
 cat ${outprefix}_omegalyze.log |\
-awk -v modulo=$modulo -F ":" 'BEGIN{RTD=45/atan2(1,1)}\
+awk -v modulo=$modulo -v sigomega=$sigomega  -F ":" 'BEGIN{RTD=45/atan2(1,1);sigom=sigomega/RTD}\
    ! /^SUMMARY|^resid/{om=$3/RTD;\
    n=(substr($0,3,4)-1)%modulo+1;\
-   energy=(sin(om)/0.07)^2+(1+cos(om))^10;\
+   energy=(sin(om)/sin(sigom))^2+(1+cos(om))^10;\
    print "OMEGA",energy,n,$0}' |\
 sort -k2gr >! ${t}_omegalyze.txt
 # OMEGA energy resnum%64 otherstuff
@@ -413,11 +420,11 @@ sort -k2gr >! ${t}_omegalyze.txt
 # convert all omegas separately, noting prolines, treat "sigma" as 4 deg
 awk '/PRO/{print "isPRO",$3}' ${t}sequence.txt |\
 cat - ${t}_fullgeo.txt |\
-awk -v modulo=$modulo 'BEGIN{RTD=45/atan2(1,1)} \
+awk -v modulo=$modulo -v sigomega=$sigomega 'BEGIN{RTD=45/atan2(1,1);sigom=sigomega/RTD} \
   /isPRO/{isPRO[$2]=1;next}\
   /^TORS/ && $8=="CA" && $26=="CA"{n=($12-1)%modulo+1;om=$4/RTD;\
     proxPRO=isPRO[n-1]+isPRO[n+1];\
-    energy=((sin(om)/0.07)^2+(1+cos(om))^10)/(proxPRO*2+1);\
+    energy=((sin(om)/sin(sigom))^2+(1+cos(om))^10)/(proxPRO*2+1);\
     print "OMEGA",energy,n,proxPRO,"omega=",om*RTD}' |\
 sort -k2gr >! ${t}_allomegas.txt
 
@@ -483,7 +490,7 @@ if( 1 ) then
          target=obs}\
         /^NONBOND/ && obs>ideal {next}\
      {print key,"OVERRIDE",target,sigma,"|",atms}' |\
-   cat >! potential_overrides.txt
+   cat >! ${outprefix}_potential_overrides.txt
    # TYPE "OVERRIDE" newtarget sigma "|" atoms
 endif
 
@@ -1376,10 +1383,12 @@ awk '{print $0,"M"}' ${outprefix}_stats.txt >! ${t}Mstats.txt
 
 echo $energy |\
 cat - ${t}movement.txt ${t}Rstats.txt ${t}Mstats.txt |\
-awk 'NR==1{energy=$1;next}\
+awk -v wxray=$wxray -v Rwork_override=$Rwork -v Rfree_override=$Rfree 'NR==1{energy=$1;next}\
     $NF=="d"{dxyz=$3;dB=$7;next}\
     $NF=="R"{Rw=$2;Rf=$3;bond=$7;ang=$9;vdw=$13;\
-       rE=((Rf-2.0)/2.0)^2;\
+       if (Rwork_override){Rw=Rwork_override*100};\
+       if (Rfree_override){Rf=Rfree_override*100};\
+       rE=((Rf-2.0)/2.0)^2*wxray;\
        rstats=$2" "$3" "$7" "$9" "$11" "$13;next}\
     $NF=="M"{Mp=$1;Cl=$2; score=rE+energy;\
     $NF="";\

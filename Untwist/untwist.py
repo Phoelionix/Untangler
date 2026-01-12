@@ -85,7 +85,7 @@ def get_untwist_atom_options_that_survived_unrestrained(pos_refined_model, pre_u
 
         new_rel_orient = abs(relative_orientation([a.get_coord() for a in post_ref_atm],[a.get_coord() for a in og_atm])) 
         original_rel_orient = abs(relative_orientation([a.get_coord() for a in untwist_atm],[a.get_coord() for a in og_atm]))
-        rel_orient_change_by_refine =  original_rel_orient - new_rel_orient
+        rel_orient_change_by_refine =  original_rel_orient - new_rel_orient  # TODO bugged, nneed to take %90
         if( (max_gap_close_frac_to_ignore_angle_condition is None or frac_smallest_dist_closed > max_gap_close_frac_to_ignore_angle_condition)
             and not (min_twist_angle <= new_rel_orient <= 180-min_twist_angle)
             and (max_twist_angle_decrease_to_ignore_angle_condition < rel_orient_change_by_refine < 180 - max_twist_angle_decrease_to_ignore_angle_condition) #XXX

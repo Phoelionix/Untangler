@@ -22,7 +22,7 @@ MON_LIB_NONBOND=False # must be false at present.
 SUPPRESS_CB_ANGLE=False
 NO_INDIV_WEIGHTS=False  # (Edit: Also, could be good for avoiding undue weight placed on genuine outliers) Idea being that when we do unrestrained refinement, all geometry is ignored, and all atoms are treated "equally" in fitting to xray data. So it makes little sense to weight connections of the same type differently.
 CLIP_NEG_LJ=True # try False
-IGNORE_HYDROGEN_CLASHES=True # Does not apply to TwoAtomPenalty
+IGNORE_HYDROGEN_NONBOND=False # Does not apply to TwoAtomPenalty
 VDW_BUFFER=0 
 CLASH_OVERLAP_THRESHOLD=0.6 #0.8+0.4 # 0.4 0.6
 
@@ -556,14 +556,14 @@ class ConstraintsHandler:
             for res in "HOH, ALA, ARG, ASN, ASP, CYS, GLU, GLN, GLY, HIS, ILE, LEU, LYS, MET, PHE, PRO, SER, THR, TRP, TYR, VAL".split(", "):
                 vdw_mon_lib_energy_name_dict[res],lj_mon_lib_energy_name_dict[res]=mon_lib_read.get_mon_lib_names(res)
             
-            vdw_radii = mon_lib_read.read_vdw_radii(with_H=not IGNORE_HYDROGEN_CLASHES)
+            vdw_radii = mon_lib_read.read_vdw_radii(with_H=not IGNORE_HYDROGEN_NONBOND)
             lj_params = mon_lib_read.read_lj_parameters()
         else:
             # TODO don't need to be storing info for every conformation. All that matters is atom "energy types" and whether it's a crystal-packing contact or same-ASU nonbond 
             for pdb1, pdb2, vdw_sum,is_symm in get_cross_conf_nonbonds(pdb_file):
                 conformer_tags = ConstraintsHandler.Constraint.ORDERED_site_tags_from_pdb_ids((pdb1,pdb2)) 
                 key = tuple(conformer_tags)+(is_symm,) # NOTE Order matters
-                # if IGNORE_HYDROGEN_CLASHES and any([t.element()=="H" for t in conformer_tags]):
+                # if IGNORE_HYDROGEN_NONBOND and any([t.element()=="H" for t in conformer_tags]):
                 #     continue
                 if key not in phenix_vdw_distances_table:
                     phenix_vdw_distances_table[key]=vdw_sum
@@ -583,8 +583,8 @@ class ConstraintsHandler:
             assert general_water_nonbond
         if not skip_nonbonds and (general_water_nonbond or protein_protein_nonbonds): 
             waters_outer_loop=water_water_nonbond
-            # atoms = ordered_atom_lookup.select_atoms_by(protein=True, waters=waters_outer_loop,exclude_H=IGNORE_HYDROGEN_CLASHES)
-            # other_atoms = ordered_atom_lookup.select_atoms_by(protein=protein_protein_nonbonds,waters=general_water_nonbond, exclude_H=IGNORE_HYDROGEN_CLASHES
+            # atoms = ordered_atom_lookup.select_atoms_by(protein=True, waters=waters_outer_loop,exclude_H=IGNORE_HYDROGEN_NONBOND)
+            # other_atoms = ordered_atom_lookup.select_atoms_by(protein=protein_protein_nonbonds,waters=general_water_nonbond, exclude_H=IGNORE_HYDROGEN_NONBOND
             #                                                   )
                                                               #exclude_atom_names=["C","N","CA","CB"])
             
@@ -621,7 +621,7 @@ class ConstraintsHandler:
                     #print(f"Flagging cross-conformation nonbonds for{' protein' if not waters_outer_loop else ''} conformer {i}/{len(phenix_vdw_distances_table)}")
                     print(f"Flagging cross-conformation nonbonds {i}/{len(phenix_vdw_distances_table)}")
 
-                if IGNORE_HYDROGEN_CLASHES and (confA.element()=="H" or confB.element=="H"):
+                if IGNORE_HYDROGEN_NONBOND and (confA.element()=="H" or confB.element=="H"):
                     continue
 
                 if (((confA.element()=="H") and (confB.element() == "H")) # Do not consider H-H clashes (expect to be more harmful than helpful due to H positions being poor.)
@@ -629,12 +629,12 @@ class ConstraintsHandler:
                     continue
                 if (confA.atom_name() == confB.atom_name()) and (confA.resnum()==confB.resnum()):
                     continue
-                #protein=True, waters=waters_outer_loop,exclude_H=IGNORE_HYDROGEN_CLASHES
+                #protein=True, waters=waters_outer_loop,exclude_H=IGNORE_HYDROGEN_NONBOND
                 atomA = ordered_atom_lookup.from_tag(confA)
                 if not waters_outer_loop\
                 and UntangleFunctions.res_is_water(atomA.get_parent()):
                     continue
-                #protein=protein_protein_nonbonds,waters=general_water_nonbond, exclude_H=IGNORE_HYDROGEN_CLASHES
+                #protein=protein_protein_nonbonds,waters=general_water_nonbond, exclude_H=IGNORE_HYDROGEN_NONBOND
                 atomB = ordered_atom_lookup.from_tag(confB)
                 if not general_water_nonbond\
                 and UntangleFunctions.res_is_water(atomB.get_parent()):
@@ -682,11 +682,11 @@ class ConstraintsHandler:
 
                 # Lennard-Jones (nonbonded)
                 if ConstraintsHandler.NonbondConstraint not in constraints_to_skip:
-                    #if ((((B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)) and other_atom.name in ["C","N","CA","CB","O"])
-                    if ((confA.element() == "H" or confB.element() == "H") # Do not consider any LJ involving H.
-                    #or (B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)): 
-                    ):
-                        continue    
+                    # #if ((((B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)) and other_atom.name in ["C","N","CA","CB","O"])
+                    # if ((confA.element() == "H" or confB.element() == "H") and IGNORE_HYDROGEN_NONBOND # Do not consider any LJ involving H.
+                    # #or (B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)): 
+                    # ):
+                    #     continue    
                     R_min = phenix_vdw_sum
                     self.add_nonbond_constraint(ConstraintsHandler.NonbondConstraint(conf_pair,outlier_ok("NONBOND",conf_pair),symmetries,weight=nb_weight),
                                                 residual=None,altlocs=altlocs,vdw_sum=R_min,is_symm=is_symm)

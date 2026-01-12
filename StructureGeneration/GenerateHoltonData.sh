@@ -77,6 +77,7 @@ args="${args} wxray=$wxray cdl=$cdl"
 
 #../../Measures/untangle_score.csh ../$modelPDBPath $args > "${out_handle}_log.txt" 
 ../../Measures/untangle_score_weighted.csh ../$modelPDBPath $args > "${out_handle}_log.txt" 
+#../../Measures/untangle_score_quick.csh ../$modelPDBPath $args > "${out_handle}_log.txt" 
 
 
 

@@ -8,7 +8,9 @@ import copy
 
 # How many bonds need to change to get it right?
 
-WATER_WATER_NONBOND=False
+IGNORE_WATERS=False 
+
+assert not IGNORE_WATERS, "bugged"
 
 def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False,scoring_function=None):
     scoring_function = ConstraintsHandler.log_chi if scoring_function is None else scoring_function
@@ -78,6 +80,8 @@ def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False
     if forbid_ring_changes:
         print("WARNING: ring changes ignored")
     for res_num in truth_lookup.better_dict:
+        if res_num in truth_lookup.water_residue_nums and IGNORE_WATERS:
+            continue
         for name in truth_lookup.better_dict[res_num]:
             truth_conformers_assigned=[]
             #print(res_num,name)
@@ -110,11 +114,11 @@ def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False
 
     
     LP_Input.prepare_geom_files(model,None)
-    atoms, connections = LP_Input(model, model, None, symmetries).calculate_paths(
+    atoms, connections = LP_Input(model, model, None, symmetries,ignore_waters=IGNORE_WATERS).calculate_paths(
         scoring_function=scoring_function,
         constraint_weights=weight_factors,
         force_solution_reference=force_solution_reference,
-        water_water_nonbond=WATER_WATER_NONBOND,
+        water_water_nonbond=not IGNORE_WATERS,
     )
 
     # Turn off symmetry breaking thing in LinearOptimizer.Solver, and instead add a cost for the number of changes.

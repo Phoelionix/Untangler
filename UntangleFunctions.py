@@ -14,6 +14,9 @@ import numpy as np
 import shutil
 import itertools
 
+
+TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY=True # Because generating data is incredibly slow with multiple altlocs. 
+
 ATOMS = ('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr'
        +' Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe').split()
 NUM_E = {}
@@ -70,7 +73,7 @@ def save_structure(structure:Structure,header_reference_file_path,out_path,comme
     os.remove(tmp_path)
 
 def get_score(score_file,phenixgeometry_only=False,verbose=True):
-    assert os.path.exists(score_file)
+    assert os.path.exists(score_file), f"{score_file} does not exist"
     with open(score_file,'r') as f:
         for line in f: 
             if line.strip().strip('\n') == "":
@@ -94,7 +97,7 @@ def create_clashes_file(pdb_file_path,turn_off_cdl=False,reflections_for_R:str=N
 
 def create_score_file(pdb_file_path,turn_off_cdl=False,reflections_for_R:str=None,skip_fail=False,timeout_mins=5): 
     # model_and_reflections_for_R overrides the R and R free values in the pdb path.
-
+    
     holton_folder_path = UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/"
 
     #generate_holton_data_shell_file=self.holton_folder_path+'GenerateHoltonData.sh'
@@ -106,6 +109,12 @@ def create_score_file(pdb_file_path,turn_off_cdl=False,reflections_for_R:str=Non
     score_file=score_file_name(pdb_file_path,turn_off_cdl=turn_off_cdl)
     if os.path.exists(score_file):
         os.remove(score_file)
+
+    if TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY:
+        new_pdb_file_path=f"{UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/output/{handle}_temp1altloc.pdb"
+        prepare_pdb(pdb_file_path,new_pdb_file_path,
+                    altlocs_allowed=sorted(list(get_altlocs_from_pdb(pdb_file_path)[0]))[0])
+        pdb_file_path=new_pdb_file_path
 
     assert os.path.exists(pdb_file_path)
     max_attempts=5
@@ -144,7 +153,7 @@ def create_score_file(pdb_file_path,turn_off_cdl=False,reflections_for_R:str=Non
 def copy_model_and_geo(source,dest):
     # Copies the model to a path and the corresponding geometry/score files to the expected paths given the new model name
     shutil.copy(source,dest)
-    old_handle,new_handle = [model_handle(f) for f in (source,dest)]
+    old_handle,new_handle = [model_handle(f)+("_temp1altloc" if TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY else "") for f in (source,dest)]
     geo_dir=f"{UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/"
 
     for suffix in [".geo","_clashes.txt","_score.txt"]:
@@ -162,10 +171,14 @@ def clear_geo(excluded_suffixes=["_start.geo","_fmtd.geo"]):
                 os.remove(os.path.join(geo_path,filename))
 
 def score_file_name(model_handle_or_path,turn_off_cdl=False):
+    if TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY:
+        model_handle_or_path=model_handle(model_handle_or_path)+"_temp1altloc"
     handle = model_handle(model_handle_or_path)+("_noCDL" if turn_off_cdl else "")
     return os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration",'HoltonOutputs',f'{handle}_score.txt')
 
 def geo_file_name(model_handle_or_path,turn_off_cdl=False):
+    if TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY:
+        model_handle_or_path=model_handle(model_handle_or_path)+"_temp1altloc"
     handle = model_handle(model_handle_or_path)+("_noCDL" if turn_off_cdl else "")
     return os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration","HoltonOutputs",f"{handle}.geo")
 
@@ -471,7 +484,7 @@ def relabel_ring(pdb_path):
     return ring_relabel_dict
     
 
-def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False,ring_name_grouping=False):
+def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False,ring_name_grouping=False,altlocs_allowed=None):
         # Gets into format we expect. !!!!!!Assumes single chain!!!!!
         # Relabels ring atoms CE1/CE2, CD1/CD2 so that all with same label are closest         
         def replace_occupancy(line,occ):
@@ -508,7 +521,6 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
             ring_relabel_dict = relabel_ring(pdb_path)
 
         protein_altlocs = []
-        solvent_altlocs = []
         with open(pdb_path) as I:
             max_resnum=0
             start_lines = []
@@ -551,9 +563,9 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                     altloc = chain
                     line = replace_altloc(line,altloc)
                 if resname in solvent_res_names:
+                    if altlocs_allowed is not None and altloc not in altlocs_allowed:
+                        continue
                     solvent_lines.append(replace_chain(line,solvent_chain_id))
-                    if altloc not in solvent_altlocs:
-                        solvent_altlocs.append(altloc) 
                     continue
                 assert len(end_lines)==0
                 
@@ -566,11 +578,16 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                 
                 assert (altloc != ' '), line 
 
+
+
                 if altloc not in atom_dict[resnum]:
                     atom_dict[resnum][altloc] = {}
                     
                     if altloc not in protein_altlocs:
                         protein_altlocs.append(altloc) 
+                
+                if altlocs_allowed is not None and altloc not in altlocs_allowed:
+                    continue
                 
                 atom_dict[resnum][altloc][name]=line  
                 max_resnum=max(resnum,max_resnum)
@@ -619,6 +636,7 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
         shift = max_resnum-min_solvent_resnum + 1
         new_solvent_resnum_dict = {}
         for line in solvent_lines:
+            n+=1
             solvent_resnum=int(line[22:26])
             # In case of gaps...
             if solvent_resnum not in new_solvent_resnum_dict:
@@ -631,6 +649,7 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
             
             
             modified_line = replace_res_num(line,new_solvent_resnum_dict[solvent_resnum])
+            modified_line = replace_serial_num(modified_line,n)
             start_lines.append(modified_line)
 
         with open(out_path,'w') as O:
@@ -671,7 +690,6 @@ def get_altlocs_from_pdb(pdb_path):
                     protein_altlocs.append(altloc) 
 
         return set(protein_altlocs),set(solvent_altlocs)
-
 class PDB_Atom_Entry:
     # Functions return atom entry with changes applied. Does not change in place 
     def __init__(self,atom_entry:str):

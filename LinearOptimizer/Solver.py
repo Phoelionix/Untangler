@@ -57,6 +57,10 @@ FORBID_MULTIPLE_LOCAL_CHANGES_WHEN_MAIN_CHAIN_ONLY=True
 ALLOW_ALL_POSITION_CHANGE_GEOMECTIONS= True # Only if modify_forbid_conditions = True
 FORCE_ALT_COORDS=False
 
+#THREADS=None
+#THREADS=24
+THREADS=10
+
 #def solve(chunk_sites: list[Chunk],connections:dict[str,dict[str,LP_Input.ChunkConnection]],out_handle:str): # 
 def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
           inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=10,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
@@ -926,7 +930,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             f.write(line+"\n")
             
 
-    swaps_file =  swaps_file_path(out_dir,out_handle)
+    swaps_file =  swaps_file_path(out_dir,out_handle,all_altlocs)
     if os.path.isfile(swaps_file):
         shutil.move(swaps_file,swaps_file+"#")
     def update_swaps_file(distances, site_assignment_arrays,record_notable_improvements_threshold=None): # record_notable_improvements_threshold: fractional improvement required to record separately
@@ -1046,9 +1050,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         elif mins_extra_per_loop != 0:
             print("Warning: extra time per loop is not 0, but there is no time limit")
         #timeLimit=None
-        #threads=None
-        #threads=24
-        threads=10
+
         logPath=log_out_dir+"solver_log.txt"
         #logPath=None
         pulp_solver = Solver.CPLX_PY
@@ -1082,23 +1084,24 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         # CPLEX status: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.10.0/ilog.odms.cplex.help/refcallablelibrary/macros/Solution_status_codes.html
             solver_options.append("set parallel -1")
             #path='~/ibm/ILOG/CPLEX_STUDIO2211/cplex'
+        #https://coin-or.github.io/pulp/technical/solvers.html#pulp.apis.CPLEX_PY
         elif pulp_solver == Solver.CPLX_PY:
             solver_class = CPLEX_PY
         else:
             raise Exception("not implemented")
-        #solver = solver_class(timeLimit=timeLimit,threads=threads,logPath=logPath,warmStart=warmStart,path=path)
-        solver = solver_class(timeLimit=timeLimit,threads=threads,warmStart=warmStart,logPath=logPath,gapRel=gapRel)
+        #solver = solver_class(timeLimit=timeLimit,threads=THREADS,logPath=logPath,warmStart=warmStart,gapRel=gapRel,path=path)
+        solver = solver_class(timeLimit=timeLimit,threads=THREADS,warmStart=warmStart,logPath=logPath,gapRel=gapRel)
         lp_problem.solve(solver)
         print(solver)
         # if pulp_solver == Solver.COIN:
-        #     # solver = PULP_CBC_CMD(threads=NTHREADS)
+        #     # solver = PULP_CBC_CMD(threads=THREADS)
         #     # lp_problem.solve(solver=solver)
         #     maxNodes=None
         #     #pulpTestAll()
         #     #asdds
-        #     solver = PULP_CBC_CMD(logPath=,threads=threads,timeLimit=timeLimit,maxNodes=maxNodes)
+        #     solver = PULP_CBC_CMD(logPath=,threads=THREADS,timeLimit=timeLimit,maxNodes=maxNodes)
         # elif pulp_solver == Solver.COIN:
-        #     solver = CPLEX_PY(timeLimit=timeLimit,threads=threads)
+        #     solver = CPLEX_PY(timeLimit=timeLimit,threads=THREADS)
         # lp_problem.solve(solver)
 
         
@@ -1439,11 +1442,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     gc.collect()
         ##################
 
-    assert swaps_file==swaps_file_path(out_dir,out_handle) # XXX
+    assert swaps_file==swaps_file_path(out_dir,out_handle,all_altlocs) # XXX
     return swaps_file,bonds_replaced_each_loop, distances
 
-def swaps_file_path(out_dir,out_handle):
-    return f"{out_dir}/xLO-toFlip_{out_handle}.json"
+def swaps_file_path(out_dir,out_handle,altlocs):
+    return f"{out_dir}/xLO-toFlip_{out_handle}-{''.join(altlocs)}.json"
 
 if __name__=="__main__":
     handle = sys.argv[1]

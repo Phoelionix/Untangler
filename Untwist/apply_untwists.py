@@ -51,8 +51,10 @@ def apply_untwists(model_path, untwist_file):
                 # Do not modify
                 new_lines+=line
                 continue 
-        assert found_riding_H or site.atom_name()=="C" or site.atom_name()=="O" \
-        or (site.atom_name()=="N" and found_resname=="PRO"), site
+        twoconf_challenge=False
+        if twoconf_challenge:
+            assert found_riding_H or site.atom_name()=="C" or site.atom_name()=="O" \
+            or (site.atom_name()=="N" and found_resname=="PRO"), site
 
         with open(out_path,'w') as f:
             f.writelines(new_lines)
@@ -72,8 +74,11 @@ def apply_untwists(model_path, untwist_file):
             
                 P = PDB_Atom_Entry(lineI)
                 #if not P.valid:
-                if not P.valid or P.altloc not in altlocs:
+                if not P.valid:
                     assert lineI==lineF
+                elif P.altloc not in altlocs:
+                    assert lineI==lineF
+                    continue
                 elif lineI!=lineF:
                     pass 
                 else:

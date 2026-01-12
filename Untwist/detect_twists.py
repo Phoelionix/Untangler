@@ -567,17 +567,18 @@ def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_
         else:
             return [],[]
 
-
+    solutions=[]
     if len(twist_point_sets)==1: # N-terminus, or C-terminus with CB angles off, or CB in CYS with only S-S-CB angle
         if len(twist_point_sets[0])>0:
-            solutions=select_points_from_single_constraint(twist_point_sets[0],point_0_sets[0],C)      
-    for t1,p0_1 in zip(twist_point_sets, point_0_sets):
-        for t2,p0_2 in [(t,p0) for t,p0 in zip(twist_point_sets,point_0_sets) if t is not t1]:
-            solutions = find_compatible_solutions_for_separate_pairs(t1,t2,C)
-            if len(solutions) == 0 and split_incompatible_solution_pairs:
-                split_solutions = [select_points_from_single_constraint(t,p0,C) for t,p0 in zip((t1,t2),(p0_1,p0_2))]
-                solutions = list(itertools.chain.from_iterable(split_solutions))  
-                # Get the individual ones 
+            solutions=select_points_from_single_constraint(twist_point_sets[0],point_0_sets[0],C)     
+    else:
+        for t1,p0_1 in zip(twist_point_sets, point_0_sets):
+            for t2,p0_2 in [(t,p0) for t,p0 in zip(twist_point_sets,point_0_sets) if t is not t1]:
+                solutions = find_compatible_solutions_for_separate_pairs(t1,t2,C)
+                if len(solutions) == 0 and split_incompatible_solution_pairs:
+                    split_solutions = [select_points_from_single_constraint(t,p0,C) for t,p0 in zip((t1,t2),(p0_1,p0_2))]
+                    solutions = list(itertools.chain.from_iterable(split_solutions))  
+                    # Get the individual ones 
 
     if verbose:
         print(solutions)

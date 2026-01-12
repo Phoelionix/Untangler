@@ -14,9 +14,12 @@ trials=0
 min_trials=0
 
 
-dampA=0.02
-dampB=0.02
-dampC=0.05
+# dampA=0.02
+# dampB=0.02
+# dampC=0.05
+dampA=0
+dampB=0
+dampC=0
 
 #wc=0.5
 #wc=1.0

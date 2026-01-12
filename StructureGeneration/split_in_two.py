@@ -5,7 +5,10 @@ import sys, os
 
 
 
-def split(pdb_path,out_path,sep_chain_format=False,protein_altloc_from_chain_fix=False,missing_water_altloc_fix=True):
+def split(pdb_path,out_path=None,sep_chain_format=False,protein_altloc_from_chain_fix=False,missing_water_altloc_fix=True):
+    assert pdb_path[-4:] == ".pdb"
+    if out_path is None:
+        out_path = pdb_path[:-4]+"_split.pdb"
     new_altloc_options = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     
     
@@ -29,7 +32,7 @@ def split(pdb_path,out_path,sep_chain_format=False,protein_altloc_from_chain_fix
         return line[:54] + occ + line[60:]
         
     protein_altlocs = []
-    solvent_altlocs = []
+    #solvent_altlocs = []
     with open(pdb_path) as I:
         max_resnum=0
         max_serial_num=0
@@ -42,7 +45,21 @@ def split(pdb_path,out_path,sep_chain_format=False,protein_altloc_from_chain_fix
         solvent_chain_id = "z"
         warned_collapse=False
 
-        for line in I:
+        convert_to_ensemble = True
+        lines = I.readlines()
+        for line in lines: 
+            if line.startswith("TER") or line.startswith("ANISOU"):
+                continue
+            start_strs_considered = ["ATOM","HETATM"]
+            for s in start_strs_considered:
+                if line.startswith(s):
+                    altloc = line[16]
+                    if altloc!=' ':
+                        convert_to_ensemble=False
+        
+        resnum_chain_append_mod=0 
+        last_resnum=None
+        for line in lines:
             if line.startswith("TER") or line.startswith("ANISOU"):
                 continue
             start_strs_considered = ["ATOM","HETATM"]
@@ -62,23 +79,40 @@ def split(pdb_path,out_path,sep_chain_format=False,protein_altloc_from_chain_fix
             resname = line[17:20]
             space = line[20]
             chain = line[21]
-            resnum = int(line[22:26])
             occupancy=float(line[54:60])
             line = replace_occupancy(line,occupancy/2)
             if resname in solvent_res_names:
                 solvent_lines.append(line)  # Modified further below
                 continue
 
-            if altloc == ' ' and protein_altloc_from_chain_fix:
-                altloc = chain
+            if altloc == ' ':
+                if convert_to_ensemble:
+                    altloc = "A" 
+                elif protein_altloc_from_chain_fix:
+                    altloc = chain
+                if altloc != ' ' and altloc not in protein_altlocs:
+                    protein_altlocs.append(altloc)
                 line = replace_altloc(line,altloc)
             assert len(end_lines)==0
                 
-            if not sep_chain_format and not warned_collapse and chain != last_chain and last_chain is not None:
-                print("Warning: Multiple chains detected. Collapsing chains into single chain")
+            if not sep_chain_format and chain != last_chain and last_chain is not None:
+                if not warned_collapse:
+                    print("Warning: Multiple chains detected. Collapsing chains into single chain")
+                if altloc != chain: # XXX
+                    if not warned_collapse:
+                        print("Appending resnums")
+                    this_line_resnum=int(line[22:26])
+                    resnum_chain_append_mod=last_resnum+1-this_line_resnum
                 warned_collapse=True
+
+            last_resnum=resnum = int(line[22:26])+resnum_chain_append_mod
+            line = replace_res_num(line,resnum)
+
             if resnum not in atom_dict:
                 atom_dict[resnum] = {}
+
+
+
             
             assert (altloc != ' '), line 
 
@@ -167,10 +201,6 @@ def split(pdb_path,out_path,sep_chain_format=False,protein_altloc_from_chain_fix
         O.writelines(start_lines+end_lines)
 
 if __name__ == "__main__":
-    pdb_path = sys.argv[1]
-
-    assert pdb_path[-4:] == ".pdb"
-    out_path = pdb_path[:-4]+"_split.pdb"
-
-    split(pdb_path,out_path)
+    assert len(sys.argv)>1
+    split(*sys.argv[1:])
 
