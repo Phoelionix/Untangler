@@ -6,7 +6,7 @@
 
 data_manager {
   miller_array {
-    file = "../../../data/HKL_TEMPLATE.mtz"
+    file = "HKL_TEMPLATE_PATH"
     labels {
       name = None
       type = *x_ray neutron electron
@@ -78,7 +78,7 @@ data_manager {
       }
     }
   }
-  default_miller_array = "../../../data/HKL_TEMPLATE.mtz"
+  default_miller_array = "HKL_TEMPLATE_PATH"
   model {
     file = "XYZ_TEMPLATE.pdb"
     type = *x_ray neutron electron reference
@@ -144,7 +144,7 @@ refinement {
                  *individual_adp group_adp tls occupancies group_anomalous \
                  den
     sites {
-      individual = None
+      individual = TEMPLATE_SITES_INDIVIDUAL
       torsion_angles = None
       rigid_body = None
     }

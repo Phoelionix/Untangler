@@ -54,6 +54,9 @@ set ciffiles = ""
 set rstfile = ""
 set topfile = ""
 
+set Rwork=""
+set Rfree=""
+
 set tempfile = /dev/shm/${USER}/tempfile_$$_
 
 set overridefile = ""
@@ -70,6 +73,7 @@ set sigma_fudge = 3
 set writefudge = 0
 
 set wxray = 1
+set cdl = True # conformer-dependent-library
 
 # const_shrink_donor_acceptor override
 set csda = 0.6
@@ -291,6 +295,7 @@ echo "geometry"
 phenix.geometry_minimization $pdbfile $ciffiles macro_cycles=0 \
   stop_for_unknowns=false \
   const_shrink_donor_acceptor=$csda \
+  cdl=$cdl \
   output_file_name_prefix=${t} >! ${outprefix}_geom.log
 # logfile is "greatest hits" only
 
@@ -1370,9 +1375,11 @@ awk '{print $0,"M"}' ${outprefix}_stats.txt >! ${t}Mstats.txt
 
 echo $energy |\
 cat - ${t}movement.txt ${t}Rstats.txt ${t}Mstats.txt |\
-awk -v wxray=$wxray 'NR==1{energy=$1;next}\
+awk -v wxray=$wxray -v Rwork_override=$Rwork -v Rfree_override=$Rfree 'NR==1{energy=$1;next}\
     $NF=="d"{dxyz=$3;dB=$7;next}\
     $NF=="R"{Rw=$2;Rf=$3;bond=$7;ang=$9;vdw=$13;\
+       if (Rwork_override){Rw=Rwork_override*100};\
+       if (Rfree_override){Rf=Rfree_override*100};\
        rE=((Rf-2.0)/2.0)^2*wxray;\
        rstats=$2" "$3" "$7" "$9" "$11" "$13;next}\
     $NF=="M"{Mp=$1;Cl=$2; score=rE+energy;\

@@ -1,6 +1,6 @@
 
 import sys, os
-from LinearOptimizer.Solver import MTSP_Solver
+from LinearOptimizer.Solver import LP_Input
 import untangle,UntangleFunctions
 
 
@@ -65,11 +65,11 @@ def split_worst(pdb_path,out_path,split_waters,sep_chain_format=False,protein_al
     else:
         assert False, "No available new altloc found"
 
-    MTSP_Solver.prepare_geom_files(pdb_path,protein_altlocs,water_swaps=False)
+    LP_Input.prepare_geom_files(pdb_path,protein_altlocs,water_swaps=False)
     worst_score = 0
     worst_altloc = None
     for altloc in protein_altlocs:
-        subset_model = MTSP_Solver.subset_model_path(pdb_path,altloc)
+        subset_model = LP_Input.subset_model_path(pdb_path,altloc)
         score = untangle.Untangler.Score(*UntangleFunctions.get_score(UntangleFunctions.score_file_name(subset_model)))
         print(f"Altloc: {altloc}, Score: {score}")
         if score.combined >= worst_score:

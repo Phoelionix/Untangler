@@ -30,17 +30,27 @@ refine_no_hold='false'
 no_mlhl=true
 generate_r_free='false'
 turn_off_bulk_solvent='false'
-restrain_movement='true'
+disable_movement_restraint='false'
 refine_occupancies='false'
 ordered_solvent='false'
 disable_ADP='false'
+ADP_only='false'
+water_and_H_only='false'
+disable_CDL='false' # Disable conformation-dependent library
+disable_nqh_flips='false'
+altlocs_to_refine=''
 
-max_sigma_movement=0.1
+max_sigma_movement_restraint=0.1
 
 refine_hydrogens='false'
 
-while getopts ":o:u:c:n:s:q:whpragtzAHORS" flag; do
+restrain_movement_of_protein='false' # Note this does nothing when True if disable_movement_restraint is True
+
+
+while getopts ":a:o:u:c:n:s:q:whprgtzACDHNOPRSZ" flag; do
  case $flag in
+    a) altlocs_to_refine=$OPTARG
+    ;;
     o) out_handle=$OPTARG
        out_handle_override='true'
     ;;
@@ -52,7 +62,7 @@ while getopts ":o:u:c:n:s:q:whpragtzAHORS" flag; do
     ;;
     s) shake=$OPTARG
     ;;
-    q) max_sigma_movement=$OPTARG
+    q) max_sigma_movement_restraint=$OPTARG
     ;;
     w) calc_wE='true'
     ;;
@@ -70,13 +80,23 @@ while getopts ":o:u:c:n:s:q:whpragtzAHORS" flag; do
     ;;
     A) disable_ADP='true'
     ;;
+    C) disable_CDL='true'
+    ;;
+    D) ADP_only='true'
+    ;;
     H) refine_hydrogens='true'
+    ;;
+    N) disable_nqh_flips='true'
     ;;
     O) refine_occupancies='true'
     ;;
-    R) restrain_movement='false' 
+    P) restrain_movement_of_protein='true'
+    ;;
+    R) disable_movement_restraint='true' 
     ;;
     S) ordered_solvent='true'
+    ;;
+    Z) water_and_H_only='true'
     ;;
    \?)
    echo INVALID FLAG
@@ -87,9 +107,12 @@ done
 
 if ! $out_handle_override; then
   out_handle=${xyz_handle}-${hkl_handle}
+  if [ -n "$altlocs_to_refine" ]; then
+    out_handle=${out_handle}-${altlocs_to_refine}
+  fi
 fi 
 
-echo $xyz_path $hkl_path $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R $generate_r_free $refine_no_hold $turn_off_bulk_solvent $restrain_movement $refine_hydrogens $refine_occupancies 
+echo $xyz_path $hkl_path $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R $generate_r_free $refine_no_hold $turn_off_bulk_solvent $disable_movement_restraint $refine_hydrogens $refine_occupancies 
 
 
 expected_path=$xyz_path
@@ -106,6 +129,7 @@ fi
 
 #paramFileTemplate=refine_water_bond_length_hold_template.eff
 paramFileTemplate=refine_no_hold_template.eff
+#paramFileTemplate=refine_hold_altlocs.eff
 if $optimize_R; then 
   #paramFileTemplate=refine_water_bond_length_hold_optimize_R_template.eff
   paramFileTemplate=refine_no_hold_optimize_R_template.eff
@@ -131,10 +155,14 @@ echo  $paramFileTemplate
 #paramFileTemplate=refine_water_bond_length_hold_template.eff
 #paramFileTemplate=refine_water_hold_template_free_necessary_waters.eff
 
-paramFile=${out_handle}_initial_refine.eff
+paramFile=${out_handle}_in.eff
 
-xyz_path=$(realpath -s --relative-to="$(dirname "$0")" "$xyz_path" )
-hkl_path=$(realpath -s --relative-to="$(dirname "$0")" "$hkl_path" )
+
+
+#xyz_path=$(realpath -s --relative-to="$(dirname "$0")" "$xyz_path" )
+#hkl_path=$(realpath -s --relative-to="$(dirname "$0")" "$hkl_path" )
+xyz_path=$(realpath "$xyz_path" )
+hkl_path=$(realpath "$hkl_path" )
 
 cd $(dirname "$0")
 mkdir -p tmp_refinement
@@ -152,9 +180,27 @@ cd tmp_refinement/$out_handle
 
 
 
-sed "s/XYZ_TEMPLATE/${xyz_handle}/g" $paramFile > tmp.$$
+xyz_subset_handle=$xyz_handle
+if [ -n "$altlocs_to_refine" ]; then
+  xyz_subset_handle=${xyz_handle}-${altlocs_to_refine}
+
+  echo "Masking out other altlocs"
+  # (Approximately) remove contributions of other altlocs from Fobs. 
+  new_hkl_path=$(realpath "altlocs_masked.mtz")
+  tmp_dir=$(realpath "mask_out/")
+  rm -rf $tmp_dir; mkdir -p $tmp_dir
+  bash $(dirname "$0")/mask_altlocs.sh ${xyz_handle}.pdb $hkl_path $altlocs_to_refine $new_hkl_path $tmp_dir &> /dev/null
+  # Get structure file of the atoms with the specified altloc labels
+  bash $(dirname "$0")/../StructureGeneration/make_altloc_subset.sh ${xyz_handle}.pdb $altlocs_to_refine ${xyz_subset_handle}.pdb > /dev/null
+  hkl_path=$new_hkl_path
+ 
+fi
+
+
+
+sed "s/XYZ_TEMPLATE/${xyz_subset_handle}/g" $paramFile > tmp.$$
 mv tmp.$$ $paramFile
-sed  "s/HKL_TEMPLATE/${hkl_handle}/g" $paramFile  > tmp.$$
+sed  "s@HKL_TEMPLATE_PATH@${hkl_path}@g" $paramFile  > tmp.$$
 mv tmp.$$ $paramFile
 sed  "s/PREFIX_TEMPLATE/${out_handle}/g" $paramFile  > tmp.$$
 mv tmp.$$ $paramFile
@@ -172,8 +218,22 @@ sed  "s/wxc_scale = 0.5/wxc_scale = ${wxc_scale}/g" $paramFile  > tmp.$$
 mv tmp.$$ $paramFile
 sed  "s/SHAKE_TEMPLATE/${shake}/g" $paramFile  > tmp.$$ 
 mv tmp.$$ $paramFile
-sed  "s/      sigma = 0.1/      sigma = ${max_sigma_movement}/g" $paramFile  > tmp.$$ 
+sed  "s/      sigma = 0.1/      sigma = ${max_sigma_movement_restraint}/g" $paramFile  > tmp.$$ 
 mv tmp.$$ $paramFile
+
+
+if $refine_hydrogens; then
+  if $hold_protein; then 
+    #echo "Hydrogens are the only protein atoms that will be refined"
+    sed "s/individual = water/individual = water or element H/g" $paramFile > tmp.$$ 
+    mv tmp.$$ $paramFile
+  fi
+fi
+
+if $water_and_H_only; then 
+    sed "s/individual = TEMPLATE_SITES_INDIVIDUAL/individual = water or element H/g" $paramFile > tmp.$$ 
+    mv tmp.$$ $paramFile
+fi
 
 if $no_mlhl; then
   sed "s/target = auto ml \*mlhl ml_sad ls mli/target = *auto ml mlhl ml_sad ls mli/g" $paramFile > tmp.$$ 
@@ -211,21 +271,46 @@ if $ordered_solvent; then
   mv tmp.$$ $paramFile
 fi
 
+if $ADP_only; then 
+  if $disable_ADP; then
+    echo "ADP only but ADP disabled!"
+    exit 
+  fi 
+  sed "s/\*individual_sites/individual_sites/g" $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
+fi 
+
 if $disable_ADP; then 
   sed "s/\*individual_adp/individual_adp/g" $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
+fi
+
+if $disable_CDL; then 
+  sed "s/cdl = True/cdl = False/g" $paramFile  > tmp.$$ 
   mv tmp.$$ $paramFile
 fi
 
 logs_path="../../../output/refine_logs"
 mkdir -p $logs_path
 
-if ! $restrain_movement; then 
-    sed 's/reference_coordinate_restraints {\n      enabled = True/reference_coordinate_restraints {\n      enabled = False/g' $paramFile  > tmp.$$ 
-    mv tmp.$$ $paramFile
+if $disable_movement_restraint; then 
+  sed 's/reference_coordinate_restraints {\n      enabled = True/reference_coordinate_restraints {\n      enabled = False/g' $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
 fi 
 
+if $restrain_movement_of_protein; then 
+  sed "s/selection = water/selection = all/g" $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
+fi
+
+if $disable_nqh_flips; then 
+  sed "s/nqh_flips = True/nqh_flips = False/g" $paramFile  > tmp.$$ 
+  mv tmp.$$ $paramFile
+fi
 
 
+sed "s/individual = TEMPLATE_SITES_INDIVIDUAL/individual = None/g" $paramFile > tmp.$$ 
+mv tmp.$$ $paramFile
 
 # Broad sweep attempt to stop phenix segfaulting when run in parallel
 export OMP_NUM_THREADS=1
@@ -239,16 +324,37 @@ mkdir -p $TMPDIR
 
 # env -i PATH=/usr/local/phenix-2/build/bin:/usr/bin:/bin \
 #   PHENIX=/usr/local/phenix-2 \
+final_structure=${out_handle}_${serial}.pdb
+if [ -f $final_structure ]; then 
+  mv $final_structure $final_structure#
+fi
+echo "Refining $out_handle"
 phenix.refine $paramFile > $logs_path/${out_handle}.log
 unset TMPDIR
 
-cp ${out_handle}_${serial}.pdb ../../../output/${out_handle}.pdb  
+
+if [ ! -f $final_structure ]; then 
+  echo "$final_structure missing, refinement failed for unknown reason"
+  exit
+fi
+
+
+if [ -n "$altlocs_to_refine" ]; then
+  # Add back in the conformations we didn't refine.
+  final_structure=${xyz_handle}_updated.pdb  
+  bash $(dirname "$0")/update_altloc_subset.sh $xyz_handle.pdb ${out_handle}_${serial}.pdb  $final_structure
+fi
+
+out_path=$(realpath ../../../output/${out_handle}.pdb  )
+
+cp $final_structure $out_path 
 
 cd ../.. 
 
 if $calc_wE; then
+  echo "Calculating wE for $out_path"
   cd ../StructureGeneration
-  bash GenerateHoltonData.sh ../output/${out_handle}.pdb  > HoltonScores/${out_handle}.log
+  bash GenerateHoltonData.sh $(realpath -s --relative-to="./" "$out_path" )  > HoltonScores/${out_handle}.log
 fi
 
 

@@ -1,6 +1,7 @@
 
 pdbID=$1
-numConformations=12
+numConformations=4
+useCDL=False
 #pdbID="6QIY" # 9MIZ not workin?
 
 #TODO make directory data and data/tmp_refinement
@@ -20,17 +21,17 @@ cd $(dirname "$0")/data
 # )
 #for pdbID in "${FIELDS[@]}"; do
     bash ../FetchPDB.sh $pdbID
-#    echo . ../GenerateConformationsGroundTruth.sh $pdbID $numConformations  
-#    bash ../GenerateConformationsGroundTruth.sh $pdbID $numConformations  
-    bash ../GenerateConformationsForInitialRefine.sh $pdbID $numConformations 
+    #bash ../GenerateConformationsGroundTruth.sh $pdbID $numConformations  
+    bash ../GenerateConformationsForInitialRefine.sh $pdbID $numConformations $useCDL
     # bash ../ReadySet.sh $pdbID $numConformations 
     # python3.9 ../CombineStructuresToEnsemble.py ${pdbID}_ground_truth ${pdbID}_conf_1H.pdb ${pdbID}_conf_2H.pdb
     # bash ../GenerateScatteringData.sh $pdbID  
     #python3.9 ../CombineStructuresToEnsemble.py ${pdbID}_initial_model ${pdbID}_starting_1H.pdb ${pdbID}_starting_2H.pdb
     
-    structures=$(echo ${pdbID}_starting_{1..12}.pdb)
+    #structures=$(echo ${pdbID}_starting_{1..12}.pdb)
+    structures=$(eval echo ${pdbID}_starting_{1..$numConformations}.pdb)
 
-    python3.9 ../CombineStructuresToEnsemble.py ${pdbID}_initial_model $structures
+    python3.9 ../CombineStructuresToEnsemble.py ${pdbID}_initial_model-$numConformations $structures
 
     # bash ../GenerateRefinement.sh $pdbID
     #python3.9 ../CreateStartingEnsemblePair.py $pdbID.pdb

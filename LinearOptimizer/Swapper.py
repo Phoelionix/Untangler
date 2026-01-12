@@ -18,47 +18,55 @@
 
 import numpy as np
 import os
-from UntangleFunctions import H_get_parent_fullname
+from UntangleFunctions import H_get_parent_fullname, PDB_Atom_Entry
 import json
 import copy
 import gc
 
-# TODO Before, we flagged when the altloc assignments changed. And determined swaps based off this.
-# It's not very interesting if atoms are swapped in the same way as the last atom in the backbone or sidechain
-# It would be good to again output this to a file since it's very informative.
-# But instead of flagging when flipped just flag when the assignment k-tuple changes, where the k-tuple is
-# of the form (B,D,C,A), which would mean atom at altloc A to altloc B, B to D, and D to A.
-
 class Swapper():
     class Swap():
-        def __init__(self,res_num:int,atom_name:str,from_altloc:str,to_altloc:str):
+        def __init__(self,res_num:int,atom_name:str,from_altloc:str,to_altloc:str,new_pos=None):
             self.res_num = int(res_num)
             self.atom_name = atom_name 
             self.from_altloc = from_altloc
             self.to_altloc = to_altloc
+            self.new_pos=new_pos
         def atom_id(self):
             return (self.res_num,self.atom_name,self.from_altloc)
         def matches_id(self,res_num,atom_name:str,from_altloc:str):
             return self.atom_id() == (int(res_num),atom_name,from_altloc)
             #return (self.res_num,self.atom_name,self.from_altloc) == (int(res_num),atom_name,from_altloc)
+    
     class SwapGroup:
         def __init__(self,badness):
             self.badness =badness
             self.swaps: list[Swapper.Swap] = [] 
-        def add(self,res_seq_num,atom_name:str,from_altloc,to_altloc:str):
-            self.swaps.append(Swapper.Swap(int(res_seq_num),atom_name,from_altloc=from_altloc,to_altloc=to_altloc))
+        def add(self,res_seq_num,atom_name:str,from_altloc,to_altloc:str,new_pos=None):
+            self.swaps.append(Swapper.Swap(int(res_seq_num),atom_name,from_altloc=from_altloc,to_altloc=to_altloc,new_pos=new_pos))
         def get_atom_names(self):
             return [swap.atom_name for swap in self.swaps]
         def get_atom_ids(self):
             return [swap.atom_id() for swap in self.swaps]
+        # Why not just use a dict?
         def get_to_altloc(self,res_num,atom_name:str,from_altloc:str):
             for swap in self.swaps:
-                if type(swap)!=Swapper.Swap:
-                    print("WARNING, UNEXPECTED BUG!!!",swap)
-                    return from_altloc 
                 if swap.matches_id(res_num,atom_name,from_altloc):
                     return swap.to_altloc
             return from_altloc # No swap!
+        def get_new_coord(self,res_num,atom_name:str,from_altloc:str):
+            for swap in self.swaps:
+                if swap.matches_id(res_num,atom_name,from_altloc):
+                    return swap.new_pos
+            return None # No swap!
+        def get_line(self,P:PDB_Atom_Entry,name_for_altloc_override=None):
+            atom_name_for_altloc=P.atom_name if name_for_altloc_override is None else name_for_altloc_override  #XXX
+            to_altloc = self.get_to_altloc(P.res_num,atom_name_for_altloc, P.altloc)
+            new_coord = self.get_new_coord(P.res_num,P.atom_name, P.altloc)
+            new_line = P.new_altloc(to_altloc)
+            if new_coord is not None:
+                new_line = P.new_coord(new_coord)
+            return new_line
+
         def __repr__(self):
             return str(self.swaps)  
         
@@ -67,46 +75,6 @@ class Swapper():
         self.sol_idx=None
         self.swap_groups_sorted:list[Swapper.SwapGroup] = []
 
-    def get_priority(self,swap_group:SwapGroup):
-        #TODO reduce priority substantially if a group is obtained by combining multiple other groups (sharing no atoms between each other) that have less badness
-        priority = -swap_group.badness
-        atoms_to_swap=swap_group.get_atom_names()
-        badness = swap_group.badness
-        if len(atoms_to_swap)==0:
-            return -9999
-        
-        pct = badness/100
-
-        # Prioritise exploring big changes that don't score much worse
-        #TODO Single or odd number of swaps should be flagged as interesting
-
-        # TODO Reimplement
-        ''' 
-        interesting_swaps = [s for s in swap_group.swaps if s.atom_name() not in ["O","H"]]
-        num_separated_swaps = 0
-        last_swap_start_res_num=-1
-        for swap in interesting_swaps:
-            res_num = int(swap[0])
-            if res_num > last_swap_start_res_num+1:
-                last_swap_start_res_num = res_num
-                num_separated_swaps+=1
-
-        priority += 10*pct*max(0,min( num_separated_swaps-1, 3)) 
-
-        num_very_interesting = swap_group.get_atom_names().count("CB")  #TODO test
-        priority += 5*pct*min(num_very_interesting,2) 
-    
-        num_interesting = len(interesting_swaps)
-        priority+=1*pct*min(num_interesting,5)
-
-        string_of_swaps =str(swap_group.swaps) 
-        if string_of_swaps  in self.num_times_swapped:           
-            priority-=15*pct*self.num_times_swapped[string_of_swaps]
-            #priority-=5*pct*self.num_times_swapped[swap]
-        '''
-        
-
-        return priority
     
     def flag_swapping(self,swap_group:SwapGroup):
         raise Exception("Unimplemented")
@@ -117,21 +85,7 @@ class Swapper():
             self.num_times_swapped[string_of_swaps]=0
         self.num_times_swapped[string_of_swaps]+=1
 
-    class PDB_Params:
-        # Functions return atom entry with changes applied. Does not change in place 
-        def __init__(self,atom_entry:str):
-            self.valid=False
-            self.atom_entry=atom_entry
-            valid_record_types=["ATOM","HETATM"]
-            if np.any([atom_entry.startswith(k) for k in valid_record_types]):
-                self.valid=True
-                self.res_name = atom_entry[17:20]
-                self.atom_name_unstripped = atom_entry[12:16] 
-                self.atom_name=self.atom_name_unstripped.strip()
-                self.altloc=atom_entry[16] # i.e. `from_altloc`
-                self.res_num =atom_entry[22:26].strip()
-        def new_altloc(self,new_altloc:str):
-            return self.atom_entry[:16]+new_altloc+self.atom_entry[17:]
+
         
     def clear_candidates(self):
         self.swap_groups_sorted = []
@@ -146,7 +100,7 @@ class Swapper():
             solutions =  copy.deepcopy(json.load(f))["solutions"]  # May avoid memory leak? TODO test. https://stackoverflow.com/questions/49369778/python-memory-increases-despite-garbage-collection
             for solution_name, solution_dict in solutions.items():
                 badness:float = solution_dict["badness"]
-                moves: dict[str,dict[str]] = solution_dict["moves"]
+                moves: dict[str,dict[str,str]] = solution_dict["moves"]
                 swap_group = Swapper.SwapGroup(badness)
                 # LinearOptimizer.Solver: solution_dict[site_key][from_altloc] = to_altloc
                 swap_group_candidates.append(swap_group)
@@ -154,8 +108,15 @@ class Swapper():
                     res_num, atom_name = site_key.split()[-1].split('.')
                     #_atom_name = _atom_name.strip("\n") 
                     for from_altloc, to_altloc in moves[site_key].items():
-                        swap_group.add(res_num, atom_name,from_altloc,to_altloc)
-                        
+                        new_pos=None
+                        if len(to_altloc.split())!=1:
+                            to_altloc, new_pos_str = to_altloc.split(maxsplit=1)
+                            i1,i2=new_pos_str.index("[")+1,new_pos_str.index("]")
+                            new_pos= np.fromstring(new_pos_str[i1:i2],dtype=float,sep=' ')
+                            #new_pos= np.fromstring(new_pos_str[i1:i2],dtype=float,sep=' ')
+
+                        swap_group.add(res_num, atom_name,from_altloc,to_altloc,new_pos)
+
         assert len(swap_group_candidates)>0, f"nothing ({swap_group_candidates}) parsed from {swaps_file_path}"
 
 
@@ -196,8 +157,8 @@ class Swapper():
                     print(composition_candidate.swaps)
                 
         try:
-            sorted_groups = sorted(swap_group_candidates,key=self.get_priority,reverse=True)
-
+            #sorted_groups = sorted(swap_group_candidates,key=self.get_priority,reverse=True)
+            sorted_groups = swap_group_candidates
             #TODO reimplement
             '''print("Swap group | priority")
             for sg, priority in zip(sorted_groups,[self.get_priority(sg) for sg in sorted_groups]):
@@ -218,10 +179,11 @@ class Swapper():
         assert model_path[-4:]==".pdb", model_path
         model_handle = os.path.basename(model_path)[:-4]
         out_path = f"{os.path.abspath(os.getcwd())}/output/{model_handle}_lpSwapped.pdb"
+        assert os.path.abspath(out_path)!=os.path.abspath(model_path)
 
         swap_group: Swapper.SwapGroup = self.swap_groups_sorted[self.sol_idx]
         assert isinstance(swap_group,Swapper.SwapGroup)
-         #TODO Do not delete, plan to reimplement 
+         #NOTE Do not delete, plan to reimplement 
         '''
         self.flag_swapping(swap_group)
         '''
@@ -233,13 +195,12 @@ class Swapper():
             for line in f.readlines():
                 # Don't change irrelevant lines
             
-                P = Swapper.PDB_Params(line)
+                P = PDB_Atom_Entry(line)
                 if not P.valid:
                     new_lines+=line
                     continue
                 if P.res_name == "HOH":
-                    to_altloc = swap_group.get_to_altloc(P.res_num,P.atom_name, P.altloc)
-                    new_lines += P.new_altloc(to_altloc)
+                    new_lines += swap_group.get_line(P)
                     continue
                 if P.res_num!=last_resnum:
                     nonHatom_full_names=[]
@@ -250,15 +211,12 @@ class Swapper():
                 if P.atom_name[0]=="H":
                     anchored_atom_name = H_get_parent_fullname(P.atom_name_unstripped,nonHatom_full_names).strip()
                 assert P.res_num.isnumeric()
-                to_altloc = swap_group.get_to_altloc(P.res_num,anchored_atom_name, P.altloc)
 
 
                 
 
                 # Alter line if polarity is negative 1
-                new_line = line
-                new_line = P.new_altloc(to_altloc)
-                new_lines+=new_line
+                new_lines+= swap_group.get_line(P,name_for_altloc_override=anchored_atom_name)
 
                 # Sorry for this
                 if P.atom_name[0]!="H" and P.atom_name_unstripped not in nonHatom_full_names:
@@ -273,36 +231,78 @@ class Swapper():
         #self.MakeSwapWaterFileByLines(new_lines.split("\n"),out_path_water_swapped)
 
         return out_path,swap_group
-                    
-    @staticmethod
-    def MakeSwapWaterFileByLines(lines,out_path):
-        # swap waters
-        water_swapped_lines = ""
-        altlocs = []
-        for line in lines:
-            P = Swapper.PDB_Params(line)
-            if (not P.valid):
-                continue
-            if P.altloc not in altlocs:
-                altlocs.append(P.altloc)
 
-        assert len(altlocs)==2, (altlocs, out_path)
-        for line in lines:
-            P = Swapper.PDB_Params(line)
-            if (not P.valid) or (not P.res_name=="HOH"):
-                water_swapped_lines+=line
-            else:
-                altloc_idx = altlocs.index(P.altloc)
-                water_swapped_lines+=P.new_altloc(altlocs[(altloc_idx+1)%2])
-        #print(water_swapped_lines)
-        with open(out_path,'w') as f:
-            f.writelines(water_swapped_lines)
+    # def get_priority(self,swap_group:SwapGroup):
+    #     #TODO reduce priority substantially if a group is obtained by combining multiple other groups (sharing no atoms between each other) that have less badness
+    #     priority = -swap_group.badness
+    #     atoms_to_swap=swap_group.get_atom_names()
+    #     badness = swap_group.badness
+    #     if len(atoms_to_swap)==0:
+    #         return -9999
+        
+    #     pct = badness/100
 
-    @staticmethod
-    def MakeSwapWaterFile(in_pdb_file, out_path):
-        # swap waters
-        lines = []
-        with open(in_pdb_file) as f:
-            for line in f.readlines():
-                lines.append(line)
-        Swapper.MakeSwapWaterFileByLines(lines,out_path)
+    #     # Prioritise exploring big changes that don't score much worse
+    #     #TODO Single or odd number of swaps should be flagged as interesting
+
+    #     # TODO Reimplement
+    #     ''' 
+    #     interesting_swaps = [s for s in swap_group.swaps if s.atom_name() not in ["O","H"]]
+    #     num_separated_swaps = 0
+    #     last_swap_start_res_num=-1
+    #     for swap in interesting_swaps:
+    #         res_num = int(swap[0])
+    #         if res_num > last_swap_start_res_num+1:
+    #             last_swap_start_res_num = res_num
+    #             num_separated_swaps+=1
+
+    #     priority += 10*pct*max(0,min( num_separated_swaps-1, 3)) 
+
+    #     num_very_interesting = swap_group.get_atom_names().count("CB")  #TODO test
+    #     priority += 5*pct*min(num_very_interesting,2) 
+    
+    #     num_interesting = len(interesting_swaps)
+    #     priority+=1*pct*min(num_interesting,5)
+
+    #     string_of_swaps =str(swap_group.swaps) 
+    #     if string_of_swaps  in self.num_times_swapped:           
+    #         priority-=15*pct*self.num_times_swapped[string_of_swaps]
+    #         #priority-=5*pct*self.num_times_swapped[swap]
+    #     '''
+        
+
+    #     return priority
+
+
+    # @staticmethod
+    # def MakeSwapWaterFileByLines(lines,out_path):
+    #     # swap waters
+    #     water_swapped_lines = ""
+    #     altlocs = []
+    #     for line in lines:
+    #         P = Swapper.PDB_Atom_Entry(line)
+    #         if (not P.valid):
+    #             continue
+    #         if P.altloc not in altlocs:
+    #             altlocs.append(P.altloc)
+
+    #     assert len(altlocs)==2, (altlocs, out_path)
+    #     for line in lines:
+    #         P = Swapper.PDB_Atom_Entry(line)
+    #         if (not P.valid) or (not P.res_name=="HOH"):
+    #             water_swapped_lines+=line
+    #         else:
+    #             altloc_idx = altlocs.index(P.altloc)
+    #             water_swapped_lines+=P.new_altloc(altlocs[(altloc_idx+1)%2])
+    #     #print(water_swapped_lines)
+    #     with open(out_path,'w') as f:
+    #         f.writelines(water_swapped_lines)
+
+    # @staticmethod
+    # def MakeSwapWaterFile(in_pdb_file, out_path):
+    #     # swap waters
+    #     lines = []
+    #     with open(in_pdb_file) as f:
+    #         for line in f.readlines():
+    #             lines.append(line)
+    #     Swapper.MakeSwapWaterFileByLines(lines,out_path)

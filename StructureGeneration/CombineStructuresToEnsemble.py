@@ -6,7 +6,7 @@ from Bio.PDB.parse_pdb_header import parse_pdb_header
 from Bio.PDB.PDBIO import PDBIO
 from Bio.PDB.StructureBuilder import StructureBuilder
 
-tag = sys.argv[1] 
+handle = sys.argv[1] 
 pdbPaths = sys.argv[2:]
 
 
@@ -60,7 +60,7 @@ builder.set_header(parse_pdb_header(pdbPaths[0]))
 
 io.set_structure(builder.get_structure())
 
-out_path = f"{tag}.pdb"
+out_path = f"{handle}.pdb"
 tmp_path = "structure_combined_tmp.pdb"
 io.save(tmp_path)
 

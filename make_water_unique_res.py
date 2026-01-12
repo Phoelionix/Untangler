@@ -5,7 +5,7 @@ import UntangleFunctions
 
 # TODO need to group nearby ordered waters into same residue (i.e. make them the same disordered atom site!!).
 
-pdb_file="refmacout_minRfree_current.pdb"
+pdb_file="refmacout_minRfree_mini_debug_unrestrained-mc2.pdb"
 data_dir= UntangleFunctions.pdb_data_dir()
 
 waters = []
