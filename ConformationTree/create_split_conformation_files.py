@@ -11,7 +11,7 @@ from UntangleFunctions import parse_symmetries_from_pdb
 from ConformationTree.split_pdb import split_specific
 
 
-def run(model_path,child_parent_altlocs_dict):
+def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False):
     out_dir = os.path.join(UntangleFunctions.UNTANGLER_WORKING_DIRECTORY,"ConformationTree","output")
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
@@ -26,7 +26,7 @@ def run(model_path,child_parent_altlocs_dict):
     child_atom_tags = [DisorderedTag.from_atom(a) for a in single_altloc_atoms]
 
     split_model_path=os.path.join(out_dir,UntangleFunctions.model_handle(model_path)+"_split.pdb")
-    split_specific(model_path,child_parent_altlocs_dict,child_atom_tags,out_path=split_model_path)
+    split_specific(model_path,child_parent_altlocs_dict,child_atom_tags,out_path=split_model_path,preserve_parent_altlocs=preserve_parent_altlocs)
 
     text=create_all_child_restraints(model_path,child_parent_altlocs_dict,child_atom_tags)
     out_path=os.path.join(out_dir,"split_conformations_restraints.eff")
@@ -35,7 +35,10 @@ def run(model_path,child_parent_altlocs_dict):
 
 if __name__ == "__main__":
     model_path="/home/speno/Untangler/output/2conf_start.pdb"
-    child_parent_altlocs_dict={"C":"A"}
-    run(model_path,child_parent_altlocs_dict)
+    #child_parent_altlocs_dict={"C":"A"}
+    # child_parent_altlocs_dict={"C":"A","D":"A","E":"A","F":"A","c":"B","d":"B","e":"B","f":"B"}
+    # run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False)
+    child_parent_altlocs_dict={"C":"A","D":"A","E":"A","c":"B","d":"B","e":"B"}
+    run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=True)
 
 # %%

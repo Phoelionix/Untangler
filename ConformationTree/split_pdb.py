@@ -12,7 +12,8 @@ from UntangleFunctions import parse_symmetries_from_pdb
 
 
 def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[DisorderedTag],out_path=None,
-                   sep_chain_format=False,protein_altloc_from_chain_fix=False,missing_water_altloc_fix=True):
+                   sep_chain_format=False,protein_altloc_from_chain_fix=False,missing_water_altloc_fix=True,
+                   preserve_parent_altlocs=True):
     # Splits conformers of atoms (atoms_to_split) according to child_parent_altlocs_dict
 
 
@@ -141,7 +142,7 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
         #for d in range(2): # Split loop
         for parent_altloc, altloc_atom_dict in res_atom_dict.items(): 
             child_altlocs=[k for k,v in child_parent_altlocs_dict.items() if parent_altloc in v]
-            num_relevant_altlocs=1+len(child_altlocs)
+            num_relevant_altlocs=preserve_parent_altlocs+len(child_altlocs)
             for d in range(num_relevant_altlocs):
                 for line in altloc_atom_dict.values():
                     if sep_chain_format:
@@ -161,6 +162,8 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
                         modified_line = replace_occupancy(modified_line,occupancy/num_relevant_altlocs)
                         if d > 0:
                             modified_line = replace_altloc(modified_line,child_altlocs[d-1])
+                        elif not preserve_parent_altlocs:
+                            continue
                     elif d>0:
                         continue
                     if protein_chain_id not in chain_dict:
