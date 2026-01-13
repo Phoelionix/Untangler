@@ -1,7 +1,6 @@
 # bash Refine.sh ../data/4et8.pdb refined -d ../data/lys_galli_aug_real.mtz -n 5 -s 3 -gzt
 
 # TODO folder with file containing commands used, shell file, and .eff file. 
-
 set -u
 
 xyz_path=$1; 
@@ -48,7 +47,8 @@ restrain_movement_of_protein='false' # Note this does nothing when True if disab
 
 fixed_water_occupancy='false' # Fix water occupancies at value of ordered_solvent_occupancy
 
-while getopts ":a:o:u:c:n:s:q:whprgtzACDHNOPRSZ" flag; do
+
+while getopts ":a:f:o:u:c:n:s:q:whprgtzACDHNOPRSZ" flag; do
  case $flag in
     a) altlocs_to_refine=$OPTARG
     ;;
@@ -103,7 +103,7 @@ while getopts ":a:o:u:c:n:s:q:whprgtzACDHNOPRSZ" flag; do
     Z) water_and_H_only='true'
     ;;
    \?)
-   echo INVALID FLAG
+   echo INVALID FLAG $flag
    ;;
  esac
 done
@@ -359,7 +359,8 @@ phenix.refine $paramFile 2>$error_file 1> $log_file
 unset TMPDIR
 
 if [ -s $error_file ]; then
-        (exit 1); echo "Failed"
+  echo "Failed"
+  exit 1 
 else
   rm $error_file
 fi
