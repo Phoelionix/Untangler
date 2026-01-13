@@ -21,7 +21,7 @@ def run(model_path,child_parent_altlocs_dict):
 
     excluded_resnames=["CYS",]
     ordered_atom_lookup = OrderedAtomLookup(model_path, waters=False,excluded_resnames=excluded_resnames)
-    single_altloc_atoms = ordered_atom_lookup.select_atoms_by(exclude_atom_names=["N","CA","C","O"],
+    single_altloc_atoms = ordered_atom_lookup.select_atoms_by(exclude_atom_names=["N","CA","C","O","H","H2","H3","HA"],
                                                 altlocs=[parent_altlocs[0]])
     child_atom_tags = [DisorderedTag.from_atom(a) for a in single_altloc_atoms]
 
