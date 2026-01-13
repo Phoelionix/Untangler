@@ -265,7 +265,7 @@ class ConstraintsHandler:
             return 1
         # TODO currently just looks at the smallest separation of all symmetries.
         def __init__(self,atom_ids,outlier_ok,symmetries,weight=1):
-            self.altlocs_vdw_dict={}
+            self.altlocs_vdw_dict:dict[tuple[str,str],tuple[float,float]]={}
             super().__init__(atom_ids,outlier_ok,None,weight,None)
             # if (DisorderedTag(17,"H") in self.site_tags) and (DisorderedTag(81,"O") in self.site_tags):
             self.symmetries=symmetries

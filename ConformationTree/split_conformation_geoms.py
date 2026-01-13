@@ -45,12 +45,19 @@ def create_all_child_restraints(model_path,altloc_parents_dict:dict,child_atom_t
 
 def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[DisorderedTag],constraints_handler:ConstraintsHandler, chain="A"):
 
+    allowed_constraints = [
+        ConstraintsHandler.BondConstraint,
+        ConstraintsHandler.AngleConstraint,
+        ConstraintsHandler.NonbondConstraint,
+    ]
     # Create all geometry restraints for child atoms to mimic their parents.
     text=""
     for disordered_tag, constraints in constraints_handler.atom_constraints.items():
         if not disordered_tag in child_atom_tags:
             continue
         for constraint in constraints:
+            if type(constraint) not in allowed_constraints:
+                continue
             parent_site_tags= [site_tag for site_tag in constraint.site_tags if site_tag not in child_atom_tags]
             if len(parent_site_tags)==0:
                 continue # Constraint does not involve a parent altloc
@@ -63,11 +70,26 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
                         line_altloc=child_altloc
                     atom_selection_lines.append(f"      atom_selection_{i+1} = name {site_tag.atom_name()} and resseq {site_tag.resnum()} and chain {chain} and altid {line_altloc}")
                 atom_selection_lines='\n'.join(atom_selection_lines)
-                text += (f"    {constraint.get_str_rep_kind().lower()}"+" {\n"
+                parameter_scope_name =constraint.get_str_rep_kind().lower()
+                if type(constraint) != ConstraintsHandler.NonbondConstraint:
+                    ideal = constraint.ideal
+                else:
+                     if (parent_altloc,parent_altloc) not in constraint.altlocs_vdw_dict:
+                         continue
+                     # TODO crystal-packing?
+                     ideal_same_asu,ideal_crystal_packing = constraint.altlocs_vdw_dict[(parent_altloc,parent_altloc)]  
+                     ideal = ideal_same_asu  
+                     parameter_scope_name="bond" # FIXME
+                if type(constraint) == ConstraintsHandler.AngleConstraint:
+                    ideal_variable_name="angle_ideal"
+                else:
+                    ideal_variable_name="distance_ideal"
+
+                text += (f"    {parameter_scope_name}"+" {\n"
                 + f"""      action = *add
 {atom_selection_lines}
-      distance_ideal = {constraint.ideal:.4f}\n"""
-+(f"      sigma = {constraint.sigma:.4f}\n" if constraint.sigma is not None else "") 
+      {ideal_variable_name} = {ideal:.4f}\n"""
++(f"      sigma = {constraint.sigma:.4f}\n" if constraint.sigma is not None else "      sigma = None\n      limit = 1\n") 
                 + "    }\n")
     return text
 
