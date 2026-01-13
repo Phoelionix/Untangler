@@ -1,11 +1,20 @@
+from Bio.PDB import PDBParser
 from Bio.PDB.Atom import Atom,DisorderedAtom
 from Bio.PDB.Residue import Residue # Note we don't want the disorderedresidue here, it refers to different residue types for same res seq num.
 import UntangleFunctions 
 from LinearOptimizer.Tag import *
 from LinearOptimizer.VariableID import *
+import os
+from typing import Union
+
 
 class OrderedAtomLookup: #TODO pandas?
-    def __init__(self,atoms:list[DisorderedAtom],protein=True,waters=False,altloc_subset=None,allowed_resnums=None,allowed_resnames=None,alternate_atoms:list[DisorderedAtom]=[]): # TODO type hint for sequence?
+    def __init__(self,atoms:Union[list[DisorderedAtom],str],protein=True,waters=False,altloc_subset=None,allowed_resnums=None,allowed_resnames=None,excluded_resnames=None,alternate_atoms:list[DisorderedAtom]=[]): # TODO type hint for sequence?
+        
+        if type(atoms)==str and os.path.isfile(atoms):
+            atoms=PDBParser().get_structure("struct",atoms).get_atoms()
+            
+        
         assert allowed_resnums is None, "Not working"
         
         self.disordered_waters=[]
@@ -37,6 +46,8 @@ class OrderedAtomLookup: #TODO pandas?
                 continue
             if allowed_resnames is not None and res_name not in allowed_resnames:
                 continue
+            if excluded_resnames is not None and res_name in excluded_resnames:
+                continue
             
             if disorderedAtom.get_occupancy()==0:
                 if skip_zero_occ:
@@ -64,7 +75,8 @@ class OrderedAtomLookup: #TODO pandas?
                     raise Exception("Something went wrong when making ordered atom disordered")
             if res_num not in self.better_dict:
                 self.better_dict[res_num] = {}
-                if allowed_resnums is not None and allowed_resnames is not None:
+                #if allowed_resnums is not None and allowed_resnames is not None:
+                if allowed_resnums is None and allowed_resnames is None and excluded_resnames is None:
                     assert len(self.residue_nums)== 0 or res_num-1 in [self.residue_nums[-1],last_skipped_res_num], (res_num,self.residue_nums)
                 self.residue_nums.append(res_num)
                 self.res_names[res_num]=disorderedAtom.get_parent().get_resname()
@@ -109,7 +121,7 @@ class OrderedAtomLookup: #TODO pandas?
                     
     
     def from_tag(self,ordered_tag:OrderedTag)->Atom:
-        return self.better_dict[ordered_tag.resnum()][ordered_tag.atom_name()][ordered_tag.altloc()]
+        return self.better_dict[ordered_tag.resnum()][ordered_tag.atom_name()][ordered_tag.altloc()] # NOTE If error here during constraint loading, might be that waters weren't loaded in OrderedAtomLookup.
 
     def output_as_pdb_file(self, reference_pdb_file,out_path):
         # Only outputs based on self.better_dict at present!!

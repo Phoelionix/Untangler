@@ -29,6 +29,7 @@ for symbol in ATOMS:
 UNTANGLER_WORKING_DIRECTORY= os.path.join(os.path.abspath(os.getcwd()),"")
 
 def model_handle(model_handle_or_path):
+    assert type(model_handle_or_path)==str
     if model_handle_or_path[-4:]==".pdb":
         return os.path.basename(model_handle_or_path)[:-4]
     else: 

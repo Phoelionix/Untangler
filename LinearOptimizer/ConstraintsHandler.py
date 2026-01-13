@@ -101,8 +101,10 @@ class ConstraintsHandler:
             return [site.resnum() for site in self.site_tags]
         def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float,float]:  # TODO this returns an ideal value, z_score, and a cost, but should make a class that holds this info and return that
             raise NotImplementedError("Abstract method")
+        def get_str_rep_kind(self):
+            return ConstraintsHandler.Constraint.kind(type(self))
         def __repr__(self):
-            return f"({ConstraintsHandler.Constraint.kind(type(self))} : {self.site_tags})"
+            return f"({self.get_str_rep_kind()} : {self.site_tags})"
         def __eq__(self, other:'ConstraintsHandler.Constraint'):
             return (type(self),self.site_tags) == (type(other),other.site_tags)
         @staticmethod

@@ -473,9 +473,12 @@ class LP_Input:
             ordered_atom_lookup.output_as_pdb_file(reference_pdb_file=base_model_path,out_path=subset_model)
 
 
+        def prepare_geom_files_for_one_subset(model_path,water_swaps=False,turn_off_cdl=False):
+            UntangleFunctions.assess_geometry_wE(model_path,turn_off_cdl=turn_off_cdl) 
+            
         global pooled_method # not sure if this is a good idea. Did this because it tries to pickle but fails if local. Try replacing with line: multiprocessing.set_start_method(‘fork’)
         def pooled_method(i):
-            LP_Input.prepare_geom_files_for_one_subset(subset_model_paths[i],water_swaps=water_swaps)
+            prepare_geom_files_for_one_subset(subset_model_paths[i],water_swaps=water_swaps)
 
         with Pool(num_threads) as p:
             p.map(pooled_method,range(len(subset_model_paths)))
@@ -541,10 +544,8 @@ class LP_Input:
     @staticmethod
     def geo_log_out_folder():
         return UntangleFunctions.UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/HoltonOutputs/"
-    
-    @staticmethod
-    def prepare_geom_files_for_one_subset(model_path,water_swaps=False,turn_off_cdl=False): # TODO CDL incorporation.
-        UntangleFunctions.assess_geometry_wE(model_path,turn_off_cdl=turn_off_cdl) 
+
+
 
     @staticmethod 
     def water_swapped_handle(model_path):
