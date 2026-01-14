@@ -104,15 +104,15 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
     #nodes = [chunk.unique_id() for chunk in chunk_sites.values()]
 
-    def get_variables(unique_id)->dict:
-        d={}
-        d["depth"] = unique_id.split("&")[0]
-        d["site_num"],d["altloc"] = unique_id.split("&")[1].split(".")
-        d["name"] = unique_id.split("&")[2]
-        return d
+    # def get_variables(unique_id)->dict:
+    #     d={}
+    #     d["depth"] = unique_id.split("&")[0]
+    #     d["site_num"],d["altloc"] = unique_id.split("&")[1].split(".")
+    #     d["name"] = unique_id.split("&")[2]
+    #     return d
     
-    def get(unique_id,key):
-        return get_variables(unique_id)[key]
+    # def get(unique_id,key):
+    #     return get_variables(unique_id)[key]
 
     def site_being_considered(site:Union['VariableID',AtomChunk]):
        if DEBUG_FIRST_100_SITES and site.get_site_num()>100:
@@ -163,8 +163,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     #     return f"atomState_{site}_{from_altloc}.{to_altloc}"
     disordered_atom_sites:list[VariableID] = []
 
-    # Setup atom swap variables
-    for i, (chunk) in enumerate(chunk_sites):
+    # Set up atom swap variables
+    forbid_flip_site_altloc_dict:dict[VariableID,list[str]] = {}
+    for i, chunk in enumerate(chunk_sites):
         site = VariableID.Atom(chunk)
 
         if not site_being_considered(site):
@@ -173,7 +174,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         if site not in disordered_atom_sites:
             disordered_atom_sites.append(site)
 
-        from_altloc = get(chunk.unique_id(),"altloc")
+        #from_altloc = get(chunk.unique_id(),"altloc")
+        from_altloc = chunk.altloc
+
+        if chunk.echoed_altloc is not None:
+            if site not in forbid_flip_site_altloc_dict:
+                forbid_flip_site_altloc_dict[site]=[]
+            forbid_flip_site_altloc_dict[site].append(from_altloc)
 
         if chunk.has_alternate_coords():
             if site not in site_altposvar_dict:
@@ -208,10 +215,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             site_altlocs.append(possible_altloc)
 
 
+        allowed_to_altlocs=site_altlocs # NOTE May want to change this to be all altlocs if water is involved. 
         if len(all_altlocs)>2: #TODO optimize
             for from_altloc in site_altlocs:
                 # Create variable for each possible swap to other altloc
-                for to_altloc in all_altlocs:
+                for to_altloc in allowed_to_altlocs:
                     var_atom_assignment =  pl.LpVariable(
                         f"{site}_{from_altloc}.{to_altloc}",
                         lowBound=0,upBound=1,cat=pl.LpBinary #TODO pl.LpBinary
@@ -230,7 +238,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 )
 
             # Each conformation is assigned no more than one ordered atom. 
-            for to_altloc in all_altlocs: # TODO at some point replace the all_altlocs variable in this loop with a variable representing all altlocs allowed to be assigned to.
+            for to_altloc in allowed_to_altlocs: 
                 to_altloc_vars:list[LpVariable] = []
                 for from_alt_loc_dict in site_var_dict[site].values():
                     to_altloc_vars.append(from_alt_loc_dict[to_altloc])
@@ -315,18 +323,23 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             and change_punish_factor==0
         )
 
+        
+        no_flip_from_altlocs=[]
         if (force_no_flips
             or ((site.site_num == lowest_site_num) and need_anchor) # Anchor solution to one where first disordered atom is unchanged.  
             or (not site.is_water and inert_protein_sites)
             or (site.is_water and inert_water_sites)
             or (site.atom_name in forbid_altloc_changes["name"])
         ) :
-            
-            for altloc in site_altlocs:
-                lp_problem += (
-                    site_var_dict[site][altloc][altloc]==1,
-                    f"forceNoFlips_{site}_{altloc}"
-                )  
+            no_flip_from_altlocs=site_altlocs 
+        elif site in forbid_flip_site_altloc_dict:
+            no_flip_from_altlocs=forbid_flip_site_altloc_dict[site]
+        for altloc in no_flip_from_altlocs:
+            lp_problem += (
+                site_var_dict[site][altloc][altloc]==1,
+                f"forceNoFlips_{site}_{altloc}"
+            ) 
+        
         if CHANGES_MUST_INVOLVE is not None:
             for a in site_altlocs:
                 for b in site_altlocs:
@@ -337,7 +350,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                             site_var_dict[site][a][b]==0,
                             f"Forbid_{site}_{a}>>{b}"
                         )  
-
 
 
     # TODO improve terminology
@@ -468,22 +480,26 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
 
 
-        altlocs = None
 
         site_altlocs_same=True
         sites = [VariableID.Atom(ch) for ch in disordered_connection[0].atom_chunks]
+        to_altloc_options = None
         for site in sites:
             if not site_being_considered(site):
                     return # Don't add this constraint
-            if altlocs is None:
-                altlocs = set(site_var_dict[site].keys())
+            if to_altloc_options is None:
+                to_altloc_options = set(site_var_dict[site].keys())
             else:
-                if altlocs != set(site_var_dict[site].keys()):
-                    site_altlocs_same=False
-                    assert ((site.is_water or sites[0].is_water) and inert_water_sites), \
-                        f"{disordered_connection[0]}: Site {site} has altlocs {list(site_var_dict[site].keys())} but site {sites[0]} has altlocs {list(site_var_dict[sites[0]].keys())}"
-                    #print(f"Warning: altlocs don't match, skipping {disordered_connection[0].get_disordered_connection_id()}")
-                    #return
+                if to_altloc_options != set(site_var_dict[site].keys()):
+                    conformation_tree=True
+                    if not conformation_tree:
+                        site_altlocs_same=False
+                        assert ((site.is_water or sites[0].is_water) and inert_water_sites), \
+                            f"{disordered_connection[0]}: Site {site} has altlocs {list(site_var_dict[site].keys())} but site {sites[0]} has altlocs {list(site_var_dict[sites[0]].keys())}"
+                        #print(f"Warning: altlocs don't match, skipping {disordered_connection[0].get_disordered_connection_id()}")
+                        #return
+                    else:
+                        to_altloc_options=to_altloc_options & set(site_var_dict[site].keys()) 
 
         # dicts indexed by code corresponding to from altlocs (e.g. "ACB" means connecting up site 1 altloc A, site 2 altloc C, site 3 altloc B)
         connection_var_dict:dict[str,tuple[LP_Input.Geomection,LpVariable]]={} # indexed by from_altloc
@@ -538,7 +554,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             if ordered_connection_option.involves_position_changes():
                 altlocs_key+=''.join([str(i) for i in ordered_connection_option.position_option_indices])
 
-            assert altlocs_key not in connection_var_dict
+            assert altlocs_key not in connection_var_dict, (ordered_connection_option.get_disordered_connection_id(),altlocs_key,list(connection_var_dict.keys()))
             connection_var_dict[altlocs_key]=(ordered_connection_option,var_active)
         del tag
 
@@ -601,7 +617,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             # Connections contains ordered atoms from any and likely multiplke altlocs that 
             # *are to be assigned to the same altlocs*
             assignment_options:dict[str,list[LpVariable]]={}
-            for to_altloc in all_altlocs:
+            for to_altloc in to_altloc_options:
                 assignment_options[to_altloc]=[]
                 for ch in ordered_connection_option.atom_chunks:
                     from_altloc = ch.get_altloc()
@@ -796,7 +812,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 for atom_names,resnums in other_bond_list: # TODO shouldn't need to do this. Should be sorted in Geomection class
                     disordered_tags= [DisorderedTag(num,name) for num,name in zip(resnums,atom_names)]
                     other_d_id= LP_Input.Geomection.construct_disordered_connection_id(ConstraintsHandler.BondConstraint,disordered_tags)
-                    if other_d_id in mega_connection_var_dict: # XXX
+                    if other_d_id in mega_connection_var_dict and altlocs_key in mega_connection_var_dict[other_d_id]: # XXX
                         _other_bond, other_var = mega_connection_var_dict[other_d_id][altlocs_key]
                         other_bond_nochange_vars.append(other_var)
                 assert len(other_bond_nochange_vars)<=2, (len(other_bond_nochange_vars),other_bond_nochange_vars,other_d_id)

@@ -485,7 +485,7 @@ def relabel_ring(pdb_path):
     return ring_relabel_dict
     
 
-def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False,ring_name_grouping=False,altlocs_allowed=None):
+def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False,ring_name_grouping=False,altlocs_allowed=None,even_split_occupancies=False):
         # Gets into format we expect. !!!!!!Assumes single chain!!!!!
         # Relabels ring atoms CE1/CE2, CD1/CD2 so that all with same label are closest         
         def replace_occupancy(line,occ):
@@ -605,8 +605,9 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                         n+=1
                         modified_line = line
                         
-                        modified_line = replace_occupancy(modified_line,
-                            1/len(protein_altlocs)) # Set occupancies to all be same
+                        if even_split_occupancies:
+                            modified_line = replace_occupancy(modified_line,
+                                1/len(protein_altlocs)) # Set occupancies to all be same
                         modified_line = replace_chain(modified_line,protein_chain_id)
                         modified_line = replace_serial_num(modified_line,n)
                         start_lines.append(modified_line)
@@ -618,8 +619,9 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                     for line in altloc_atom_dict.values():
                         n+=1
                         modified_line = line
-                        modified_line = replace_occupancy(modified_line,
-                            1/len(protein_altlocs)) # Set occupancies to all be same
+                        if even_split_occupancies:
+                            modified_line = replace_occupancy(modified_line,
+                                1/len(protein_altlocs)) # Set occupancies to all be same
                         modified_line = replace_chain(modified_line,protein_chain_id)
                         modified_line = replace_serial_num(modified_line,n)
                         if altloc not in chain_dict:

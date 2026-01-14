@@ -19,7 +19,7 @@ def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False):
     parent_altlocs,_=UntangleFunctions.get_altlocs_from_pdb(model_path)
     parent_altlocs=sorted(list(parent_altlocs))
 
-    excluded_resnames=["CYS",]
+    excluded_resnames=["CYS","GLY","PRO"]
     ordered_atom_lookup = OrderedAtomLookup(model_path, waters=False,excluded_resnames=excluded_resnames)
     single_altloc_atoms = ordered_atom_lookup.select_atoms_by(exclude_atom_names=["N","CA","C","O","H","H2","H3","HA"],
                                                 altlocs=[parent_altlocs[0]])

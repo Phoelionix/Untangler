@@ -19,10 +19,10 @@ class VariableID:
             chunk.name)
     def __init__(self,name:str,kind:VariableKind,site_num=None,is_water=None,atom_name=None):
         self.name=str(name)
-        self.atom_name=atom_name
         self.kind = kind
         self.site_num=site_num
         self.is_water = is_water
+        self.atom_name=atom_name
     def get_site_num(self):
         return self.site_num
     ###

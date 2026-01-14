@@ -55,7 +55,6 @@ class Untangler():
     # If a model file hasn't been generated, will use the latest filename that exists and is expected to have been generated up to that point in the process.
     # As of writing, untwist step is skipped if the unrestrained step is skipped.
     debug_skip_refine = False  # Note: Can set to True alongside debug_skip_first_swaps to skip to first proposal
-    debug_phenix_ordered_solvent_on_initial=False
     debug_skip_initial_refine=True
     debug_skip_first_unrestrained_refine=True
     debug_skip_first_swaps=False
@@ -71,7 +70,7 @@ class Untangler():
     debug_main_chain_swaps_only=False
     main_chain_swaps_only_after_first_loop=True
     default_scoring_function = staticmethod(ConstraintsHandler.log_chi)
-    debug_skip_to_loop=3
+    debug_skip_to_loop=0
     #untwist_loop=99
     num_loops_not_refine_H=0
     untwist_moves_enabled=False
@@ -79,13 +78,16 @@ class Untangler():
     final_untwist_loop=2 # if equal to num_loops_not_untwist, will do untwist in that loop only
     debug_skip_initial_holton_data_generation =debug_skip_initial_refine or (debug_skip_to_loop!=0) # Initial score file. Will always create if expected path to score file doesn't exist.
     #debug_skip_initial_holton_data_generation =False
-    refmac_refine_water_occupancies_initial=False
+    phenix_ordered_solvent_on_initial=False
+    refmac_refine_water_occupancies_on_initial=False
+    phenix_refine_hydrogens_when_refine_for_positions=False
     ##
     PHENIX = 1
     REFMAC = 2
     refinement=PHENIX
     ##
     O_bond_change_period=5
+    main_chain_only_period=2
     ####
     num_threads=25
     ## 
@@ -830,8 +832,7 @@ class Untangler():
 
 
             # Limited options
-            MChOnly_period=2
-            if ((self.loop+(MChOnly_period-1))%MChOnly_period!=0
+            if ((self.loop+(self.main_chain_only_period-1))%self.main_chain_only_period!=0
                 and not self.debug_main_chain_swaps_only
                 and not (self.main_chain_swaps_only_after_first_loop and self.loop>0)): # All options
                 subset_size=self.altloc_subset_size
@@ -1167,7 +1168,7 @@ class Untangler():
                     wu=wu,
                     hold_water_positions=self.holding_water(),
                     refine_occupancies=False,
-                    ordered_solvent=PHENIX_ORDERED_SOLVENT or self.debug_phenix_ordered_solvent_on_initial,
+                    ordered_solvent=PHENIX_ORDERED_SOLVENT or self.phenix_ordered_solvent_on_initial,
                     shake=phenix_shake,
                     refine_hydrogens=True, # XXX
                 )
@@ -1183,7 +1184,7 @@ class Untangler():
                     dampB=0.1,
                     dampC=0.25,
                     wc=0.5,
-                    refine_water_occupancies=self.refmac_refine_water_occupancies_initial
+                    refine_water_occupancies=self.refmac_refine_water_occupancies_on_initial
                 )
             model_path = self.refine(
                 refine_params,
@@ -1228,7 +1229,7 @@ class Untangler():
                     #wu=0,
                     #wc=0.25,
                     hold_water_positions=True,
-                    refine_hydrogens=True, # XXX
+                    refine_hydrogens=self.phenix_refine_hydrogens_when_refine_for_positions, # XXX
                     disable_NQH_flips=True,
                     max_sigma_movement_of_selected=0.1, # applies to protein if restrain_protein_movement is True. But unsure if it is doing anything (as in recip space?)
                     restrain_protein_movement=True, 
@@ -1653,7 +1654,7 @@ class Untangler():
             water_occ=1/len(self.protein_altlocs)
             if altloc_subset is not None:
                 water_occ=1/len(altloc_subset)
-            args+=['-f',water_occ]
+            args+=['-f',f"{water_occ}"]
         # TODO make a dict...
         for bool_param, flag in ([P.hold_water_positions,"-h"],[P.refine_hydrogens,"-H"],[P.optimize_R,"-r"],
                                  [P.hold_protein_positions,"-p"],[P.refine_occupancies,"-O"],[P.turn_off_bulk_solvent,"-t"],
@@ -1838,19 +1839,18 @@ def main():
         endloop_wc=1, num_end_loop_refine_cycles=6,
         #endloop_wc=3, num_end_loop_refine_cycles=1,
         refine_for_positions_geo_weight=0,
-        starting_num_best_swaps_considered=50,
-        max_num_best_swaps_considered=50,
-        altloc_subset_size=2,
+        starting_num_best_swaps_considered=1,
+        max_num_best_swaps_considered=1,
+        altloc_subset_size=10,
         unrestrained_damp=0,
         #refine_for_positions_geo_weight=0.03,
         num_refine_for_positions_macro_cycles_phenix=1,
         #max_bond_changes=2,
         max_bond_changes=99999,
         weight_factors = {
-            #ConstraintsHandler.BondConstraint: 0.1,
-            ConstraintsHandler.BondConstraint: 1,
+            ConstraintsHandler.BondConstraint: 0.1,
             ConstraintsHandler.AngleConstraint: 80,#1,
-            ConstraintsHandler.NonbondConstraint: 1,  # TODO experiment with this.
+            ConstraintsHandler.NonbondConstraint: 0.1,  # TODO experiment with this.
             ConstraintsHandler.ClashConstraint: 0,  #0 1 100
             ConstraintsHandler.TwoAtomPenalty: 0,
         },

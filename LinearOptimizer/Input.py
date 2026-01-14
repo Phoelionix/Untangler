@@ -153,15 +153,22 @@ class OrderedResidue(Chunk):
 # Ugh, never do inheritance. TODO refactor to composition.
 class AtomChunk(OrderedResidue): 
     # Just an atom c:
-    def __init__(self,site_num,altloc,resnum,referenceResidue,atom:Atom,is_water:bool,constraints_handler,alt_pos_options:List[tuple[int,'Any']]):
+    def __init__(self,site_num,altloc,resnum,referenceResidue,atom:Atom,is_water:bool,constraints_handler,
+                 alt_pos_options:List[tuple[int,'Any']],echoed_altloc=None):
+        # Echoed altloc: If this chunk is representing a parent conformer, and only to be used when involving connections with the parent conformer.
+
         self.name=atom.get_name()
         self.is_water = is_water
         self.element = atom.element
         self.coord = atom.get_coord()
         self.alt_pos_options:dict[int,Atom] = alt_pos_options
         super().__init__(altloc,resnum,referenceResidue,[atom],site_num)
-        self.generate_uninitialized_constraints(constraints_handler)
+        if constraints_handler is not None:
+            self.generate_uninitialized_constraints(constraints_handler)
         self.depth_tag="ATOM"
+
+        self.echoed_altloc = echoed_altloc
+        self._atm=atom
     def generate_uninitialized_constraints(self,constraints_handler:ConstraintsHandler):
         self.constraints_holder:ConstraintsHandler = \
             constraints_handler.get_constraints(self.get_disordered_tag(),no_constraints_ok=self.is_water)
@@ -169,6 +176,14 @@ class AtomChunk(OrderedResidue):
         return len(self.alt_pos_options)>0
     def get_coord(self):
         return self.coord
+    def create_echo(self,new_altloc):
+        # atom = Atom(self.name,self.coord,1,1,new_altloc,
+        #             " N  ",1) # Dummy values
+        atom = self._atm
+        return_ch = AtomChunk(self.get_site_num(),new_altloc,self.get_resnum(),self._res, atom,self.is_water,None,
+                         self.alt_pos_options,self.altloc)
+        assert return_ch.echoed_altloc is not None
+        return return_ch
     def get_disordered_tag(self):
         return DisorderedTag(self.get_resnum(),self.name)
     def get_ordered_tag(self):
@@ -180,7 +195,7 @@ class AtomChunk(OrderedResidue):
 class LP_Input:
     #MODE="LOW_TOL" # "NONBOND_RESTRICTIONS" #"LOW_TOL" #"HIGH_TOL" #"NO_RESTRICTIONS" # PHENIX REFMAC
     #MODE= "NO_RESTRICTIONS"
-    MODE= "HIGH_TOL"
+    MODE= "LOW_TOL"
 
     if MODE=="NO_RESTRICTIONS":
         max_sigmas=min_sigmas_where_anything_goes=min_tension_where_anything_goes={}
@@ -353,7 +368,8 @@ class LP_Input:
     # Connection between ordered atoms
     class Geomection(): # TODO really need to have a disordered connection class to have some of these properties (e.g. max site tension, outlier_ok)
 
-        def __init__(self, atom_chunks:list[AtomChunk],ts_distance,position_option_indices:list[int],connection_type,hydrogen_names,ideal,z_score,max_site_tension,outlier_ok):
+        def __init__(self, atom_chunks:list[AtomChunk],ts_distance,position_option_indices:list[int],connection_type,
+                     hydrogen_names,ideal,z_score,max_site_tension,outlier_ok):
             assert hydrogen_names==None or len(hydrogen_names)==len(atom_chunks)
             self.atom_chunks = atom_chunks
             self.from_altlocs=[a.get_altloc() for a in atom_chunks]
@@ -398,6 +414,14 @@ class LP_Input:
             hydrogen_tag = LP_Input.make_hydrogen_tag(hydrogen_names)
             return f"{kind}{hydrogen_tag}_{'_'.join([str(dtag) for dtag in disordered_tags])}"
 
+        def create_echo(self,new_atom_chunks:List[AtomChunk]):
+            assert [ch.get_disordered_tag() for ch in new_atom_chunks] == [ch.get_disordered_tag() for ch in self.atom_chunks] 
+            echo = LP_Input.Geomection(new_atom_chunks,self.ts_distance,self.position_option_indices,self.connection_type,
+                                       None,self.ideal,self.z_score,self.max_site_tension,self.outlier_ok)
+            echo.hydrogen_name_set=self.hydrogen_name_set
+            echo.hydrogen_tag=self.hydrogen_tag
+            echo.poschange_tag=self.poschange_tag
+            return echo
 
     def __init__(self,pdb_file_path:str,restrained_refine_pdb_file_path:str,APPLY_TENSION_MOD:dict[DisorderedTag,float], symmetries, align_uncertainty=False,ignore_waters=False,altloc_subset=None,resnums=None,resnames=None,
                  alternate_atoms=[]): 
@@ -551,6 +575,14 @@ class LP_Input:
     def water_swapped_handle(model_path):
         return UntangleFunctions.model_handle(model_path)+"_WaSw"
         
+    
+    def get_echoed(self,child_parent_altloc_dict:dict[str,str]):
+        for child_altloc, parent_altlocs in child_parent_altloc_dict.items():
+            child_atoms = self.ordered_atom_lookup.select_atoms_by(altloc=child_altloc)
+            parent_atoms = []
+        
+        return echoed_atoms,tmp_echoed_altlocs
+
     def calculate_paths(self,scoring_function,quick_wE=False, dry_run=False,atoms_only=True,
                         clash_punish_thing=False,nonbonds=True,water_water_nonbond=None,
                         constraint_weights:dict[Type,float]=None, # dict of serial numbers with altloc labels. All with same label will be put in same conformation. The actual label of each conformation in the output file may be different. This only specifies which are to be in the same conformation.
@@ -741,7 +773,9 @@ class LP_Input:
                                          is_water,
                                          constraints_handler,
                                          alt_pos_options,
+                                         echoed_altloc=None
                                          )
+                                         
             
             
         del ordered_atoms
@@ -827,6 +861,11 @@ class LP_Input:
 
 
             for atoms in combinations_iterator:
+
+                # if all([ atom_chunks[atom_id(a)] is not None for a in atoms]):
+                #     # All are echoes
+                #     continue
+
                 # Don't have two alt locs of same atom in group
                 if len(set([res_name_num_dict[a] for a in atoms]))!= len(atoms):                     
                     continue
@@ -1046,16 +1085,68 @@ class LP_Input:
 
 
 
+        TEMP_TEST_CHILD_PARENT={"C":"A","D":"A","E":"A","c":"B","d":"B","e":"B"}
+        chunk_echoes,disordered_connection_echoes=self.get_echoes(atom_chunks,disordered_connections,TEMP_TEST_CHILD_PARENT)
+        for key in disordered_connection_echoes:
+            disordered_connections[key].extend(disordered_connection_echoes[key])
+
+
+        #finest_depth_chunks=orderedResidues
+        finest_depth_chunks = list(atom_chunks.values()) + list(chunk_echoes.values())
+
+        #print([(f.name,f.altloc) for f in finest_depth_chunks if f.resnum==41])
+        #print([(f.resnum,f.name,f.altloc) for f in chunk_echoes.values() if f.resnum==41])
+
+
+
+        return finest_depth_chunks,disordered_connections
+    def get_echoes(self,atom_chunks:dict[str,AtomChunk],disordered_connections:dict[str,list[Geomection]],child_parent_altloc_dict:dict[str,str]):
+        chunk_echoes:dict[OrderedTag,AtomChunk]={}
+        disordered_connection_echoes:dict[str,list[LP_Input.Geomection]]={}
+        for child_altloc, parent_altlocs in child_parent_altloc_dict.items():
+            all_child_site_tags = [ch.get_disordered_tag() for ch in atom_chunks.values() if ch.get_altloc()==child_altloc]
+            for disordered_conn in disordered_connections.values():
+                child_tags = [ch.get_disordered_tag() for ch in disordered_conn[0].atom_chunks if (ch.get_disordered_tag() in all_child_site_tags)]
+                if len(child_tags)==0:
+                    continue
+                parent_tags = [ch.get_disordered_tag() for ch in disordered_conn[0].atom_chunks if (ch.get_disordered_tag() not in child_tags)]
+                if len(parent_tags)==0:
+                    continue    
+                
+                disordered_conn_echo:list[LP_Input.Geomection]=[]      
+                for conn in disordered_conn:
+                    if child_altloc not in conn.from_altlocs:
+                        continue
+                    echoed_parent_chunks = [ch for ch in conn.atom_chunks if ch.altloc in parent_altlocs and ch.get_disordered_tag() in parent_tags]
+                    if len(echoed_parent_chunks)==0:
+                        continue
+
+                    new_atom_chunks=[]
+                    was_added=False
+                    for ch in conn.atom_chunks:
+                        if ch in echoed_parent_chunks:
+                            ordered_tag = ch.get_disordered_tag().ordered_tag(child_altloc)
+                            if ordered_tag not in chunk_echoes:
+                                chunk_echoes[ordered_tag]=ch.create_echo(child_altloc)
+                            new_atom_chunks.append(chunk_echoes[ordered_tag])
+                            was_added=True
+                        else:
+                            new_atom_chunks.append(ch)
+                    assert was_added,conn.get_disordered_connection_id()  # ,ch.get_ordered_tag()
+                    disordered_conn_echo.append(conn.create_echo(new_atom_chunks)) 
+                    
+                assert len(disordered_conn_echo)>0, (child_tags,"|",parent_tags)
+                disordered_connection_echoes[disordered_conn_echo[0].get_disordered_connection_id()] = disordered_conn_echo
+        return chunk_echoes,disordered_connection_echoes
+                
 
 
 
 
                 
+            
 
 
-        #finest_depth_chunks=orderedResidues
-        finest_depth_chunks=list(atom_chunks.values())
-        return finest_depth_chunks,disordered_connections
 
     @staticmethod
     def create_altloc_subset_model(model,altloc_subset):
