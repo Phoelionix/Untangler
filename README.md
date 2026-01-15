@@ -2,6 +2,9 @@
 
 Altloc optimizer to [untangle confused conformers](https://bl831.als.lbl.gov/~jamesh/challenge/twoconf/).
 
+## Requirements
+`phenix`.
+
 ## Setup 
 (Optional) make a virtual Python environment
 
@@ -13,7 +16,7 @@ Install required packages
 
 `pip install -r requirements.txt` 
 
-Tested with python 3.9. Requires `phenix`.
+Tested with python 3.9.
 
 ## Run demo
 
