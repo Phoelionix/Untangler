@@ -46,6 +46,9 @@ import matplotlib
 from typing import Union
 
 
+#THREADS=None # Num cpu threads made available to ILP solver 
+#THREADS=24
+THREADS=10
 
 #import pulp as pl
 # just for residues for now
@@ -59,7 +62,7 @@ FORCE_ALT_COORDS=False
 
 
 def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
-          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=10,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=100,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
           inert_water_sites=False,
           #gapRel=0.001,
           gapRel=0,
@@ -971,7 +974,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
     def write_current_connections(out_file):
         connections_str = ""
-        connections_str+="name, ideal, sigma, cost\n"
+        connections_str+="name, ideal,model, z-score, cost\n"
         vals = [(constraint,var) for constraint,var in constraint_var_dict.values() if var.value()>0.5]
         #vals.sort(key=lambda x: x[0].z_score,reverse=True)
         vals.sort(key=lambda x: x[0].ts_distance,reverse=True)
@@ -983,7 +986,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         vals = vals_selection
 
         for constraint, var in vals:
-            connections_str+=f"{var.name} {constraint.ideal} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n"
+            connections_str+=f"{var.name} {constraint.ideal} {constraint.actual:.2e} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n"
         with open(out_file,'w') as f:
             f.write(connections_str)
     write_current_connections(f"{log_out_dir}/OriginalConnections.txt")
@@ -1008,6 +1011,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     inverted_active_variables = []
     inverted_active_variable_names = []
     non_original_variable_history = []
+    previously_used_variable_names=[]
 
     for l in range(num_solutions):
         if l > 0 and l <= len(forced_swap_solutions):
@@ -1046,9 +1050,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         elif mins_extra_per_loop != 0:
             print("Warning: extra time per loop is not 0, but there is no time limit")
         #timeLimit=None
-        #threads=None
-        #threads=24
-        threads=10
         logPath=log_out_dir+"solver_log.txt"
         #logPath=None
         #pulp_solver = Solver.CPLX_PY
@@ -1086,8 +1087,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             solver_class = CPLEX_PY
         else:
             raise Exception("not implemented")
-        #solver = solver_class(timeLimit=timeLimit,threads=threads,logPath=logPath,warmStart=warmStart,path=path)
-        solver = solver_class(timeLimit=timeLimit,threads=threads,warmStart=warmStart,logPath=logPath,gapRel=gapRel)
+        #solver = solver_class(timeLimit=timeLimit,threads=THREADS,logPath=logPath,warmStart=warmStart,path=path)
+        solver = solver_class(timeLimit=timeLimit,threads=THREADS,warmStart=warmStart,logPath=logPath,gapRel=gapRel)
         lp_problem.solve(solver)
         print(solver)
         # if pulp_solver == Solver.COIN:
@@ -1096,9 +1097,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         #     maxNodes=None
         #     #pulpTestAll()
         #     #asdds
-        #     solver = PULP_CBC_CMD(logPath=,threads=threads,timeLimit=timeLimit,maxNodes=maxNodes)
+        #     solver = PULP_CBC_CMD(logPath=,threads=THREADS,timeLimit=timeLimit,maxNodes=maxNodes)
         # elif pulp_solver == Solver.COIN:
-        #     solver = CPLEX_PY(timeLimit=timeLimit,threads=threads)
+        #     solver = CPLEX_PY(timeLimit=timeLimit,threads=THREADS)
         # lp_problem.solve(solver)
 
         
@@ -1209,7 +1210,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         total_distance = value(lp_problem.objective)
         diff=total_distance/initial_badness-1
         out_str+=f"Total distance = {total_distance} ({100*(diff):.3f}%)\n"
-        out_str+="name, sigma, cost\n"
+        out_str+="name, z-score, cost\n"
         for original_constraints,active_constraints,original_cost,active_cost in changed_disordered_connections:
             Dordered_constr_ref=active_constraints if len(active_constraints)>0 else original_constraints
             out_str+=Dordered_constr_ref[0][0].get_disordered_connection_id()+"\n"
@@ -1276,7 +1277,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             try:
                 all_sigma_costs = np.array(all_sigma_costs,dtype=np.float32)
                 xlim_dict:dict[str,tuple[float]]={}
-                for i, name in enumerate(["sigma_i","costs_i","sigma_f","costs_f"]):
+                for i, name in enumerate(["z-score_i","costs_i","z-score_f","costs_f"]):
                     X=all_sigma_costs[...,i].flatten()
                     # Same x limits for initial and final (TODO same y limits... need to refactor)
                     variable_kind = name.split("_")[0] #XXX
@@ -1346,32 +1347,64 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
 
         include_alt_pos_as_next_best_options=False # Allow solutions that only differ by alternate positions # TODO Need to forbid solutions that differ only by alternate positions and by a label reassignment (it is equivalent to no label reassignment as position changes are blind to conformer labels) 
-        for chunk in chunk_sites:
-            site = VariableID.Atom(chunk)
-            if not site_being_considered(site):
-                continue
-            if protein_sites and site.is_water: # not interested in different solutions for water. 
-                continue # This means water atoms may or may not swap for the single solution where no protein atoms swap.
-            from_altloc = chunk.get_altloc()
+        
+        REQUIRE_ONE_UNUSED_BOND_GEOMECTION=False
+        
+        if not REQUIRE_ONE_UNUSED_BOND_GEOMECTION:
+            for chunk in chunk_sites:
+                site = VariableID.Atom(chunk)
+                if not site_being_considered(site):
+                    continue
+                if protein_sites and site.is_water: # not interested in different solutions for water. 
+                    continue # This means water atoms may or may not swap for the single solution where no protein atoms swap.
+                from_altloc = chunk.get_altloc()
 
-            vars_to_force_change = list(site_var_dict[site][from_altloc].values())
-            if site in site_altposvar_dict and include_alt_pos_as_next_best_options:
-                vars_to_force_change.extend(site_altposvar_dict[site][from_altloc].values())
-            
-            
-            for var in vars_to_force_change:
-                val = var.value()
-                flip_variables.append(var)
-                if (val > 0.5) and not (str(var) in inverted_active_variable_names):
-                    inverted_active_variables.append(1-var)
-                    inverted_active_variable_names.append(str(var))
-        if len(inverted_active_variables) == 0:
-            # Require one variable to be flipped
-            lp_problem += pulp.lpSum(flip_variables) >= 1, f"force_swaps_loop_{l}"  # TODO remove?
-        else:
-            # require at least one assignment to be different
-            lp_problem += pulp.lpSum(inverted_active_variables) >= 1, f"force_next_best_solution_{l}"
+                vars_to_force_change = list(site_var_dict[site][from_altloc].values())
+                if site in site_altposvar_dict and include_alt_pos_as_next_best_options:
+                    vars_to_force_change.extend(site_altposvar_dict[site][from_altloc].values())
+                
+                
+                for var in vars_to_force_change:
+                    val = var.value()
+                    flip_variables.append(var)
+                    if (val > 0.5) and not (str(var) in inverted_active_variable_names):
+                        inverted_active_variables.append(1-var)
+                        inverted_active_variable_names.append(str(var))
 
+
+            if len(inverted_active_variables) == 0:
+                # Require one variable to be flipped
+                lp_problem += pulp.lpSum(flip_variables) >= 1, f"force_swaps_loop_{l}"  # TODO remove?
+            else:
+                # require at least one assignment to be different
+                lp_problem += pulp.lpSum(inverted_active_variables) >= 1, f"force_next_best_solution_{l}"
+            
+
+        else: 
+            geom_vars_to_force_change=[]
+            active_bond_vars=[]
+            #active_altpos_vars=[]
+            for disordered_connection_var_dict in mega_connection_var_dict.values():
+                reference_conn=list(disordered_connection_var_dict.values())[0][0]
+                if reference_conn.connection_type!=ConstraintsHandler.BondConstraint:
+                    continue
+                geom_vars_to_force_change.extend(var for _, var in disordered_connection_var_dict.values())
+                active_bond_vars.extend([var for constraint,var in disordered_connection_var_dict.values() if var.value()>0.5])
+            # for site in site_altposvar_dict:
+            #     for from_altloc in site_altposvar_dict[site]:
+            #         geom_vars_to_force_change.extend([var for var in site_altposvar_dict[site][from_altloc].values()])
+            #         active_altpos_vars.extend([var for var in site_altposvar_dict[site][from_altloc].values() if var.value()>0.5])
+            new_vars=[]
+            #for var in (active_bond_vars+active_altpos_vars):
+            for var in (active_bond_vars):
+                if not (str(var) in previously_used_variable_names):
+                    new_vars.append(str(var))
+            previously_used_variable_names.extend(new_vars)
+            if l>0:
+                #print("New vars (bonds/positions):",new_vars)
+                print("New bond geomections:",new_vars)
+            unused_variables = [var for var in geom_vars_to_force_change if str(var) not in previously_used_variable_names]
+            lp_problem += pulp.lpSum(unused_variables) >= 1, f"force_unused_bond_{l}"
         '''
         non_original_variables=[]
         non_original_variable_history.append(non_original_variables)

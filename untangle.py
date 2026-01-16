@@ -29,7 +29,7 @@ from Untwist import untwist
 
 
 
-DISABLE_WATER_ALTLOC_OPTIM=True
+DISABLE_WATER_ALTLOC_OPTIM=False
 TURN_OFF_BULK_SOLVENT=False
 CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=True
 PHENIX_ORDERED_SOLVENT=False
@@ -37,7 +37,7 @@ TENSIONS=False  # Enables behaviours of re-enabling connection options involving
 PHENIX_FREEZE_WATER=False
 PHENIX_DISABLE_CDL=False # Disables the conformation-dependent library for phenix.refine. 
 
-TIMEOUT_MINS_FACTOR=1
+TIMEOUT_MINS_FACTOR=4
 
 # TODO:
 # down weight swaps that were previously made but need to be made again (i.e. cases where it's not tangled and the density is pushing it a different way.)
@@ -65,8 +65,8 @@ class Untangler():
     never_do_unrestrained=False # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
     always_allow_O_swaps=False
     debug_main_chain_swaps_only=False
-    main_chain_swaps_only_after_first_loop=True
-    default_scoring_function = staticmethod(ConstraintsHandler.log_chi)
+    main_chain_swaps_only_after_first_loop=False
+    default_scoring_function = staticmethod(ConstraintsHandler.chi_z_sqr) #staticmethod(ConstraintsHandler.log_chi)
     debug_skip_to_loop=0
     #untwist_loop=99
     num_loops_not_refine_H=0
@@ -82,6 +82,7 @@ class Untangler():
     refinement=PHENIX
     ##
     O_bond_change_period=5
+    main_chain_swaps_only_period=2
     ####
     num_threads=25
     ## 
@@ -696,7 +697,8 @@ class Untangler():
             positions_refined_model = self.refine_for_positions(untwisted_model,loops_override=num_unrestrained_cycles,debug_skip=debug_skip_refine,tag=f"Untwist-{i}_") 
             this_run_alternates,this_run_disallowed_alternates = untwist.get_untwist_atom_options_that_survived_unrestrained(
                 positions_refined_model,working_model, changes_only_model,
-                min_ratio_real_sep_on_fake_sep=1,
+                #min_ratio_real_sep_on_fake_sep=1,
+                min_ratio_real_sep_on_fake_sep=0.95,
                 min_twist_angle=45,
                 max_gap_close_frac=0.5,
                 exclude_H=True)
@@ -726,8 +728,14 @@ class Untangler():
 
         print(f"Alternate atom positions (untwist moves that are consistent with X-ray data): {' '.join([str(DisorderedTag.from_atom(a)) for a in alternate_atoms])}")
         print(f"Disallowed (candidate untwist moves that disagree with X-ray data): {' '.join([str(DisorderedTag.from_atom(a)) for a in disallowed_alternates])}")
+
+        # save_path=self.untwist_path()
+        # with open(save_path,"w") as f:
+
+
         return alternate_atoms
-        
+    def untwist_path(self):
+        return os.path.join(self.output_dir,f"{self.model_handle}_untwists_{self.loop}")
     
     def no_isolated_O_bond_swaps(self):
         return ((self.loop%self.O_bond_change_period!=0) 
@@ -758,6 +766,7 @@ class Untangler():
             working_model = self.refine_for_positions(working_model,debug_skip=skip_unrestrained) 
             if self.solution_reference is not None and not skip_unrestrained: 
                 self.track(working_model,label=f"Unrestrained")
+            #self.track(working_model,label=f"Unrestrained")
 
             # if self.loop>=self.loops_without_untwist:
             #     working_model = self.untwist(working_model,skip=skip_unrestrained)
@@ -818,8 +827,7 @@ class Untangler():
 
 
             # Limited options
-            MChOnly_period=2
-            if ((self.loop+(MChOnly_period-1))%MChOnly_period!=0
+            if ((self.loop+(self.main_chain_swaps_only_period-1))%self.main_chain_swaps_only_period!=0
                 and not self.debug_main_chain_swaps_only
                 and not (self.main_chain_swaps_only_after_first_loop and self.loop>0)): # All options
                 subset_size=self.altloc_subset_size
@@ -1070,8 +1078,8 @@ class Untangler():
 
     def track(self,model,label):
         print(f"Tracking tangle at {label}")
-        ignore_nonbond=True
-        num_wrong_bonds,distance = evaluate_tangle(model,self.solution_reference,ignore_nonbond=ignore_nonbond,scoring_function=self.default_scoring_function)
+        ignore_nonbond=False
+        num_wrong_bonds,distance = evaluate_tangle(model,self.solution_reference,ignore_nonbond=ignore_nonbond,scoring_function=self.default_scoring_function,weight_factors=self.weight_factors)
         self.reference_wrong_bonds.append(num_wrong_bonds)
         self.reference_distances.append(distance)
         self.reference_score_labels.append(f"{label}-{self.loop}")
@@ -1776,7 +1784,7 @@ def main():
             ConstraintsHandler.BondConstraint: 0.1,
             ConstraintsHandler.AngleConstraint: 80,#1,
             ConstraintsHandler.NonbondConstraint: 0.1,  # TODO experiment with this.
-            ConstraintsHandler.ClashConstraint: 0,  #0 1 100
+            ConstraintsHandler.ClashConstraint: 1e2,
             ConstraintsHandler.TwoAtomPenalty: 0,
         },
         solution_reference=solution_reference,

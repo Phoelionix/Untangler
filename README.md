@@ -1,6 +1,9 @@
 # Untangler
 
-Altloc optimizer to [untangle confused conformers](https://bl831.als.lbl.gov/~jamesh/challenge/twoconf/).
+An algorithm to address the confusion of conformer labels in ensemble refinement (i.e. "tangling"), identified in James Holton's [Untangle Challenge](https://bl831.als.lbl.gov/~jamesh/challenge/twoconf/).
+
+## Requirements
+`phenix`, `python3.9` or later, `tcsh`, `gnuplot`, 
 
 ## Setup 
 (Optional) make a virtual Python environment
@@ -13,11 +16,15 @@ Install required packages
 
 `pip install -r requirements.txt` 
 
-Tested with python 3.9. Requires `phenix`.
+Tested with python 3.9.
 
-## Run demo
+## Run
 
-`python3.9 untangle.py data/longrangetraps_TW.pdb data/refme.mtz`  
+`python3.9 untangle.py data/longrangetraps.pdb data/refme.mtz`  
+
+To automatically generate information on the differences from the best model (in `output/linear_optimizer_logs/cheat_longrangetraps_[...]/ChangedBonds-1.txt`), run
+
+`python3.9 untangle.py data/longrangetraps.pdb data/refme.mtz data/best.pdb`  
 
 <!-- <CENTER><P>
 <HR><A href="untangling.gif"><img src=untangling.gif width=960 height=720></A><p>
@@ -25,7 +32,6 @@ Tested with python 3.9. Requires `phenix`.
 
 
 ## What is this?
-
 
 This program refines an ensemble model of protein conformations to fit the 
 electron density represented by X-ray data (using `phenix.refine`), while 
