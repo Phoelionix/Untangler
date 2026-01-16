@@ -1348,7 +1348,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
         include_alt_pos_as_next_best_options=False # Allow solutions that only differ by alternate positions # TODO Need to forbid solutions that differ only by alternate positions and by a label reassignment (it is equivalent to no label reassignment as position changes are blind to conformer labels) 
         
-        REQUIRE_ONE_UNUSED_BOND_GEOMECTION=True
+        REQUIRE_ONE_UNUSED_BOND_GEOMECTION=False
         
         if not REQUIRE_ONE_UNUSED_BOND_GEOMECTION:
             for chunk in chunk_sites:

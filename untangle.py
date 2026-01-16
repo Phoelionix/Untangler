@@ -56,20 +56,22 @@ class Untangler():
     debug_phenix_ordered_solvent_on_initial=False
     debug_skip_initial_refine=True
     debug_skip_first_unrestrained_refine=True
-    debug_skip_first_swaps=False
-    debug_skip_first_batch_refine=False # skip to assessing best model from batch refine
+    debug_skip_first_swaps=True
+    debug_skip_first_batch_refine=True # skip to assessing best model from batch refine
     debug_skip_first_focus_swaps=False # many swaps strategy only 
     debug_skip_unrestrained_refine=False
     debug_always_accept_proposed_model=True
     auto_group_waters=False
     never_do_unrestrained=False # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
-    always_allow_O_swaps=True
+    always_allow_O_swaps=False
     debug_main_chain_swaps_only=False
     main_chain_swaps_only_after_first_loop=True
-    default_scoring_function = staticmethod(ConstraintsHandler.log_chi)
+    #default_scoring_function = staticmethod(ConstraintsHandler.log_chi)
+    #default_scoring_function = staticmethod(ConstraintsHandler.log_chi_z_sqr)
+    default_scoring_function = staticmethod(ConstraintsHandler.chi_z_sqr)
     debug_skip_to_loop=0
     #untwist_loop=99
-    num_loops_not_refine_H=9999
+    num_loops_not_refine_H=0
     untwist_moves_enabled=True
     num_loops_not_untwist=0 
     final_untwist_loop=0 # if equal to num_loops_not_untwist, will do untwist in that loop only
@@ -696,7 +698,8 @@ class Untangler():
             positions_refined_model = self.refine_for_positions(untwisted_model,loops_override=num_unrestrained_cycles,debug_skip=debug_skip_refine,tag=f"Untwist-{i}_") 
             this_run_alternates,this_run_disallowed_alternates = untwist.get_untwist_atom_options_that_survived_unrestrained(
                 positions_refined_model,working_model, changes_only_model,
-                min_ratio_real_sep_on_fake_sep=1,
+                #min_ratio_real_sep_on_fake_sep=1,
+                min_ratio_real_sep_on_fake_sep=0.95,
                 min_twist_angle=45,
                 max_gap_close_frac=0.5,
                 exclude_H=True)

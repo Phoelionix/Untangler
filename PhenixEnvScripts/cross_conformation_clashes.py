@@ -233,17 +233,17 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
         assert vdw_sum >0,(sep(*coords),f.overlap,CLASH_SCAN_BUFFER,vdw_sum)
 # 'pdb=" N  AARG A  62 "'
 # '"pdb= A  62 AARG  C "'
-    model_statistics_geometry = model.geometry_statistics(
-      use_hydrogens=None, condensed_probe=False, fast_clash=False)
-    model_statistics_geometry_result = \
-      model_statistics_geometry.result()
-    ramalyze  = model_statistics_geometry_result.ramachandran.ramalyze
-    omegalyze = model_statistics_geometry_result.omega.omegalyze
-    rotalyze  = model_statistics_geometry_result.rotamer.rotalyze
-    cbetadev  = model_statistics_geometry_result.c_beta.cbetadev
-    clashes   = model_statistics_geometry_result.clash.clashes
+    # model_statistics_geometry = model.geometry_statistics(
+    #   use_hydrogens=None, condensed_probe=False, fast_clash=False)
+    # model_statistics_geometry_result = \
+    #   model_statistics_geometry.result()
+    # ramalyze  = model_statistics_geometry_result.ramachandran.ramalyze
+    # omegalyze = model_statistics_geometry_result.omega.omegalyze
+    # rotalyze  = model_statistics_geometry_result.rotamer.rotalyze
+    # cbetadev  = model_statistics_geometry_result.c_beta.cbetadev
+    # clashes   = model_statistics_geometry_result.clash.clashes
     #print(clashes.clash_dict)
-    clashes.show()
+    #clashes.show()
     # probe_clashscore_manager(
     #     h_pdb_string=input_str,
     #     nuclear=nuclear,

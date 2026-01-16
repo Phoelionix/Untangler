@@ -13,7 +13,6 @@ hkl_file=${hkl_path##*/}
 hkl_handle=${hkl_file%.*}
 
 
-const_shrink_donor_acceptor=0.6
 
 out_handle_override='false'
 
@@ -21,6 +20,7 @@ out_handle_override='false'
 serial=999
 wc=1
 wu=1
+const_shrink_donor_acceptor=0
 wxc_scale=0.5
 macro_cycles=5
 calc_wE='false'
