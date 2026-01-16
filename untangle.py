@@ -29,7 +29,7 @@ from Untwist import untwist
 
 
 
-DISABLE_WATER_ALTLOC_OPTIM=True
+DISABLE_WATER_ALTLOC_OPTIM=False
 TURN_OFF_BULK_SOLVENT=False
 CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=True
 PHENIX_ORDERED_SOLVENT=False
@@ -54,8 +54,8 @@ class Untangler():
     # As of writing, untwist step is skipped if the unrestrained step is skipped.
     debug_skip_refine = False  # Note: Can set to True alongside debug_skip_first_swaps to skip to first proposal
     debug_phenix_ordered_solvent_on_initial=False
-    debug_skip_initial_refine=False
-    debug_skip_first_unrestrained_refine=False
+    debug_skip_initial_refine=True
+    debug_skip_first_unrestrained_refine=True
     debug_skip_first_swaps=False
     debug_skip_first_batch_refine=False # skip to assessing best model from batch refine
     debug_skip_first_focus_swaps=False # many swaps strategy only 
@@ -63,13 +63,13 @@ class Untangler():
     debug_always_accept_proposed_model=True
     auto_group_waters=False
     never_do_unrestrained=False # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
-    always_allow_O_swaps=False
+    always_allow_O_swaps=True
     debug_main_chain_swaps_only=False
     main_chain_swaps_only_after_first_loop=True
     default_scoring_function = staticmethod(ConstraintsHandler.log_chi)
     debug_skip_to_loop=0
     #untwist_loop=99
-    num_loops_not_refine_H=0
+    num_loops_not_refine_H=9999
     untwist_moves_enabled=True
     num_loops_not_untwist=0 
     final_untwist_loop=0 # if equal to num_loops_not_untwist, will do untwist in that loop only
@@ -726,8 +726,14 @@ class Untangler():
 
         print(f"Alternate atom positions (untwist moves that are consistent with X-ray data): {' '.join([str(DisorderedTag.from_atom(a)) for a in alternate_atoms])}")
         print(f"Disallowed (candidate untwist moves that disagree with X-ray data): {' '.join([str(DisorderedTag.from_atom(a)) for a in disallowed_alternates])}")
+
+        # save_path=self.untwist_path()
+        # with open(save_path,"w") as f:
+
+
         return alternate_atoms
-        
+    def untwist_path(self):
+        return os.path.join(self.output_dir,f"{self.model_handle}_untwists_{self.loop}")
     
     def no_isolated_O_bond_swaps(self):
         return ((self.loop%self.O_bond_change_period!=0) 
@@ -758,6 +764,7 @@ class Untangler():
             working_model = self.refine_for_positions(working_model,debug_skip=skip_unrestrained) 
             if self.solution_reference is not None and not skip_unrestrained: 
                 self.track(working_model,label=f"Unrestrained")
+            #self.track(working_model,label=f"Unrestrained")
 
             # if self.loop>=self.loops_without_untwist:
             #     working_model = self.untwist(working_model,skip=skip_unrestrained)
@@ -1070,8 +1077,8 @@ class Untangler():
 
     def track(self,model,label):
         print(f"Tracking tangle at {label}")
-        ignore_nonbond=True
-        num_wrong_bonds,distance = evaluate_tangle(model,self.solution_reference,ignore_nonbond=ignore_nonbond,scoring_function=self.default_scoring_function)
+        ignore_nonbond=False
+        num_wrong_bonds,distance = evaluate_tangle(model,self.solution_reference,ignore_nonbond=ignore_nonbond,scoring_function=self.default_scoring_function,weight_factors=self.weight_factors)
         self.reference_wrong_bonds.append(num_wrong_bonds)
         self.reference_distances.append(distance)
         self.reference_score_labels.append(f"{label}-{self.loop}")
@@ -1776,14 +1783,14 @@ def main():
             ConstraintsHandler.BondConstraint: 0.1,
             ConstraintsHandler.AngleConstraint: 80,#1,
             ConstraintsHandler.NonbondConstraint: 0.1,  # TODO experiment with this.
-            ConstraintsHandler.ClashConstraint: 0,  #0 1 100
+            ConstraintsHandler.ClashConstraint: 1e2,
             ConstraintsHandler.TwoAtomPenalty: 0,
         },
         solution_reference=solution_reference,
         ).run(
         starting_model,
         xray_data,
-        desired_score=18.4, # score to stop at
+        desired_score=17.8, # score to stop at
         max_num_runs=5,
     )
 if __name__=="__main__":

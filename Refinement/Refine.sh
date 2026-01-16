@@ -13,6 +13,8 @@ hkl_file=${hkl_path##*/}
 hkl_handle=${hkl_file%.*}
 
 
+const_shrink_donor_acceptor=0.6
+
 out_handle_override='false'
 
 # defaults
@@ -307,6 +309,9 @@ if $disable_nqh_flips; then
   sed "s/nqh_flips = True/nqh_flips = False/g" $paramFile  > tmp.$$ 
   mv tmp.$$ $paramFile
 fi
+
+sed "s/const_shrink_donor_acceptor = 0/const_shrink_donor_acceptor = $const_shrink_donor_acceptor/g" $paramFile  > tmp.$$ 
+mv tmp.$$ $paramFile
 
 
 sed "s/individual = TEMPLATE_SITES_INDIVIDUAL/individual = None/g" $paramFile > tmp.$$ 

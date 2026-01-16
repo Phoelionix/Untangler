@@ -21,7 +21,7 @@ def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False
             ConstraintsHandler.BondConstraint: 0.1,
             ConstraintsHandler.AngleConstraint: 80,#1,
             ConstraintsHandler.NonbondConstraint: 0.1, # 0.1
-            ConstraintsHandler.ClashConstraint: 0, 
+            ConstraintsHandler.ClashConstraint: 1e2, 
             ConstraintsHandler.TwoAtomPenalty: 0,
         }
     else:
