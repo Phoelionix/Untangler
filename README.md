@@ -1,6 +1,6 @@
 # Untangler
 
-Altloc optimizer to [untangle confused conformers](https://bl831.als.lbl.gov/~jamesh/challenge/twoconf/).
+An algorithm to address the confusion of conformer labels in ensemble refinement, i.e. "tangling", identified by James Holton in his [Untangle Challenge](https://bl831.als.lbl.gov/~jamesh/challenge/twoconf/).
 
 ## Requirements
 `phenix`.
