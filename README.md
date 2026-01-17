@@ -1,9 +1,9 @@
 # Untangler
 
-An algorithm to address the confusion of conformer labels in ensemble refinement, i.e. "tangling", identified by James Holton in his [Untangle Challenge](https://bl831.als.lbl.gov/~jamesh/challenge/twoconf/).
+An algorithm to address the confusion of conformer labels in ensemble refinement (i.e. "tangling"), identified in James Holton's [Untangle Challenge](https://bl831.als.lbl.gov/~jamesh/challenge/twoconf/).
 
 ## Requirements
-`phenix`.
+`phenix`, `python3.9` or later, `tcsh`, `gnuplot`, 
 
 ## Setup 
 (Optional) make a virtual Python environment
