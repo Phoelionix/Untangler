@@ -698,7 +698,7 @@ class Untangler():
             this_run_alternates,this_run_disallowed_alternates = untwist.get_untwist_atom_options_that_survived_unrestrained(
                 positions_refined_model,working_model, changes_only_model,
                 #min_ratio_real_sep_on_fake_sep=1,
-                min_ratio_real_sep_on_fake_sep=0.95,
+                min_ratio_real_sep_on_fake_sep=0.85,
                 min_twist_angle=45,
                 max_gap_close_frac=0.5,
                 exclude_H=True)
@@ -1772,8 +1772,8 @@ def main():
         endloop_wc=1, num_end_loop_refine_cycles=6,
         #endloop_wc=3, num_end_loop_refine_cycles=1,
         refine_for_positions_geo_weight=0,
-        starting_num_best_swaps_considered=50,
-        max_num_best_swaps_considered=50,
+        starting_num_best_swaps_considered=25,
+        max_num_best_swaps_considered=25,
         altloc_subset_size=2,
         unrestrained_damp=0,
         #refine_for_positions_geo_weight=0.03,

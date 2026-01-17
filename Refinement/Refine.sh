@@ -17,6 +17,7 @@ hkl_handle=${hkl_file%.*}
 out_handle_override='false'
 
 # defaults
+random_seed=42
 serial=999
 wc=1
 wu=1
@@ -334,7 +335,7 @@ if [ -f $final_structure ]; then
   mv $final_structure $final_structure#
 fi
 echo "Refining $out_handle"
-phenix.refine $paramFile > $logs_path/${out_handle}.log
+phenix.refine main.random_seed=$random_seed $paramFile > $logs_path/${out_handle}.log
 unset TMPDIR
 
 
