@@ -17,7 +17,11 @@ Tested with python 3.9. Requires `phenix`.
 
 ## Run demo
 
-`python3.9 untangle.py data/longrangetraps_TW.pdb data/refme.mtz`  
+`python3.9 untangle.py data/longrangetraps.pdb data/refme.mtz`  
+
+To automatically compare with solution:
+
+`python3.9 untangle.py data/longrangetraps.pdb data/refme.mtz data/best.pdb`  
 
 <!-- <CENTER><P>
 <HR><A href="untangling.gif"><img src=untangling.gif width=960 height=720></A><p>

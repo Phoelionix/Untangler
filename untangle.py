@@ -37,7 +37,7 @@ TENSIONS=False  # Enables behaviours of re-enabling connection options involving
 PHENIX_FREEZE_WATER=False
 PHENIX_DISABLE_CDL=False # Disables the conformation-dependent library for phenix.refine. 
 
-TIMEOUT_MINS_FACTOR=1
+TIMEOUT_MINS_FACTOR=4
 
 # TODO:
 # down weight swaps that were previously made but need to be made again (i.e. cases where it's not tangled and the density is pushing it a different way.)
@@ -54,10 +54,10 @@ class Untangler():
     # As of writing, untwist step is skipped if the unrestrained step is skipped.
     debug_skip_refine = False  # Note: Can set to True alongside debug_skip_first_swaps to skip to first proposal
     debug_phenix_ordered_solvent_on_initial=False
-    debug_skip_initial_refine=True
-    debug_skip_first_unrestrained_refine=True
-    debug_skip_first_swaps=True
-    debug_skip_first_batch_refine=True # skip to assessing best model from batch refine
+    debug_skip_initial_refine=False
+    debug_skip_first_unrestrained_refine=False
+    debug_skip_first_swaps=False
+    debug_skip_first_batch_refine=False # skip to assessing best model from batch refine
     debug_skip_first_focus_swaps=False # many swaps strategy only 
     debug_skip_unrestrained_refine=False
     debug_always_accept_proposed_model=True
@@ -65,10 +65,8 @@ class Untangler():
     never_do_unrestrained=False # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
     always_allow_O_swaps=False
     debug_main_chain_swaps_only=False
-    main_chain_swaps_only_after_first_loop=True
-    #default_scoring_function = staticmethod(ConstraintsHandler.log_chi)
-    #default_scoring_function = staticmethod(ConstraintsHandler.log_chi_z_sqr)
-    default_scoring_function = staticmethod(ConstraintsHandler.chi_z_sqr)
+    main_chain_swaps_only_after_first_loop=False
+    default_scoring_function = staticmethod(ConstraintsHandler.chi_z_sqr) #staticmethod(ConstraintsHandler.log_chi)
     debug_skip_to_loop=0
     #untwist_loop=99
     num_loops_not_refine_H=0
@@ -84,6 +82,7 @@ class Untangler():
     refinement=PHENIX
     ##
     O_bond_change_period=5
+    main_chain_swaps_only_period=2
     ####
     num_threads=25
     ## 
@@ -828,8 +827,7 @@ class Untangler():
 
 
             # Limited options
-            MChOnly_period=2
-            if ((self.loop+(MChOnly_period-1))%MChOnly_period!=0
+            if ((self.loop+(self.main_chain_swaps_only_period-1))%self.main_chain_swaps_only_period!=0
                 and not self.debug_main_chain_swaps_only
                 and not (self.main_chain_swaps_only_after_first_loop and self.loop>0)): # All options
                 subset_size=self.altloc_subset_size
@@ -1793,7 +1791,7 @@ def main():
         ).run(
         starting_model,
         xray_data,
-        desired_score=17.8, # score to stop at
+        desired_score=18.4, # score to stop at
         max_num_runs=5,
     )
 if __name__=="__main__":

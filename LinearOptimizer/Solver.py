@@ -1052,8 +1052,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         #timeLimit=None
         logPath=log_out_dir+"solver_log.txt"
         #logPath=None
-        pulp_solver = Solver.CPLX_PY
-        #pulp_solver = Solver.COIN
+        #pulp_solver = Solver.CPLX_PY
+        pulp_solver = Solver.COIN
         warmStart=True
         #gapRel=0.0003
         #gapRel=0.001
