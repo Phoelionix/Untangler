@@ -698,7 +698,7 @@ class Untangler():
             this_run_alternates,this_run_disallowed_alternates = untwist.get_untwist_atom_options_that_survived_unrestrained(
                 positions_refined_model,working_model, changes_only_model,
                 #min_ratio_real_sep_on_fake_sep=1,
-                min_ratio_real_sep_on_fake_sep=0.85,
+                min_ratio_real_sep_on_fake_sep=0.75,
                 min_twist_angle=45,
                 max_gap_close_frac=0.5,
                 exclude_H=True)
@@ -1133,7 +1133,7 @@ class Untangler():
 
     def initial_refine(self,model_path,**kwargs)->str:
         # Try to get atoms as close to their true positions as possible
-        params=list(zip([1,0.5,0.2,0.1],[1,0,0,0],[2,4,5,5],[0.1,0,0,0]))
+        params=list(zip([1,0.5,0.2,0.1],[1,0,0,0],[2,4,5,5],[0.05,0,0,0]))
         for i, (wc, wu, n_cycles, phenix_shake) in enumerate(params):
         #for wc, wu, n_cycles in zip([1,0.5],[1,0],[8,4]):
         #for wc, wu, n_cycles in zip([1],[1],[self.num_end_loop_refine_cycles]):
@@ -1335,7 +1335,7 @@ class Untangler():
             for phenix_kwargs in all_phenix_kwargs:
                 new_args=dict(phenix_kwargs)
                 new_args["model_path"]=self.get_phenix_out_path(phenix_kwargs["out_tag"])
-                new_args["num_macro_cycles"]=1
+                #new_args["num_macro_cycles"]=1
                 new_args["refine_hydrogens"]=False
                 assert  new_args["model_path"] is not None
                 extra_H_refine_param_set.append(self.get_refine_params_phenix(**new_args))
@@ -1772,8 +1772,8 @@ def main():
         endloop_wc=1, num_end_loop_refine_cycles=6,
         #endloop_wc=3, num_end_loop_refine_cycles=1,
         refine_for_positions_geo_weight=0,
-        starting_num_best_swaps_considered=10,
-        max_num_best_swaps_considered=10,
+        starting_num_best_swaps_considered=50,
+        max_num_best_swaps_considered=50,
         altloc_subset_size=2,
         unrestrained_damp=0,
         #refine_for_positions_geo_weight=0.03,

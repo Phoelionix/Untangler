@@ -199,7 +199,7 @@ def detect_twist(
     max_true_separation=0.25,
     midpoint_match_tol_frac=0.1,
     min_ratio_real_sep_on_fake_sep=1.1, # note that at 1, requires separation of real conformers are at least as large
-    max_difference_real_fake_sep=0.1, # TODO much room for improved method. Something like a check for gaussian overlap with tolerance determined by the resolution
+    max_difference_real_fake_sep=0.15, # TODO much room for improved method. Something like a check for gaussian overlap with tolerance determined by the resolution
     take_average = False, # Takes average of all twist point pairs that satisfy the conditions
     take_closest = False, # Takes the twist point pair that satisfies the conditions that has a separation most similar to the current atoms.
     take_second_closest = False, # Takes the twist point pair that satisfies the conditions that has a separation most similar to the current atoms.
