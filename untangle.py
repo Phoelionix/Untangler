@@ -1133,7 +1133,7 @@ class Untangler():
 
     def initial_refine(self,model_path,**kwargs)->str:
         # Try to get atoms as close to their true positions as possible
-        params=list(zip([1,0.5,0.2,0.1],[1,0,0,0],[2,4,5,5],[0.05,0,0,0]))
+        params=list(zip([1,0.5,0.2,0.1],[1,0,0,0],[2,4,5,5],[0,0,0,0]))
         for i, (wc, wu, n_cycles, phenix_shake) in enumerate(params):
         #for wc, wu, n_cycles in zip([1,0.5],[1,0],[8,4]):
         #for wc, wu, n_cycles in zip([1],[1],[self.num_end_loop_refine_cycles]):
@@ -1782,8 +1782,8 @@ def main():
         max_bond_changes=99999,
         weight_factors = {
             ConstraintsHandler.BondConstraint: 0.1,
-            ConstraintsHandler.AngleConstraint: 80,#1,
-            ConstraintsHandler.NonbondConstraint: 0.1,  # TODO experiment with this.
+            ConstraintsHandler.AngleConstraint: 80,
+            ConstraintsHandler.NonbondConstraint: 0.1,
             ConstraintsHandler.ClashConstraint: 1e2,
             ConstraintsHandler.TwoAtomPenalty: 0,
         },

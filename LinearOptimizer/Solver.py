@@ -1383,13 +1383,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         else: 
             geom_vars_to_force_change=[]
             active_bond_vars=[]
-            #active_altpos_vars=[]
             for disordered_connection_var_dict in mega_connection_var_dict.values():
                 reference_conn=list(disordered_connection_var_dict.values())[0][0]
                 if reference_conn.connection_type!=ConstraintsHandler.BondConstraint:
                     continue
                 geom_vars_to_force_change.extend(var for _, var in disordered_connection_var_dict.values())
                 active_bond_vars.extend([var for constraint,var in disordered_connection_var_dict.values() if var.value()>0.5])
+            #active_altpos_vars=[]
             # for site in site_altposvar_dict:
             #     for from_altloc in site_altposvar_dict[site]:
             #         geom_vars_to_force_change.extend([var for var in site_altposvar_dict[site][from_altloc].values()])
@@ -1405,6 +1405,18 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 print("New bond geomections:",new_vars)
             unused_variables = [var for var in geom_vars_to_force_change if str(var) not in previously_used_variable_names]
             lp_problem += pulp.lpSum(unused_variables) >= 1, f"force_unused_bond_{l}"
+
+        FORBID_UNUSED_O_ALTPOS=True  # TODO should forbid only if there is no change in other bond geomections with C 
+        if FORBID_UNUSED_O_ALTPOS and l==0:
+            active_O_altpos_vars=[]
+            for site in site_altposvar_dict:
+                if site.atom_name!="O":
+                    continue
+                for from_altloc in site_altposvar_dict[site]:
+                    active_O_altpos_vars.extend([var for var in site_altposvar_dict[site][from_altloc].values() if var.value()>0.5])
+            lp_problem += pulp.lpSum(active_O_altpos_vars) == len(active_O_altpos_vars), f"forbid_unused_O_altpos_{l}"
+
+
         '''
         non_original_variables=[]
         non_original_variable_history.append(non_original_variables)

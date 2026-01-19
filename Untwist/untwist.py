@@ -99,7 +99,10 @@ def get_untwist_atom_options_that_survived_unrestrained(pos_refined_model, pre_u
             passed = False
 
 
-        if separation(*post_ref_atm)/separation(*og_atm) > 2 and separation(*og_atm)>0.1:
+        if separation(*post_ref_atm)/separation(*og_atm) > 2 and separation(*post_ref_atm)>0.2:
+            passed=True 
+
+        if separation(*post_ref_atm)/separation(*og_atm) > 5 and separation(*post_ref_atm)>0.025:
             passed=True 
 
         if passed:

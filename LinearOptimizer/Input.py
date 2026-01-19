@@ -213,13 +213,14 @@ class LP_Input:
     elif MODE=="LOW_TOL":
         max_sigmas={
             ConstraintsHandler.BondConstraint:8,
-            ConstraintsHandler.AngleConstraint:2.5,
+            ConstraintsHandler.AngleConstraint:3.0,
         }    
         min_sigmas_where_anything_goes={
             #ConstraintsHandler.BondConstraint:99,
             #ConstraintsHandler.AngleConstraint:99,
             #ConstraintsHandler.NonbondConstraint:2,
         } 
+        # Unused at present
         min_tension_where_anything_goes={
             ConstraintsHandler.BondConstraint:8,
             ConstraintsHandler.AngleConstraint:4,
