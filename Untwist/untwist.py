@@ -38,7 +38,7 @@ def get_untwist_atom_options(working_model,take_second_closest=False)->list[Diso
 
 def get_untwist_atom_options_that_survived_unrestrained(pos_refined_model, pre_untwist_model, changes_only_model,
                                                         min_ratio_real_sep_on_fake_sep,min_twist_angle,
-                                                        max_twist_angle_decrease_to_ignore_angle_condition=0,
+                                                        max_twist_angle_decrease_to_ignore_angle_condition=None,
                                                         #max_twist_angle_decrease_to_ignore_min_sep_condition=0,
                                                         max_gap_close_frac_to_ignore_angle_condition=None,
                                                         max_gap_close_frac=None,exclude_H=True):
@@ -85,16 +85,25 @@ def get_untwist_atom_options_that_survived_unrestrained(pos_refined_model, pre_u
 
         new_rel_orient = abs(relative_orientation([a.get_coord() for a in post_ref_atm],[a.get_coord() for a in og_atm])) 
         original_rel_orient = abs(relative_orientation([a.get_coord() for a in untwist_atm],[a.get_coord() for a in og_atm]))
-        rel_orient_change_by_refine =  original_rel_orient - new_rel_orient  # TODO bugged, nneed to take %90
+        new_rel_orient=min(180-new_rel_orient,new_rel_orient)
+        original_rel_orient=min(180-original_rel_orient,original_rel_orient)
+        rel_orient_change_by_refine =  original_rel_orient - new_rel_orient
         if( (max_gap_close_frac_to_ignore_angle_condition is None or frac_smallest_dist_closed > max_gap_close_frac_to_ignore_angle_condition)
             and not (min_twist_angle <= new_rel_orient <= 180-min_twist_angle)
-            and (max_twist_angle_decrease_to_ignore_angle_condition < rel_orient_change_by_refine < 180 - max_twist_angle_decrease_to_ignore_angle_condition) #XXX
+            and (max_twist_angle_decrease_to_ignore_angle_condition is None or (max_twist_angle_decrease_to_ignore_angle_condition < rel_orient_change_by_refine < 180 - max_twist_angle_decrease_to_ignore_angle_condition)) #XXX
             ):
                 passed = False
 
         #if (max_twist_angle_decrease_to_ignore_min_sep_condition <= rel_orient_change_by_refine <= 180 - max_twist_angle_decrease_to_ignore_min_sep_condition):
         if separation(*post_ref_atm)/separation(*og_atm) < min_ratio_real_sep_on_fake_sep:
             passed = False
+
+
+        if separation(*post_ref_atm)/separation(*og_atm) > 2 and separation(*post_ref_atm)>0.2:
+            passed=True 
+
+        if separation(*post_ref_atm)/separation(*og_atm) > 5 and separation(*post_ref_atm)>0.025:
+            passed=True 
 
         if passed:
             alternate_atoms.append(post_ref_atm)

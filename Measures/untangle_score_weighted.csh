@@ -290,6 +290,7 @@ phenix.molprobity flip_symmetric_amino_acids=True $ciffiles \
     outliers_only=False output.probe_dots=False \
     output.coot=True this.pdb ) >&! ${outprefix}_molprobity.log
 cp ${tmpdir}/molprobity_coot.py ${t}molprobity_coot.py
+cp ${tmpdir}/molprobity.out ${outprefix}_molprobity.out
 
 echo "geometry"
 phenix.geometry_minimization $pdbfile $ciffiles macro_cycles=0 \
@@ -463,7 +464,7 @@ tail -n 2 ${t}molprobity_coot.py |\
  awk 'BEGIN{RS="[\047]"} {print}' |\
  awk 'length()==16{atoms=atoms"|"$0}\
  /^,/ && NF>1{r0=3;gsub(",","");r=r0+$1;\
-  print "CLASH",lj(r,r0),-$1,atoms;atoms=""} \
+  print "CLASH",lj(r,r0),r,r0,-$1,atoms;atoms=""} \
   function lj0(r,r0) {if(r==0)return 1e40;return 4*((r0*2^(-1./6)/r)^12-(r0*2^(-1./6)/r)^6)}\
   function lj(r,r0) {return lj0(r,r0)-lj0(6,r0)}' |\
 sort -k2gr >! ${outprefix}_clashes.txt

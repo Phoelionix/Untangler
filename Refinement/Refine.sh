@@ -12,12 +12,15 @@ hkl_file=${hkl_path##*/}
 hkl_handle=${hkl_file%.*}
 
 
+
 out_handle_override='false'
 
 # defaults
+random_seed=42
 serial=999
 wc=1
 wu=1
+const_shrink_donor_acceptor=0
 wxc_scale=0.5
 macro_cycles=5
 calc_wE='false'
@@ -48,7 +51,7 @@ restrain_movement_of_protein='false' # Note this does nothing when True if disab
 fixed_water_occupancy='false' # Fix water occupancies at value of ordered_solvent_occupancy
 
 
-while getopts ":a:f:o:u:c:n:s:q:whprgtzACDHNOPRSZ" flag; do
+while getopts ":a:f:o:u:c:e:n:s:q:whprgtzACDHNOPRSZ" flag; do
  case $flag in
     a) altlocs_to_refine=$OPTARG
     ;;
@@ -58,6 +61,8 @@ while getopts ":a:f:o:u:c:n:s:q:whprgtzACDHNOPRSZ" flag; do
     u) wu=$OPTARG
     ;;
     c) wc=$OPTARG
+    ;;
+    e) user_param_file=$OPTARG
     ;;
     f) ordered_solvent_occupancy=$OPTARG
        fixed_water_occupancy='true' 
@@ -200,79 +205,82 @@ if [ -n "$altlocs_to_refine" ]; then
  
 fi
 
+export TMPDIR=$PWD/tmp_${out_handle}
+mkdir -p $TMPDIR
 
+tmpfile=$TMPDIR/tmp.$$
 
-sed "s/XYZ_TEMPLATE/${xyz_subset_handle}/g" $paramFile > tmp.$$
-mv tmp.$$ $paramFile
-sed  "s@HKL_TEMPLATE_PATH@${hkl_path}@g" $paramFile  > tmp.$$
-mv tmp.$$ $paramFile
-sed  "s/PREFIX_TEMPLATE/${out_handle}/g" $paramFile  > tmp.$$
-mv tmp.$$ $paramFile
-sed  "s/serial = None/serial = ${serial}/g" $paramFile  > tmp.$$ 
-mv tmp.$$ $paramFile
-sed  "s/serial = None/serial = ${serial}/g" $paramFile  > tmp.$$ 
-mv tmp.$$ $paramFile
-sed  "s/    wc = 1/    wc = ${wc}/g" $paramFile  > tmp.$$ 
-mv tmp.$$ $paramFile
-sed  "s/    wu = 1/    wu = ${wu}/g" $paramFile  > tmp.$$ 
-mv tmp.$$ $paramFile
-sed  "s/NUM_MACRO_CYCLES/${macro_cycles}/g" $paramFile  > tmp.$$ 
-mv tmp.$$ $paramFile
-sed  "s/wxc_scale = 0.5/wxc_scale = ${wxc_scale}/g" $paramFile  > tmp.$$ 
-mv tmp.$$ $paramFile
-sed  "s/SHAKE_TEMPLATE/${shake}/g" $paramFile  > tmp.$$ 
-mv tmp.$$ $paramFile
-sed  "s/      sigma = 0.1/      sigma = ${max_sigma_movement_restraint}/g" $paramFile  > tmp.$$ 
-mv tmp.$$ $paramFile
+sed "s/XYZ_TEMPLATE/${xyz_subset_handle}/g" $paramFile > $tmpfile
+mv $tmpfile $paramFile
+sed  "s@HKL_TEMPLATE_PATH@${hkl_path}@g" $paramFile  > $tmpfile
+mv $tmpfile $paramFile
+sed  "s/PREFIX_TEMPLATE/${out_handle}/g" $paramFile  > $tmpfile
+mv $tmpfile $paramFile
+sed  "s/serial = None/serial = ${serial}/g" $paramFile  > $tmpfile 
+mv $tmpfile $paramFile
+sed  "s/serial = None/serial = ${serial}/g" $paramFile  > $tmpfile 
+mv $tmpfile $paramFile
+sed  "s/    wc = 1/    wc = ${wc}/g" $paramFile  > $tmpfile 
+mv $tmpfile $paramFile
+sed  "s/    wu = 1/    wu = ${wu}/g" $paramFile  > $tmpfile 
+mv $tmpfile $paramFile
+sed  "s/NUM_MACRO_CYCLES/${macro_cycles}/g" $paramFile  > $tmpfile 
+mv $tmpfile $paramFile
+sed  "s/wxc_scale = 0.5/wxc_scale = ${wxc_scale}/g" $paramFile  > $tmpfile 
+mv $tmpfile $paramFile
+sed  "s/SHAKE_TEMPLATE/${shake}/g" $paramFile  > $tmpfile 
+mv $tmpfile $paramFile
+sed  "s/      sigma = 0.1/      sigma = ${max_sigma_movement_restraint}/g" $paramFile  > $tmpfile 
+mv $tmpfile $paramFile
 
 
 if $refine_hydrogens; then
   if $hold_protein; then 
     #echo "Hydrogens are the only protein atoms that will be refined"
-    sed "s/individual = water/individual = water or element H/g" $paramFile > tmp.$$ 
-    mv tmp.$$ $paramFile
+    sed "s/individual = water/individual = water or element H/g" $paramFile > $tmpfile 
+    mv $tmpfile $paramFile
   fi
 fi
 
 if $water_and_H_only; then 
-    sed "s/individual = TEMPLATE_SITES_INDIVIDUAL/individual = water or element H/g" $paramFile > tmp.$$ 
-    mv tmp.$$ $paramFile
+    sed "s/individual = TEMPLATE_SITES_INDIVIDUAL/individual = water or element H/g" $paramFile > $tmpfile 
+    mv $tmpfile $paramFile
 fi
 
 if $no_mlhl; then
-  sed "s/target = auto ml \*mlhl ml_sad ls mli/target = *auto ml mlhl ml_sad ls mli/g" $paramFile > tmp.$$ 
-  mv tmp.$$ $paramFile
+  sed "s/target = auto ml \*mlhl ml_sad ls mli/target = *auto ml mlhl ml_sad ls mli/g" $paramFile > $tmpfile 
+  mv $tmpfile $paramFile
 fi
 
 if $refine_occupancies; then 
-  sed  "s/tls occupancies/tls *occupancies/g" $paramFile  > tmp.$$ 
-  mv tmp.$$ $paramFile
-  sed  "s/remove_selection = All/remove_selection = None/g" $paramFile  > tmp.$$
-  mv tmp.$$ $paramFile
+  sed  "s/tls occupancies/tls *occupancies/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+  sed  "s/remove_selection = All/remove_selection = None/g" $paramFile  > $tmpfile
+  mv $tmpfile $paramFile
 fi
 
 if $generate_r_free; then
-  sed  "s/generate = False/generate = True/g" $paramFile  > tmp.$$ 
-  mv tmp.$$ $paramFile
+  sed  "s/generate = False/generate = True/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
 fi
 
 if $turn_off_bulk_solvent; then 
-  sed "s/bulk_solvent_and_scale = True/bulk_solvent_and_scale = False/g" $paramFile  > tmp.$$ 
-  mv tmp.$$ $paramFile
+  sed "s/bulk_solvent_and_scale = True/bulk_solvent_and_scale = False/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
 fi
 
 if $refine_hydrogens; then 
-  sed "s/refine = individual \*riding Auto/refine = *individual riding Auto/g" $paramFile  > tmp.$$ 
-  mv tmp.$$ $paramFile
-  sed "s/xh_bond_distance_deviation_limit = 0/xh_bond_distance_deviation_limit = 999/g" $paramFile  > tmp.$$ 
-  mv tmp.$$ $paramFile
-  # sed "s/real_space_optimize_x_h_orientation = True/real_space_optimize_x_h_orientation = False/g" $paramFile  > tmp.$$ 
-  # mv tmp.$$ $paramFile
+  sed "s/refine = individual \*riding Auto/refine = *individual riding Auto/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+  sed "s/xh_bond_distance_deviation_limit = 0/xh_bond_distance_deviation_limit = 999/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+  # sed "s/real_space_optimize_x_h_orientation = True/real_space_optimize_x_h_orientation = False/g" $paramFile  > $tmpfile 
+  # mv $tmpfile $paramFile
 fi
 
 if $ordered_solvent; then 
-  sed "s/ordered_solvent = False/ordered_solvent = True/g" $paramFile  > tmp.$$ 
-  mv tmp.$$ $paramFile
+  sed "s/ordered_solvent = False/ordered_solvent = True/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
 fi
 
 if $ADP_only; then 
@@ -280,36 +288,36 @@ if $ADP_only; then
     echo "ADP only but ADP disabled!"
     exit 
   fi 
-  sed "s/\*individual_sites/individual_sites/g" $paramFile  > tmp.$$ 
-  mv tmp.$$ $paramFile
+  sed "s/\*individual_sites/individual_sites/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
 fi 
 
 if $disable_ADP; then 
-  sed "s/\*individual_adp/individual_adp/g" $paramFile  > tmp.$$ 
-  mv tmp.$$ $paramFile
+  sed "s/\*individual_adp/individual_adp/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
 fi
 
 if $disable_CDL; then 
-  sed "s/cdl = True/cdl = False/g" $paramFile  > tmp.$$ 
-  mv tmp.$$ $paramFile
+  sed "s/cdl = True/cdl = False/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
 fi
 
 logs_path="../../../output/refine_logs"
 mkdir -p $logs_path
 
 if $disable_movement_restraint; then 
-  sed 's/reference_coordinate_restraints {\n      enabled = True/reference_coordinate_restraints {\n      enabled = False/g' $paramFile  > tmp.$$ 
-  mv tmp.$$ $paramFile
+  sed 's/reference_coordinate_restraints {\n      enabled = True/reference_coordinate_restraints {\n      enabled = False/g' $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
 fi 
 
 if $restrain_movement_of_protein; then 
-  sed "s/selection = water/selection = all/g" $paramFile  > tmp.$$ 
-  mv tmp.$$ $paramFile
+  sed "s/selection = water/selection = all/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
 fi
 
 if $disable_nqh_flips; then 
-  sed "s/nqh_flips = True/nqh_flips = False/g" $paramFile  > tmp.$$ 
-  mv tmp.$$ $paramFile
+  sed "s/nqh_flips = True/nqh_flips = False/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
 fi
 
 if $fixed_water_occupancy; then  
@@ -321,9 +329,12 @@ if $fixed_water_occupancy; then
   mv tmp.$$ $paramFile
 fi
 
+sed "s/const_shrink_donor_acceptor = 0/const_shrink_donor_acceptor = $const_shrink_donor_acceptor/g" $paramFile  > $tmpfile 
+mv $tmpfile $paramFile
 
-sed "s/individual = TEMPLATE_SITES_INDIVIDUAL/individual = None/g" $paramFile > tmp.$$ 
-mv tmp.$$ $paramFile
+
+sed "s/individual = TEMPLATE_SITES_INDIVIDUAL/individual = None/g" $paramFile > $tmpfile 
+mv $tmpfile $paramFile
 
 # Broad sweep attempt to stop phenix segfaulting when run in parallel
 export OMP_NUM_THREADS=1
@@ -333,14 +344,6 @@ export VECLIB_MAXIMUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 
 export PYTHONFAULTHANDLER=1
-export PYTHONMALLOC=debug
-export MALLOC_CHECK_=3
-#export MALLOC_PERTURB_=$((RANDOM%255+1))
-
-
-
-export TMPDIR=$PWD/tmp_${out_handle}
-mkdir -p $TMPDIR
 
 # env -i PATH=/usr/local/phenix-2/build/bin:/usr/bin:/bin \
 #   PHENIX=/usr/local/phenix-2 \
@@ -355,7 +358,7 @@ export PYTHONNOUSERSITE=1
 #phenix.refine $paramFile > $logs_path/${out_handle}.log
 error_file=$logs_path/${out_handle}_err.log
 log_file=$logs_path/${out_handle}.log
-phenix.refine $paramFile /home/speno/Untangler/ConformationTree/output/split_conformations_restraints.eff  2>$error_file 1> $log_file
+phenix.refine main.random_seed=$random_seed $paramFile $user_param_file  2>$error_file 1> $log_file
 unset TMPDIR
 
 if [ -s $error_file ]; then

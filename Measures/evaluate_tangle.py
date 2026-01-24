@@ -13,7 +13,7 @@ IGNORE_WATERS=False
 assert not IGNORE_WATERS, "bugged"
 
 def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False,scoring_function=None):
-    scoring_function = ConstraintsHandler.log_chi if scoring_function is None else scoring_function
+    scoring_function = ConstraintsHandler.chi_z_sqr if scoring_function is None else scoring_function # ConstraintsHandler.log_chi
     def get_out_path(model_handle,out_tag):
         output_dir = os.path.join(UNTANGLER_WORKING_DIRECTORY,"output","")
         return f"{output_dir}{model_handle}_{out_tag}.pdb"
@@ -23,7 +23,7 @@ def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False
             ConstraintsHandler.BondConstraint: 0.1,
             ConstraintsHandler.AngleConstraint: 80,#1,
             ConstraintsHandler.NonbondConstraint: 0.1, # 0.1
-            ConstraintsHandler.ClashConstraint: 0, 
+            ConstraintsHandler.ClashConstraint: 1e2, 
             ConstraintsHandler.TwoAtomPenalty: 0,
         }
     else:

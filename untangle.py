@@ -18,8 +18,6 @@ from enum import Enum
 import itertools
 from Bio.PDB import PDBParser,Structure,PDBIO
 from Bio.PDB.Atom import Atom,DisorderedAtom
-from sklearn.neighbors import NearestNeighbors
-from sklearn.neighbors import KNeighborsClassifier
 import psutil
 from LinearOptimizer.Tension import GeoXrayTension
 from matplotlib import pyplot as plt
@@ -31,7 +29,7 @@ from Untwist import untwist
 
 
 
-DISABLE_WATER_ALTLOC_OPTIM=True
+DISABLE_WATER_ALTLOC_OPTIM=False
 TURN_OFF_BULK_SOLVENT=False
 CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=False
 PHENIX_ORDERED_SOLVENT=False
@@ -70,8 +68,8 @@ class Untangler():
     debug_main_chain_swaps_only=False
     main_chain_swaps_only_after_first_loop=False
     optimize_side_and_main_separately=True
-    default_scoring_function = staticmethod(ConstraintsHandler.log_chi)
-    debug_skip_to_loop=2
+    default_scoring_function = staticmethod(ConstraintsHandler.chi_z_sqr) #staticmethod(ConstraintsHandler.log_chi)
+    debug_skip_to_loop=0
     #untwist_loop=99
     num_loops_not_refine_H=0
     untwist_moves_enabled=False
@@ -88,7 +86,7 @@ class Untangler():
     refinement=PHENIX
     ##
     O_bond_change_period=5
-    main_chain_only_period=2
+    main_chain_swaps_only_period=2
     ####
     num_threads=25
     ## 
@@ -710,7 +708,8 @@ class Untangler():
             positions_refined_model = self.refine_for_positions(untwisted_model,loops_override=num_unrestrained_cycles,debug_skip=debug_skip_refine,tag=f"Untwist-{i}_") 
             this_run_alternates,this_run_disallowed_alternates = untwist.get_untwist_atom_options_that_survived_unrestrained(
                 positions_refined_model,working_model, changes_only_model,
-                min_ratio_real_sep_on_fake_sep=1,
+                #min_ratio_real_sep_on_fake_sep=1,
+                min_ratio_real_sep_on_fake_sep=0.75,
                 min_twist_angle=45,
                 max_gap_close_frac=0.5,
                 exclude_H=True)
@@ -740,8 +739,14 @@ class Untangler():
 
         print(f"Alternate atom positions (untwist moves that are consistent with X-ray data): {' '.join([str(DisorderedTag.from_atom(a)) for a in alternate_atoms])}")
         print(f"Disallowed (candidate untwist moves that disagree with X-ray data): {' '.join([str(DisorderedTag.from_atom(a)) for a in disallowed_alternates])}")
+
+        # save_path=self.untwist_path()
+        # with open(save_path,"w") as f:
+
+
         return alternate_atoms
-        
+    def untwist_path(self):
+        return os.path.join(self.output_dir,f"{self.model_handle}_untwists_{self.loop}")
     
     def no_isolated_O_bond_swaps(self):
         assert self.always_forbid_O_swaps+self.always_allow_O_swaps <2
@@ -773,6 +778,7 @@ class Untangler():
             working_model = self.refine_for_positions(working_model,debug_skip=skip_unrestrained) 
             if self.solution_reference is not None and not skip_unrestrained: 
                 self.track(working_model,label=f"Unrestrained")
+            #self.track(working_model,label=f"Unrestrained")
 
             # if self.loop>=self.loops_without_untwist:
             #     working_model = self.untwist(working_model,skip=skip_unrestrained)
@@ -833,7 +839,7 @@ class Untangler():
 
 
             # Limited options
-            main_chain_swaps = not ((self.loop+(self.main_chain_only_period-1))%self.main_chain_only_period!=0
+            main_chain_swaps = not ((self.loop+(self.main_chain_swaps_only_period-1))%self.main_chain_swaps_only_period!=0
                 and not self.debug_main_chain_swaps_only
                 and not (self.main_chain_swaps_only_after_first_loop and self.loop>0))
             side_chain_swaps = not main_chain_swaps and self.optimize_side_and_main_separately
@@ -1107,7 +1113,7 @@ class Untangler():
     def track(self,model,label):
         print(f"Tracking tangle at {label}")
         ignore_nonbond=False
-        num_wrong_bonds,distance = evaluate_tangle(model,self.solution_reference,ignore_nonbond=ignore_nonbond,scoring_function=self.default_scoring_function)
+        num_wrong_bonds,distance = evaluate_tangle(model,self.solution_reference,ignore_nonbond=ignore_nonbond,scoring_function=self.default_scoring_function,weight_factors=self.weight_factors)
         self.reference_wrong_bonds.append(num_wrong_bonds)
         self.reference_distances.append(distance)
         self.reference_score_labels.append(f"{label}-{self.loop}")
@@ -1161,8 +1167,8 @@ class Untangler():
 
     def initial_refine(self,model_path,**kwargs)->str:
         # Try to get atoms as close to their true positions as possible
-        params=list(zip([1,0.5,0.2,0.1],[1,0,0,0],[2,4,5,5],[0.1,0,0,0]))
-        #params=list(zip([1],[1],[1],[0.1]))
+        initial_shake=0.1
+        params=list(zip([1,0.5,0.2,0.1],[1,0,0,0],[2,4,5,5],[initial_shake,0,0,0]))
         for i, (wc, wu, n_cycles, phenix_shake) in enumerate(params):
         #for wc, wu, n_cycles in zip([1,0.5],[1,0],[8,4]):
         #for wc, wu, n_cycles in zip([1],[1],[self.num_end_loop_refine_cycles]):
@@ -1366,7 +1372,7 @@ class Untangler():
             for phenix_kwargs in all_phenix_kwargs:
                 new_args=dict(phenix_kwargs)
                 new_args["model_path"]=self.get_phenix_out_path(phenix_kwargs["out_tag"])
-                new_args["num_macro_cycles"]=1
+                #new_args["num_macro_cycles"]=1
                 new_args["refine_hydrogens"]=False
                 assert  new_args["model_path"] is not None
                 extra_H_refine_param_set.append(self.get_refine_params_phenix(**new_args))
@@ -1539,44 +1545,6 @@ class Untangler():
 
         
         return out_path
-    
-    def group_waters_to_altlocs(self,model_path,out_path):
-        print("Grouping waters")
-        k=len(self.protein_altlocs)
-        
-        structure:Structure = PDBParser(model_path).get_structure("struct",model_path)
-        ordered_ordered_waters:list[Atom]=[]
-        water_coords=[]
-        water_residues={}
-        starting_resnum=np.inf
-        for atom in structure.get_atoms():
-            if res_is_water(atom.get_parent()):
-                resnum=OrderedAtomLookup.atom_res_seq_num(atom)
-                starting_resnum=int(min(starting_resnum,resnum))
-                water_residues[resnum]=atom.get_parent()
-                for a_coordstom in atom:
-                    a_coordstom:Atom
-                    ordered_ordered_waters.append(atom)
-                    water_coords.append(a_coordstom.get_coord())
-
-        
-        neighbours = NearestNeighbors(n_neighbors=k).fit(np.array(water_coords))
-        distances, indices = neighbours.kneighbors(water_coords)
-        indices:list[list[int]] = indices.tolist()
-        print("Warning: water altloc grouping code is not implemented correctly")
-        for g, group in enumerate(indices):
-            assert len(group)==len(self.protein_altlocs)
-            for i, altloc in enumerate(self.protein_altlocs):
-                ordered_ordered_waters[group[i]].set_altloc(altloc)
-                ordered_ordered_waters[group[i]].set_occupancy(1/k)
-                ordered_ordered_waters[group[i]].set_parent(water_residues[int(g+starting_resnum)])
-
-        io = PDBIO()
-        io.set_structure(structure)
-        io.save(out_path)             
-
-        self.solvent_altlocs=self.protein_altlocs
-
 
     def get_refine_params_refmac(self,out_tag,model_path,unrestrained=False,refine_water_occupancies=False, turn_off_bulk_solvent=TURN_OFF_BULK_SOLVENT,
                                  altloc_subset=None,
@@ -1857,9 +1825,9 @@ def main():
         max_bond_changes=99999,
         weight_factors = {
             ConstraintsHandler.BondConstraint: 0.1,
-            ConstraintsHandler.AngleConstraint: 80,#1,
-            ConstraintsHandler.NonbondConstraint: 0.1,  # TODO experiment with this.
-            ConstraintsHandler.ClashConstraint: 0,  #0 1 100
+            ConstraintsHandler.AngleConstraint: 80,
+            ConstraintsHandler.NonbondConstraint: 0.1,
+            ConstraintsHandler.ClashConstraint: 1e2,
             ConstraintsHandler.TwoAtomPenalty: 0,
         },
         solution_reference=solution_reference,

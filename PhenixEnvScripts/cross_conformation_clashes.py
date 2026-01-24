@@ -22,6 +22,10 @@ from cctbx import geometry_restraints
 from cctbx import uctbx, crystal
 import numpy as np
 import mmtbx.validation.molprobity
+from mmtbx.validation.clashscore import clashscore
+from libtbx import easy_run
+import libtbx
+import json
 #from cctbx.geometry_restraints import pair_proxies
 # import boost_adaptbx.boost.python as bp
 # ext = bp.import_ext("cctbx_geometry_restraints_ext")
@@ -47,6 +51,8 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
 
     tmp_pdb_file = os.path.join(os.path.abspath(os.path.join(__file__ ,"../")),"tmp_samealtloc.pdb")
 
+    SINGLE_ALTLOC_MODE=False
+    new_resnum_to_old_resnum_dict={}
     with open(pdb_file_path) as f, open(tmp_pdb_file,"w") as w:
         lines = f.readlines()
         max_resnum=num_altlocs=0
@@ -56,9 +62,9 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
             if any([line.startswith(k) for k in valid_record_types]):
                 max_resnum= max(max_resnum,int(line[22:26]))
                 altloc = line[16]
-                if altloc != "B":
-                    continue
-                if len(conformation_number)>0:  # single altloc
+                # if altloc != "B":
+                #     continue
+                if len(conformation_number)>0 and SINGLE_ALTLOC_MODE:  # single altloc
                     continue
                 if altloc not in conformation_number:
                     num_altlocs+=1
@@ -72,7 +78,9 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
                 new_chain=old_chain=line[21]
                 if altloc not in conformation_number:
                     continue
+                #new_resnum=resnum+(-1+conformation_number[altloc])*max_resnum
                 new_resnum=resnum+(-1+conformation_number[altloc])*max_resnum
+                new_resnum_to_old_resnum_dict[new_resnum]=resnum
 
                 if line[17:20]=="HOH":
                     line= "HETATM"+line[6:]
@@ -106,7 +114,7 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
     # sites_cart  = pnp_manager.model.get_sites_cart()
 
     grm: cctbx.geometry_restraints.manager.manager
-    grm = model.get_restraints_manager().geometry
+    #grm = model.get_restraints_manager().geometry
     #grm = validation.model.get_restraints_manager().geometry
     xrs = model.get_xray_structure()
     sites_cart  = model.get_sites_cart()
@@ -120,6 +128,8 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
     
 
     #grm.crystal_symmetry=None
+    validation =  mmtbx.validation.molprobity.molprobity(model=model)
+    grm = validation.model.get_restraints_manager().geometry
     pair_proxies = grm.pair_proxies(
                         sites_cart  = sites_cart,
                         site_labels = site_labels)
@@ -128,10 +138,126 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
         sites_cart  = sites_cart,
         site_labels = site_labels)
     #print(proxies_info_nonbonded[0][0])
+    #validation.show_summary()
 
 
-    assert proxies_info_nonbonded is not None
-    nonbonded_list = proxies_info_nonbonded[0]
+
+    CLASH_SCAN_BUFFER=0 # Doesnt seem to work
+    def run_probe_clashscore(probe_clashscore_manager, pdb_string):
+        probe_cmd=libtbx.env.under_build(os.path.join('probe', 'exe', 'probe'))
+
+        add_vdw_arg = f"-ADDvdw{int(CLASH_SCAN_BUFFER)}.0"
+        #probe_cmd_and_args=f'{probe_cmd} -u -q -mc -het -once {add_vdw_arg}  "ogt0 not water" "ogt0" - ' 
+        probe_cmd_and_args=f'{probe_cmd} -u -q -mc -het -once {add_vdw_arg}  "ogt0 not water" "ogt0" - ' 
+        probe_out = easy_run.fully_buffered(probe_cmd_and_args,stdin_lines=pdb_string)
+        if (probe_out.return_code != 0):
+            raise RuntimeError("Probe crashed - dumping stderr:\n%s" %
+            "\n".join(probe_out.stderr_lines))
+        probe_unformatted = probe_out.stdout_lines
+
+        filtered_dicts_list=probe_clashscore_manager.process_raw_probe_output(probe_unformatted)
+        return filtered_dicts_list
+
+
+
+
+    geo = mmtbx.model.statistics.geometry(
+      model           = model,
+      fast_clash      = False,
+      condensed_probe = False)
+    clash_score = clashscore(
+        pdb_hierarchy   = geo.pdb_hierarchy,
+        condensed_probe = False,
+        fast            = False,
+        keep_hydrogens  = geo.use_hydrogens,
+        nuclear         = geo.model.is_neutron())
+    pdb_string=clash_score.probe_clashscore_manager.h_pdb_string
+    #print(clash_score.probe_clashscore_manager.full_probe_txt, pdb_string)
+    filtered_dicts = run_probe_clashscore(clash_score.probe_clashscore_manager,pdb_string)
+
+    #print(dir(filtered_dicts[0]))
+
+
+    atom_xyz_dict={}
+    def sep(X,Y):
+        return np.sqrt(np.sum((np.array(X)-np.array(Y))**2))
+    for site_label,xyz in zip(site_labels,sites_cart):
+        atom_entry=site_label.split('"')[1]
+        name=atom_entry[0:4]
+        resname=atom_entry[5:8]
+        altloc=atom_entry[9]
+        resnum=int(atom_entry[10:15])
+        key = (resnum,resname,name)  
+        assert key not in atom_xyz_dict, (atom_entry,key)
+        atom_xyz_dict[key]=xyz
+        #print(key,site_label,xyz)
+
+    clashes_list=[]
+    for f in filtered_dicts:
+        # print(f.id_str())
+        # print(f.as_selection_string())
+        # # print(f.atom_selection)
+        # # print(f.atoms_info)
+        # # print(f.xyz)
+        # # overlap = f.overlap - CLASH_SCAN_BUFFER
+        # # vdw_sep= separation-overlap
+        json_obj = json.loads(f.as_JSON())
+        symop_str=json_obj["target_symop"]
+        if symop_str is None:
+            symop_str=""
+        assert json_obj["symop"] is None,(type(json_obj["symop"]),json_obj["symop"])
+
+        overlap = f.overlap + CLASH_SCAN_BUFFER
+        
+        #print(f.as_table_row_phenix()[:-1][1].split())
+
+        site_labels = [] 
+        for atom_entry in f.as_table_row_phenix()[:-1]:
+            atom_entry=atom_entry[1:]
+            altloc=atom_entry[0]
+            resnum=int(atom_entry[1:6])
+            resname=atom_entry[7:10]
+            name=atom_entry[11:15]
+            site_labels.append((resnum,resname,name))
+        assert len(site_labels)==2
+        coords= [atom_xyz_dict[key] for key in site_labels]
+        vdw_sum= sep(*coords) - overlap
+        #print(overlap)
+        #print(sep(*coords))
+        clashes_list.append((
+            *site_labels,
+            vdw_sum,
+            symop_str
+            )
+        )
+        assert vdw_sum >0,(sep(*coords),f.overlap,CLASH_SCAN_BUFFER,vdw_sum)
+# 'pdb=" N  AARG A  62 "'
+# '"pdb= A  62 AARG  C "'
+    # model_statistics_geometry = model.geometry_statistics(
+    #   use_hydrogens=None, condensed_probe=False, fast_clash=False)
+    # model_statistics_geometry_result = \
+    #   model_statistics_geometry.result()
+    # ramalyze  = model_statistics_geometry_result.ramachandran.ramalyze
+    # omegalyze = model_statistics_geometry_result.omega.omegalyze
+    # rotalyze  = model_statistics_geometry_result.rotamer.rotalyze
+    # cbetadev  = model_statistics_geometry_result.c_beta.cbetadev
+    # clashes   = model_statistics_geometry_result.clash.clashes
+    #print(clashes.clash_dict)
+    #clashes.show()
+    # probe_clashscore_manager(
+    #     h_pdb_string=input_str,
+    #     nuclear=nuclear,
+    #     fast=self.fast,
+    #     condensed_probe=self.condensed_probe,
+    #     largest_occupancy=occ_max,
+    #     b_factor_cutoff=b_factor_cutoff,
+    #     use_segids=use_segids,
+    #     verbose=verbose,
+    #     model_id=model.id)
+
+
+    #assert proxies_info_nonbonded is not None
+    #nonbonded_list = proxies_info_nonbonded[0]
 
 
 
@@ -147,32 +273,37 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
 
 
     # consider all altlocs (lazy implementation)
-    ordered_atom_sites_dict={}
+    ordered_atom_label_xyz_dict={}
     def sep(X,Y):
         return np.sqrt(np.sum((np.array(X)-np.array(Y))**2))
     for site_label,xyz in zip(og_site_labels,og_sites_cart):
-        key = site_label[:9]+site_label[10:]
-        
-        if key not in ordered_atom_sites_dict:
-            ordered_atom_sites_dict[key]=[]
-        ordered_atom_sites_dict[key].append((site_label,xyz))
+        #key = site_label[:9]+site_label[10:]
+        atom_entry=site_label.split('"')[1]
+        name=atom_entry[0:4]
+        resname=atom_entry[5:8]
+        altloc=atom_entry[9]
+        resnum=int(atom_entry[10:15])
+        key = (resnum,resname,name)
+        if key not in ordered_atom_label_xyz_dict:
+            ordered_atom_label_xyz_dict[key]=[]
+        ordered_atom_label_xyz_dict[key].append((site_label,xyz))
         #print(key,site_label,xyz)
 
-        
+####
 
     out_data=[]
-    for i, item in enumerate(nonbonded_list):
+    for i, item in enumerate(clashes_list):
         if i%100000==0:
-            print(f"{i}/{len(nonbonded_list)}")
-        i_seq          = item[1]
-        j_seq          = item[2]
-        #model_distance = item[3]
-        vdw_sum        = item[4]
-        symop_str      = item[5] 
-        symop          = item[6]
+            print(f"{i}/{len(clashes_list)}")
+        site_label_A          = item[0]
+        site_label_B          = item[1]
+        vdw_sum        = item[2] # but for clashes
+        symop_str      = item[3] 
 
 
-        keyA,keyB = [site_label[:9]+site_label[10:] for site_label in [site_labels[i_seq],site_labels[j_seq]]]
+
+        keyA=(new_resnum_to_old_resnum_dict[site_label_A[0]],)+site_label_A[1:]
+        keyB=(new_resnum_to_old_resnum_dict[site_label_B[0]],)+site_label_B[1:]
         # if keyA=='pdb=" C  VAL A   1 "':
         #     if keyB[-4:-2]==" 2":
         #         print(keyA,keyB)
@@ -181,9 +312,8 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
         
         debug_packing_added={}
         debug_nonpacking_added={}
-        for (conformer_site_label_A,coordA) in ordered_atom_sites_dict[keyA]:
-            for (conformer_site_label_B,coordB) in ordered_atom_sites_dict[keyB]:
-                model_distance=sep(coordA,coordB)
+        for (conformer_site_label_A,coordA) in ordered_atom_label_xyz_dict[keyA]:
+            for (conformer_site_label_B,coordB) in ordered_atom_label_xyz_dict[keyB]:
                 if sep(coordA,coordB) > distance_cutoff:
                     continue
                 # if keyA=='pdb=" C  GLY A  59 "':
@@ -192,7 +322,8 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
                 #         print(conformer_site_label_A,conformer_site_label_B)
                 #         print(site_labels[i_seq],site_labels[j_seq])
                 crystal_packing_contact= "true" if symop_str.strip()!="" else "false"
-    
+
+                vdw_sum=round(vdw_sum,3)
                 datum=[
                     conformer_site_label_A.split('"')[1], #pdb1 (pdb entry 1)
                     conformer_site_label_B.split('"')[1], #pdb2 (pdb entry 2)
@@ -203,7 +334,8 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
                 debug_dict = debug_packing_added if crystal_packing_contact else debug_nonpacking_added
                 # Assuming only difference in vdw for same energy types is whether it is a crystal packing contact
                 if debug_key in debug_dict:
-                    assert debug_dict[debug_key]==vdw_sum, (datum,debug_dict[debug_key])
+                    tol=0.2
+                    assert abs(debug_dict[debug_key]-vdw_sum)<tol, (datum,debug_dict[debug_key])
                 else:
                     debug_dict[debug_key]=vdw_sum
                     out_data.append(datum)
