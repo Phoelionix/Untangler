@@ -13,7 +13,9 @@ from time import sleep
 
 # CURRENTLY assumes 2 conformations with altlocs labelled A and B.
 
-def pairconformations(modelA, modelB, good='ytterbium',bad='yellow', colorbysep=1,sep_cutoff=0.05, doAlign=0, doPretty=1, guide=0, method='super', quiet=1):
+def pairconformations(modelA, modelB, good='ytterbium',bad='yellow',
+                      colorbysep=1,sep_cutoff=0.05, doAlign=0, doPretty=1, 
+                      guide=0, method='super', quiet=1):
     # try ytterbium is a moderate green
     def sele_exists(sele):
         sess = cmd.get_session()
@@ -44,12 +46,14 @@ def pairconformations(modelA, modelB, good='ytterbium',bad='yellow', colorbysep=
     for altloc in ["A","B"]:
         modelA_confs.append(delete_name(f"{modelA}-{altloc}"))
         cmd.create(modelA_confs[-1], f"model {modelA} and altloc {altloc}")
+        cmd.alter(modelA_confs[-1],'alt="X"') 
         modelB_confs.append(delete_name(f"{modelB}-{altloc}"))
         cmd.create(modelB_confs[-1], f"model {modelB} and altloc {altloc}")
+        cmd.alter(modelB_confs[-1],'alt="X"') 
     
     options=[]
     options.append(((modelA_confs[0],modelB_confs[0]),(modelA_confs[1],modelB_confs[1])))
-    options.append(((modelA_confs[0],modelB_confs[0]),(modelA_confs[1],modelB_confs[1])))
+    options.append(((modelA_confs[0],modelB_confs[1]),(modelA_confs[1],modelB_confs[0])))
 
     lowest_distance=1e20
     best_option=None
@@ -61,6 +65,7 @@ def pairconformations(modelA, modelB, good='ytterbium',bad='yellow', colorbysep=
         if avg_distance< lowest_distance:
             lowest_distance=avg_distance 
             best_option=option
+        print(avg_distance)
     # Group according to best option
     for i,pair in enumerate(best_option):
         # for model in pair:

@@ -56,7 +56,7 @@ class Untangler():
     # As of writing, untwist step is skipped if the unrestrained step is skipped.
     debug_skip_refine = False  # Note: Can set to True alongside debug_skip_first_swaps to skip to first proposal
     debug_skip_initial_refine=True
-    debug_skip_first_unrestrained_refine=True
+    debug_skip_first_unrestrained_refine=False
     debug_skip_first_swaps=False
     debug_skip_first_batch_refine=False # skip to assessing best model from the batch of refinements
     debug_skip_first_focus_swaps=False # many swaps strategy only 
@@ -68,9 +68,10 @@ class Untangler():
     always_allow_O_swaps=False
     always_forbid_O_swaps=False
     debug_main_chain_swaps_only=False
-    main_chain_swaps_only_after_first_loop=True
+    main_chain_swaps_only_after_first_loop=False
+    optimize_side_and_main_separately=True
     default_scoring_function = staticmethod(ConstraintsHandler.log_chi)
-    debug_skip_to_loop=0
+    debug_skip_to_loop=2
     #untwist_loop=99
     num_loops_not_refine_H=0
     untwist_moves_enabled=False
@@ -832,22 +833,29 @@ class Untangler():
 
 
             # Limited options
-            if ((self.loop+(self.main_chain_only_period-1))%self.main_chain_only_period!=0
+            main_chain_swaps = not ((self.loop+(self.main_chain_only_period-1))%self.main_chain_only_period!=0
                 and not self.debug_main_chain_swaps_only
-                and not (self.main_chain_swaps_only_after_first_loop and self.loop>0)): # All options
+                and not (self.main_chain_swaps_only_after_first_loop and self.loop>0))
+            side_chain_swaps = not main_chain_swaps and self.optimize_side_and_main_separately
+
+            focused_swap_modes=[]
+            if main_chain_swaps: # All options
+                focused_swap_modes.append("MAIN_CHAIN_ONLY") # ["NO_CB_CHANGES","MAIN_CHAIN_ONLY"]
+            if side_chain_swaps:
+                focused_swap_modes.append("SIDE_CHAIN_ONLY")
+
+            if len(focused_swap_modes)==0:
                 subset_size=self.altloc_subset_size
                 num_combinations=3 
                 altloc_subsets.extend(self.get_altloc_subsets(subset_size,num_combinations))
                 kwargs_list.extend([{} for _ in altloc_subsets])
-            
-            else: # Focused swaps V2
+            else: # Focused swaps 
                 #focused_subset_size =7 
                 focused_subset_size =self.altloc_subset_size 
                 num_focused_combinations=3
                 focused_subsets = self.get_altloc_subsets(focused_subset_size,num_focused_combinations)
                 for subset in focused_subsets:
-                    #for key in ["NO_CB_CHANGES","MAIN_CHAIN_ONLY"]:
-                    for key in ["MAIN_CHAIN_ONLY"]:
+                    for key in focused_swap_modes:
                             print(f"Considering {key}")
                             altloc_subsets.append(subset)
                             kwargs_list.append({key:True})
@@ -1839,8 +1847,8 @@ def main():
         endloop_wc=1, num_end_loop_refine_cycles=6,
         #endloop_wc=3, num_end_loop_refine_cycles=1,
         refine_for_positions_geo_weight=0,
-        starting_num_best_swaps_considered=1,
-        max_num_best_swaps_considered=1,
+        starting_num_best_swaps_considered=25,
+        max_num_best_swaps_considered=25,
         altloc_subset_size=10,
         unrestrained_damp=0,
         #refine_for_positions_geo_weight=0.03,

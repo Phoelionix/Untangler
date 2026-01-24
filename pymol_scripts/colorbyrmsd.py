@@ -10,7 +10,7 @@ License: BSD-2-Clause
 from pymol import cmd, CmdException
 
 
-def colorbyrmsd(mobile, target, doAlign=1, doPretty=1, guide=1, method='super', quiet=1):
+def colorbyrmsd(mobile, target, doAlign=1, doPretty=1, guide=1, method='super', quiet=1,minim=None,maxim=None):
     '''
 DESCRIPTION
 
@@ -56,12 +56,13 @@ EXAMPLE
         target = '(%s) and guide' % target
 
     try:
+        print(mobile,target,aln)
         if doAlign:
             # superpose
             align(mobile, target)
 
         # get alignment without superposing
-        align(mobile, target, cycles=0, transform=0, object=aln)
+        align(mobile, target, cycles=0, transform=0)
     except:
         print(' Error: Alignment with method %s failed' % (method))
         raise CmdException
@@ -85,10 +86,10 @@ EXAMPLE
     cmd.alter(seleboth, 'b = b_dict.get((model, index), -1)', space=locals())
 
     if doPretty:
-        cmd.orient(seleboth)
-        cmd.show_as('cartoon', 'byobj ' + seleboth)
+        #cmd.orient(seleboth)
+        #cmd.show_as('cartoon', 'byobj ' + seleboth)
         cmd.color('gray', seleboth)
-        cmd.spectrum('b', 'blue_red', seleboth + ' and b > -0.5')
+        cmd.spectrum('b', 'blue_red', seleboth + ' and b > -0.5',minimum=float(minim),maximum=float(maxim))
 
     if not quiet:
         print(" ColorByRMSD: Minimum Distance: %.2f" % (min(b_dict.values())))

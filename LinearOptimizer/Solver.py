@@ -1262,7 +1262,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 if key not in bond_altloc_dict:
                     bond_altloc_dict[key]=""
                 assert bond.original()
-                bond_altloc_dict[key]+=bond.from_altlocs[0]
+                bond_altloc_dict[key]+=bond.from_altlocs[-1] #FIXME assumes that child altlocs will only ever be second element of from_altlocs.
             for disordered_id, altlocs in bond_altloc_dict.items():
                 assert len(bond.atom_chunks)==2
                 out_str+= f"{disordered_id} {altlocs}\n"

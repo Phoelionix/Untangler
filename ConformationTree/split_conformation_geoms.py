@@ -80,6 +80,7 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
                      ideal_same_asu,ideal_crystal_packing = constraint.altlocs_vdw_dict[(parent_altloc,parent_altloc)]  
                      ideal = ideal_same_asu  
                      parameter_scope_name="bond" # FIXME
+                     nonbond_limit_param=ideal # TODO check this does what expect... 
                 if type(constraint) == ConstraintsHandler.AngleConstraint:
                     ideal_variable_name="angle_ideal"
                 else:
@@ -89,7 +90,7 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
                 + f"""      action = *add
 {atom_selection_lines}
       {ideal_variable_name} = {ideal:.4f}\n"""
-+(f"      sigma = {constraint.sigma:.4f}\n" if constraint.sigma is not None else "      sigma = None\n      limit = 1\n") 
++(f"      sigma = {constraint.sigma:.4f}\n" if constraint.sigma is not None else "      sigma = None\n      "+f"limit = {nonbond_limit_param}"+"\n") 
                 + "    }\n")
     return text
 

@@ -355,7 +355,7 @@ export PYTHONNOUSERSITE=1
 #phenix.refine $paramFile > $logs_path/${out_handle}.log
 error_file=$logs_path/${out_handle}_err.log
 log_file=$logs_path/${out_handle}.log
-phenix.refine $paramFile 2>$error_file 1> $log_file
+phenix.refine $paramFile /home/speno/Untangler/ConformationTree/output/split_conformations_restraints.eff  2>$error_file 1> $log_file
 unset TMPDIR
 
 if [ -s $error_file ]; then
@@ -364,6 +364,11 @@ if [ -s $error_file ]; then
 else
   rm $error_file
 fi
+
+if grep -q "Traceback (most recent call last)" "$log_file"; then
+  echo "Failed"
+  exit 1 
+fi 
 
 
 if [ ! -f $final_structure ]; then 
