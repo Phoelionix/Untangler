@@ -687,13 +687,12 @@ class PDB_Atom_Entry:
             self.res_num =atom_entry[22:26].strip()
     def is_water(self):
         return self.res_name in WATER_RESNAMES
-    def new_altloc(self,new_altloc:str):
-        return self.atom_entry[:16]+new_altloc+self.atom_entry[17:]
-    
+    def new_line(self,new_altloc=None,new_coord=None):
+        new_altloc = new_altloc if new_altloc is not None else self.atom_entry[16:17]
+        coord_str = ''.join([f"{v:8.4f}"for v in new_coord]) if new_coord is not None else self.atom_entry[30:54]
+        return self.atom_entry[:16]+new_altloc+self.atom_entry[17:30]+coord_str+self.atom_entry[54:]
+        
 
-    def new_coord(self,new_coord):
-        coord_str = ''.join([f"{v:8.4f}"for v in new_coord])
-        return self.atom_entry[:30]  + coord_str + self.atom_entry[54:] 
             
 
 # %%

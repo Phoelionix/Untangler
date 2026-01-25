@@ -62,9 +62,7 @@ class Swapper():
             atom_name_for_altloc=P.atom_name if name_for_altloc_override is None else name_for_altloc_override  #XXX
             to_altloc = self.get_to_altloc(P.res_num,atom_name_for_altloc, P.altloc)
             new_coord = self.get_new_coord(P.res_num,P.atom_name, P.altloc)
-            new_line = P.new_altloc(to_altloc)
-            if new_coord is not None:
-                new_line = P.new_coord(new_coord)
+            new_line = P.new_line(new_altloc=to_altloc,new_coord=new_coord)
             return new_line
 
         def __repr__(self):
@@ -215,7 +213,6 @@ class Swapper():
 
                 
 
-                # Alter line if polarity is negative 1
                 new_lines+= swap_group.get_line(P,name_for_altloc_override=anchored_atom_name)
 
                 # Sorry for this
