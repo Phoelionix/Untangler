@@ -176,11 +176,12 @@ class AtomChunk(OrderedResidue):
 class LP_Input:
     #MODE="LOW_TOL" # "NONBOND_RESTRICTIONS" #"LOW_TOL" #"HIGH_TOL" #"NO_RESTRICTIONS" # PHENIX REFMAC
     #MODE= "NO_RESTRICTIONS"
-    MODE= "LOW_TOL"
-
+    #MODE= "LOW_TOL"
+    MODE= "V_LOW_TOL"
+    
+    max_sigmas,min_sigmas_where_anything_goes,min_tension_where_anything_goes={},{},{}
     if MODE=="NO_RESTRICTIONS":
-        max_sigmas=min_sigmas_where_anything_goes=min_tension_where_anything_goes={}
-
+        pass
     elif MODE=="NONBOND_RESTRICTIONS":
         max_sigmas={
             ConstraintsHandler.NonbondConstraint:3,
@@ -229,7 +230,7 @@ class LP_Input:
     elif MODE=="LOW_TOL":
         max_sigmas={
             ConstraintsHandler.BondConstraint:8,
-            ConstraintsHandler.AngleConstraint:3.0,
+            ConstraintsHandler.AngleConstraint:2.5,
         }    
         min_sigmas_where_anything_goes={
             #ConstraintsHandler.BondConstraint:99,
@@ -245,6 +246,11 @@ class LP_Input:
             ConstraintsHandler.NonbondConstraint:8,
             ConstraintsHandler.ClashConstraint:8,
         } 
+    elif MODE=="V_LOW_TOL":
+        max_sigmas={
+            ConstraintsHandler.BondConstraint:3.5,
+            ConstraintsHandler.AngleConstraint:2,
+        }  
     elif MODE=="TENSIONS_TOL":
         max_sigmas={
             ConstraintsHandler.BondConstraint:2.5,
@@ -351,7 +357,7 @@ class LP_Input:
     class Geomection(): # TODO really need to have a disordered connection class to have some of these properties (e.g. max site tension, outlier_ok)
 
         def __init__(self, atom_chunks:list[AtomChunk],ts_distance,position_option_indices:list[int],connection_type,
-                     hydrogen_names,ideal,z_score,actual,max_site_tension,outlier_ok):
+                     hydrogen_names,ideal,z_score,actual,max_site_tension,outlier_ok,echo_is_of_original=None):
             assert hydrogen_names==None or len(hydrogen_names)==len(atom_chunks)
             self.atom_chunks = atom_chunks
             self.from_altlocs=[a.get_altloc() for a in atom_chunks]
@@ -369,6 +375,7 @@ class LP_Input:
             ###
             self.max_site_tension=max_site_tension
             self.outlier_ok=outlier_ok
+            self.echo_is_of_original=echo_is_of_original
             ###
             #TODO move this to LinearOptimizer.Solver.py!!! 
             self.forbidden= (connection_type in LP_Input.max_sigmas) and (self.z_score > LP_Input.max_sigmas[self.connection_type]) 
@@ -385,6 +392,8 @@ class LP_Input:
             return len({ch.altloc for ch in self.atom_chunks})==1
         # Whether geomection is active in preswap structure
         def original(self):
+            if self.echo_is_of_original is not None:
+                return self.echo_is_of_original
             return self.single_altloc() and not self.involves_position_changes()
         def get_disordered_connection_id(self):
             kind = ConstraintsHandler.Constraint.kind(self.connection_type)
@@ -397,10 +406,11 @@ class LP_Input:
             hydrogen_tag = LP_Input.make_hydrogen_tag(hydrogen_names)
             return f"{kind}{hydrogen_tag}_{'_'.join([str(dtag) for dtag in disordered_tags])}"
 
-        def create_echo(self,new_atom_chunks:List[AtomChunk]):
+        def create_echo(self,new_atom_chunks:List[AtomChunk],is_original_geomection):
             assert [ch.get_disordered_tag() for ch in new_atom_chunks] == [ch.get_disordered_tag() for ch in self.atom_chunks] 
             echo = LP_Input.Geomection(new_atom_chunks,self.ts_distance,self.position_option_indices,self.connection_type,
-                                       None,self.ideal,self.z_score,self.max_site_tension,self.outlier_ok)
+                                       None,self.ideal,self.z_score,self.actual,self.max_site_tension,self.outlier_ok,
+                                       echo_is_of_original=is_original_geomection)
             echo.hydrogen_name_set=self.hydrogen_name_set
             echo.hydrogen_tag=self.hydrogen_tag
             echo.poschange_tag=self.poschange_tag
@@ -1105,33 +1115,47 @@ class LP_Input:
                 child_tags = [ch.get_disordered_tag() for ch in disordered_conn[0].atom_chunks if (ch.get_disordered_tag() in all_child_site_tags)]
                 if len(child_tags)==0:
                     continue
-                parent_tags = [ch.get_disordered_tag() for ch in disordered_conn[0].atom_chunks if (ch.get_disordered_tag() not in child_tags)]
-                if len(parent_tags)==0:
+                non_child_tags = [ch.get_disordered_tag() for ch in disordered_conn[0].atom_chunks if (ch.get_disordered_tag() not in child_tags)]
+                if len(non_child_tags)==0:
                     continue    
                 
+                
+
+                if not all(child_altloc in self.ordered_atom_lookup.better_dict[tag.resnum()][tag.atom_name()] for tag in child_tags):
+                    # NOTE this may need to be made more robust for complicated conf. trees.
+                    continue
+
                 disordered_conn_echo:list[LP_Input.Geomection]=[]      
                 for conn in disordered_conn:
                     if child_altloc not in conn.from_altlocs:
                         continue
-                    echoed_parent_chunks = [ch for ch in conn.atom_chunks if ch.altloc in parent_altlocs and ch.get_disordered_tag() in parent_tags]
+                    echoed_parent_chunks = [ch for ch in conn.atom_chunks if ch.altloc in parent_altlocs and ch.get_disordered_tag() in non_child_tags]
                     if len(echoed_parent_chunks)==0:
                         continue
 
                     new_atom_chunks=[]
                     was_added=False
+                    is_original_geomection=True
                     for ch in conn.atom_chunks:
                         if ch in echoed_parent_chunks:
+                            # Create an ordered conformer object that is an "echo" of the parent conformer.
                             ordered_tag = ch.get_disordered_tag().ordered_tag(child_altloc)
                             if ordered_tag not in chunk_echoes:
                                 chunk_echoes[ordered_tag]=ch.create_echo(child_altloc)
                             new_atom_chunks.append(chunk_echoes[ordered_tag])
                             was_added=True
-                        else:
+                            if child_parent_altloc_dict[child_altloc]!=ch.altloc:
+                                is_original_geomection=False
+                        else: # NOTE these do NOT just have altloc=child_altloc! But at least one added to new_atom_chunks must be.
                             new_atom_chunks.append(ch)
+                            if ch.get_altloc() != child_altloc:
+                                is_original_geomection=False
+                            
                     assert was_added,conn.get_disordered_connection_id()  # ,ch.get_ordered_tag()
-                    disordered_conn_echo.append(conn.create_echo(new_atom_chunks)) 
+
+                    disordered_conn_echo.append(conn.create_echo(new_atom_chunks,is_original_geomection)) 
                     
-                assert len(disordered_conn_echo)>0, (child_tags,"|",parent_tags)
+                assert len(disordered_conn_echo)>0, (child_tags,"|",non_child_tags)
                 disordered_connection_echoes[disordered_conn_echo[0].get_disordered_connection_id()] = disordered_conn_echo
         return chunk_echoes,disordered_connection_echoes
                 

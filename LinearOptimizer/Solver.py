@@ -61,7 +61,7 @@ ALLOW_ALL_POSITION_CHANGE_GEOMECTIONS= True # Only if modify_forbid_conditions =
 FORCE_ALT_COORDS=False
 
 def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
-          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=999999,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=100,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
           inert_water_sites=False,
           #gapRel=0.001,
           gapRel=0,
@@ -75,6 +75,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
           change_punish_factor=0, # Adds cost of: change_punish_factor x num_conformer_labels_changed/num_conformers x original_cost. Num conformers excludes conformers that are being ignore (see `site_being_considered()`).
           forbid_ring_changes=False,
           forbid_solutions_composed_of_better_solutions=False,
+          forbid_CECD12_changes=True, # Leaving true until fix bug from missing interchangability of C[E/D]1 and C[E/D]2 when reading geometry restraints 
           ):  
           #max_bond_changes=None):  
     # protein_sites, water_sites: Whether these can be swapped.
@@ -112,13 +113,14 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     # def get(unique_id,key):
     #     return get_variables(unique_id)[key]
 
-    def site_being_considered(site:Union['VariableID',AtomChunk]):
-       if DEBUG_FIRST_100_SITES and site.get_site_num()>100:
+    def site_being_considered(site:Union[VariableID,AtomChunk]):
+        assert type(site) in [VariableID,AtomChunk]
+        if DEBUG_FIRST_100_SITES and site.get_site_num()>100:
            return False
-       return (((protein_sites and not site.is_water)
-             or (water_sites and site.is_water ))
-             )
-             #and site.site_num < 10) #XXX DEBUG TEMPORARY   
+        return (((protein_sites and not site.is_water)
+            or (water_sites and site.is_water ))
+            )
+            #and site.site_num < 10) #XXX DEBUG TEMPORARY   
 
 
     forced_swap_solutions=[]
@@ -372,6 +374,15 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             chunks = disordered_connection[0].atom_chunks
             #involves_main_chain=any(ch.name in MCH for ch in chunks)
             in_main_chain=all(ch.name in MCH for ch in chunks)
+
+            if forbid_CECD12_changes:
+                for ch in chunks:
+                    if ch.get_resname() in ["TYR","PHE"]:
+                        if ch.name in ["CD1","CD2","CE1","CE2","CZ"]:
+                            for conn in disordered_connection: # Fix the bug...
+                                conn.ts_distance=0
+                                conn.z_score=0
+                            return True
             if constraint_type==VariableKind.Bond: 
                 # TODO this allows water to change. But necessary.
                 if MAIN_CHAIN_ONLY and not in_main_chain and (any(ch.get_resname() not in ["CYS","HOH"]) for ch in chunks):  # XXX tidy up and put in a separate python file for specifying what to optimize
@@ -525,6 +536,28 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             tag=extra_tag+tag+ordered_connection_option.poschange_tag
             return tag
         
+
+
+        for ordered_connection_option in disordered_connection:
+            if ordered_connection_option.original():
+                initial_badness+=ordered_connection_option.ts_distance
+                
+        if modify_forbid_conditions:
+            worst_no_change_score=0
+            #    So possible solution is guaranteed, always allow connections of original structure.  
+            for ordered_connection_option in disordered_connection:
+                if ordered_connection_option.original():
+                    worst_no_change_score=max(worst_no_change_score,ordered_connection_option.ts_distance)
+            
+            #local_score_tolerate_threshold=2*worst_no_change_score
+            #local_score_tolerate_threshold=2*worst_no_change_score
+            #local_score_tolerate_threshold=10*worst_no_change_score
+            #local_score_tolerate_threshold=3*worst_no_change_score  # * len(altlocs)?
+            #local_score_tolerate_threshold=2*worst_no_change_score  # * len(altlocs)?   # TODO This should be done in input when setting what is forbidfden.
+            local_score_tolerate_threshold=worst_no_change_score  # * len(altlocs)?   # TODO This should be done in input when setting what is forbidfden.
+            always_tolerate_score_threshold = max(local_score_tolerate_threshold,global_score_tolerate_threshold) #worst_no_change_score*10+1e4
+
+
         for ordered_connection_option in disordered_connection:
             tag = get_tag(ordered_connection_option)
             ########
@@ -543,8 +576,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             
             
             var_active.setInitialValue(0) 
-            if len(set([ch.get_altloc() for ch in ordered_connection_option.atom_chunks])) == 1 \
-            and not ordered_connection_option.involves_position_changes():
+            if ordered_connection_option.original():
                 var_active.setInitialValue(1)
             constraint_var_dict[VariableID(tag,constraint_type.value)]=(ordered_connection_option,var_active)
             #group_vars.append(var_active)
@@ -561,28 +593,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         nonlocal num_allowed_connections
         nonlocal num_forbidden_connections
 
-        
-        for ordered_connection_option, _ in connection_var_dict.values():
-            if ordered_connection_option.original():
-                initial_badness+=ordered_connection_option.ts_distance
-                
-        if modify_forbid_conditions:
-            worst_no_change_score=0
-            #    So possible solution is guaranteed, always allow connections of original structure.  
-            for ordered_connection_option, _ in connection_var_dict.values():
-                if ordered_connection_option.original():
-                    worst_no_change_score=max(worst_no_change_score,ordered_connection_option.ts_distance)
-            
-            #local_score_tolerate_threshold=2*worst_no_change_score
-            #local_score_tolerate_threshold=2*worst_no_change_score
-            #local_score_tolerate_threshold=10*worst_no_change_score
-            #local_score_tolerate_threshold=3*worst_no_change_score  # * len(altlocs)?
-            #local_score_tolerate_threshold=2*worst_no_change_score  # * len(altlocs)?   # TODO This should be done in input when setting what is forbidfden.
-            local_score_tolerate_threshold=worst_no_change_score  # * len(altlocs)?   # TODO This should be done in input when setting what is forbidfden.
-            always_tolerate_score_threshold = max(local_score_tolerate_threshold,global_score_tolerate_threshold) #worst_no_change_score*10+1e4
-
         num_original_connections = len([conn for conn,_ in connection_var_dict.values() if conn.original()])
 
+        # TODO refactor, make connection_var_dict same as allowed_connection_var_dict. Deal with allowed and not allowed in separate loops.
+
+        allowed_connection_var_dict:dict[str,tuple[LP_Input.Geomection,LpVariable]]={} # indexed by from_altloc
         for altlocs_key, (ordered_connection_option, var_active) in connection_var_dict.items():
 
             if modify_forbid_conditions:
@@ -641,19 +656,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 distance_vars.append(ordered_connection_option.ts_distance*var_active)
             num_allowed_connections+=allowed 
             num_forbidden_connections+=not allowed 
-            
-            # Constraint will be handled by parent atom of hydrogen
 
-            #disordered_connection_vars.append(var_active)
-
-            # if allowed:
-            #     active_subvars = []
-
-            # # TEMPORARY
-            # tmp_tags = [DisorderedTag(num,name) for num,name in [(54,"C"),(55,"N")]]
-            # if ordered_connection_option.get_disordered_connection_id()==LP_Input.Geomection.construct_disordered_connection_id(ConstraintsHandler.BondConstraint,tmp_tags):
-            #     allowed = not ordered_connection_option.original()
-            # #####
+            if allowed:
+                allowed_connection_var_dict[altlocs_key]=(ordered_connection_option, var_active)
 
             #### CONSTRAINT 1 "If all atoms are active in a connection, that connection is active" #####
             for to_altloc, assignment_vars in assignment_options.items():
@@ -668,9 +673,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                         lpSum(assignment_vars) <=  len(assignment_vars)-1,   
                         f"FORBID{constraint_type.value}_{tag}>>{to_altloc}"
                     )
-        dID = disordered_connection[0].get_disordered_connection_id()
         
+        connection_var_dict = allowed_connection_var_dict
         ## CONSTRAINT 2 "Num ordered geometries (i.e. 'connections') per disordered geometry must be unchanged"
+        dID = disordered_connection[0].get_disordered_connection_id()
         lp_problem += (
             lpSum([var_active for (_,var_active) in connection_var_dict.values()])==num_original_connections,  # less than number of FROM altlocs. i.e. number of conformations it's currently involved in. 
             f"{dID}_{num_original_connections}_connections"
@@ -1364,7 +1370,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
         include_alt_pos_as_next_best_options=False # Allow solutions that only differ by alternate positions # TODO Need to forbid solutions that differ only by alternate positions and by a label reassignment (it is equivalent to no label reassignment as position changes are blind to conformer labels) 
         
-        REQUIRE_ONE_UNUSED_BOND_GEOMECTION=False
+        REQUIRE_ONE_UNUSED_BOND_GEOMECTION=True
         
         if not REQUIRE_ONE_UNUSED_BOND_GEOMECTION:
             for chunk in chunk_sites:
@@ -1504,7 +1510,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     return swaps_file,bonds_replaced_each_loop, distances
 
 def swaps_file_path(out_dir,out_handle,altlocs):
-    return f"{out_dir}/xLO-toFlip_{out_handle}-{''.join(altlocs)}.json"
+    return f"{out_dir}/xLO-toFlip_{out_handle}-{''.join(sorted(altlocs))}.json"
 
 if __name__=="__main__":
     handle = sys.argv[1]
