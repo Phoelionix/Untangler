@@ -48,7 +48,8 @@ from typing import Union
 
 #THREADS=None # Num cpu threads made available to ILP solver 
 #THREADS=24
-THREADS=10
+THREADS=18
+
 
 #import pulp as pl
 # just for residues for now
@@ -59,6 +60,10 @@ DEBUG_FIRST_100_SITES=False
 FORBID_MULTIPLE_LOCAL_CHANGES_WHEN_MAIN_CHAIN_ONLY=True
 ALLOW_ALL_POSITION_CHANGE_GEOMECTIONS= True # Only if modify_forbid_conditions = True
 FORCE_ALT_COORDS=False
+
+
+MEMORYLIMITGB=35
+
 
 def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
           inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=100,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
@@ -81,6 +86,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     # protein_sites, water_sites: Whether these can be swapped.
     # gaprel : relative gap tolerance for the solver to stop (fraction) # https://coin-or.github.io/pulp/technical/solvers.html
     assert MAIN_CHAIN_ONLY + SIDE_CHAIN_ONLY + NO_CB_CHANGES <=1 
+    
+    TOSYMBOL="~TO~" # >>
     
     if gapRel == 0:
         gapRel = None
@@ -221,7 +228,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 # Create variable for each possible swap to other altloc
                 for to_altloc in allowed_to_altlocs:
                     var_atom_assignment =  pl.LpVariable(
-                        f"{site}_{from_altloc}.{to_altloc}",
+                        f"@{site}_{from_altloc}.{to_altloc}",
                         lowBound=0,upBound=1,cat=pl.LpBinary #TODO pl.LpBinary
                     )
                     # For warm start.
@@ -234,7 +241,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 lp_problem += (  
                     #lpSum(site_var_dict[site][from_altloc])==1,
                     lpSum(site_var_dict[site][from_altloc].values())==1,
-                    f"fromAltLoc_{site}_{from_altloc}"
+                    f"fromAltLoc_{site}.{from_altloc}"
                 )
 
             # Each conformation is assigned no more than one ordered atom. 
@@ -246,18 +253,18 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 if set(site_altlocs)==set(all_altlocs):
                     lp_problem += (  
                         lpSum(to_altloc_vars)==1,
-                        f"toAltLoc_{site}.{to_altloc}"
+                        f"toAltLoc_{site}{TOSYMBOL}{to_altloc}"
                     )
                 # E.g. water sites which are not in all conformations.
                 else:
                     lp_problem += (  
                         lpSum(to_altloc_vars)<=1,
-                        f"toAltLoc_{site}.{to_altloc}"
+                        f"toAltLoc_{site}{TOSYMBOL}{to_altloc}"
                     )
 
         else:
             var_flipped =  pl.LpVariable(
-                f"{site}_Flipped",
+                f"@{site}_Flipped",
                 lowBound=0,upBound=1,cat=pl.LpBinary #TODO pl.LpBinary
             )
             var_flipped.setInitialValue(0)
@@ -348,7 +355,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     if (a not in CHANGES_MUST_INVOLVE) and (b not in CHANGES_MUST_INVOLVE):
                         lp_problem += (
                             site_var_dict[site][a][b]==0,
-                            f"Forbid_{site}_{a}>>{b}"
+                            f"Forbid_{site}_{a}{TOSYMBOL}{b}"
                         )  
 
 
@@ -528,7 +535,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                             conn.ts_distance+=frac*avg_current_distance
 
         def get_tag(ordered_connection_option:LP_Input.Geomection):
-            from_ordered_atoms = "|".join([f"{ch.resnum}.{ch.name}_{ch.altloc}" for ch in ordered_connection_option.atom_chunks])
+            from_ordered_atoms = ";".join([f"{ch.resnum}.{ch.name}.{ch.altloc}" for ch in ordered_connection_option.atom_chunks])
             tag=from_ordered_atoms
             extra_tag=""
             if ordered_connection_option.hydrogen_tag!="":
@@ -666,12 +673,12 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 if allowed:
                     lp_problem += (
                         lpSum(assignment_vars) <=  len(assignment_vars)-1+var_active,   # Active if all assignment vars active.
-                        f"ALLOW{constraint_type.value}_{tag}>>{to_altloc}"
+                        f"ALLOW{constraint_type.value}_{tag}{TOSYMBOL}{to_altloc}"
                     )               
                 else: 
                     lp_problem += (
                         lpSum(assignment_vars) <=  len(assignment_vars)-1,   
-                        f"FORBID{constraint_type.value}_{tag}>>{to_altloc}"
+                        f"FORBID{constraint_type.value}_{tag}{TOSYMBOL}{to_altloc}"
                     )
         
         connection_var_dict = allowed_connection_var_dict
@@ -1061,8 +1068,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         class Solver(Enum):
             COIN=PULP_CBC_CMD
             CPLX_PY=CPLEX_PY
-            CPLX_CMD=CPLEX_CMD
-
+            CPLX_CMD=CPLEX_CMD # NOTE Need to follow "Additional environment variables per solver" section in this guide: https://coin-or.github.io/pulp/guides/how_to_configure_solvers.html
+        pulp_solver=Solver.CPLX_CMD
+        #pulp_solver = Solver.CPLX_PY
+        #pulp_solver = Solver.COIN
+        
         timeLimit=None
         if max_mins_start is not None:
             extra_time_per_loop=60*mins_extra_per_loop
@@ -1073,8 +1083,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         #timeLimit=None
         logPath=log_out_dir+"solver_log.txt"
         #logPath=None
-        pulp_solver = Solver.CPLX_PY
-        #pulp_solver = Solver.COIN
+
         warmStart=True
         #gapRel=0.0003
         #gapRel=0.001
@@ -1097,9 +1106,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         solver_options=[]
         if pulp_solver == Solver.COIN: 
             solver_class = PULP_CBC_CMD
-        elif pulp_solver == Solver.CPLX_CMD:   # cant get working
-            assert False
-            pulp_solver = CPLEX_CMD
+        elif pulp_solver == Solver.CPLX_CMD:
+            #assert False
+            solver_class = CPLEX_CMD
         # CPLEX parameters: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.6.0/ilog.odms.cplex.help/CPLEX/GettingStarted/topics/tutorials/InteractiveOptimizer/settingParams.html
         # CPLEX status: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.10.0/ilog.odms.cplex.help/refcallablelibrary/macros/Solution_status_codes.html
             solver_options.append("set parallel -1")
@@ -1110,7 +1119,14 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         else:
             raise Exception("not implemented")
         #solver = solver_class(timeLimit=timeLimit,threads=THREADS,logPath=logPath,warmStart=warmStart,gapRel=gapRel,path=path)
-        solver = solver_class(timeLimit=timeLimit,threads=THREADS,warmStart=warmStart,logPath=logPath,gapRel=gapRel)
+        extra_args={}
+        if pulp_solver==Solver.CPLX_CMD:
+            #extra_args["path"]='/home/speno/ibm/ILOG/CPLEX_STUDIO2211/cplex/bin/x86-64_linux/cplex'
+            extra_args["maxMemory"]=MEMORYLIMITGB*1e3
+            #extra_args["options"]=solver_options
+
+        solver = solver_class(timeLimit=timeLimit,threads=THREADS,warmStart=warmStart,logPath=logPath,gapRel=gapRel,**extra_args)
+        
         lp_problem.solve(solver)
         print(solver)
         # if pulp_solver == Solver.COIN:
