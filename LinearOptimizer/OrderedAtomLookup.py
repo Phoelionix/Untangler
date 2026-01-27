@@ -120,7 +120,11 @@ class OrderedAtomLookup: #TODO pandas?
             self.alt_pos_options[disordered_tag].append(ordered_dict)
                     
     
-    def from_tag(self,ordered_tag:OrderedTag)->Atom:
+    def from_tag(self,ordered_tag:OrderedTag,debug=True)->Atom:
+        if debug:
+            assert  ordered_tag.resnum() in self.better_dict, ordered_tag 
+            assert  ordered_tag.atom_name() in self.better_dict[ordered_tag.resnum()], ordered_tag 
+            assert  ordered_tag.altloc() in self.better_dict[ordered_tag.resnum()][ordered_tag.atom_name()], ordered_tag 
         return self.better_dict[ordered_tag.resnum()][ordered_tag.atom_name()][ordered_tag.altloc()] # NOTE If error here during constraint loading, might be that waters weren't loaded in OrderedAtomLookup.
 
     def output_as_pdb_file(self, reference_pdb_file,out_path):

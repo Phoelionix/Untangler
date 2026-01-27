@@ -2,6 +2,7 @@ import os, sys, pathlib
 sys.path.append(str(pathlib.Path(__file__).parent.parent))
 from LinearOptimizer.Input import *
 from LinearOptimizer import Solver 
+import UntangleFunctions
 from UntangleFunctions import parse_symmetries_from_pdb, prepare_pdb, UNTANGLER_WORKING_DIRECTORY
 from LinearOptimizer.Swapper import Swapper
 import copy
@@ -38,10 +39,10 @@ def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False
     model_handle=os.path.basename(model)[:-4]
     untangle_fmted_model = get_out_path(model_handle,"fmtd")
     prepare_pdb(model,untangle_fmted_model,
-                ring_name_grouping=True) #NOTE
+                ring_name_grouping=UntangleFunctions.RING_NAME_GROUPING) #NOTE
     untangle_fmted_truth = get_out_path(os.path.basename(ground_truth)[:-4],"fmtd")
     prepare_pdb(ground_truth,untangle_fmted_truth,
-            ring_name_grouping=True) #NOTE
+            ring_name_grouping=UntangleFunctions.RING_NAME_GROUPING) #NOTE
     model = untangle_fmted_model
     ground_truth=untangle_fmted_truth
 

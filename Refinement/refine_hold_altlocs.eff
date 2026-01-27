@@ -38,7 +38,7 @@ data_manager {
         disable_suitability_test = False
         ignore_pdb_hexdigest = False
         generate = False
-        fraction = 0.1
+        fraction = 0.05
         max_free = 2000
         lattice_symmetry_max_delta = 5
         use_lattice_symmetry = True
@@ -69,7 +69,7 @@ data_manager {
         disable_suitability_test = False
         ignore_pdb_hexdigest = False
         generate = False
-        fraction = 0.1
+        fraction = 0.05
         max_free = 2000
         lattice_symmetry_max_delta = 5
         use_lattice_symmetry = True

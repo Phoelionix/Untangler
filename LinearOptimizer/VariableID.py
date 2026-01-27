@@ -16,15 +16,19 @@ class VariableID:
             VariableKind.Atom,
             chunk.get_site_num(),
             chunk.is_water,
-            chunk.name)
-    def __init__(self,name:str,kind:VariableKind,site_num=None,is_water=None,atom_name=None):
+            chunk.name,
+            chunk.get_resname())
+    def __init__(self,name:str,kind:VariableKind,site_num=None,is_water=None,atom_name=None,residue_name=None):
         self.name=str(name)
         self.kind = kind
         self.site_num=site_num
         self.is_water = is_water
         self.atom_name=atom_name
+        self.resname=residue_name
     def get_site_num(self):
         return self.site_num
+    def get_resname(self):
+        return self.resname
     ###
     def __repr__(self):
         return self.name

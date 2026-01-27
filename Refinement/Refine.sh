@@ -41,6 +41,7 @@ water_and_H_only='false'
 disable_CDL='false' # Disable conformation-dependent library
 disable_nqh_flips='false'
 altlocs_to_refine=''
+user_param_file=''
 
 max_sigma_movement_restraint=0.1
 
@@ -358,6 +359,9 @@ export PYTHONNOUSERSITE=1
 #phenix.refine $paramFile > $logs_path/${out_handle}.log
 error_file=$logs_path/${out_handle}_err.log
 log_file=$logs_path/${out_handle}.log
+
+
+#user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints.eff
 phenix.refine main.random_seed=$random_seed $paramFile $user_param_file  2>$error_file 1> $log_file
 unset TMPDIR
 

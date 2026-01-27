@@ -28,7 +28,7 @@ from Untwist import untwist
 
 
 
-
+  # Note argument forbid_CECD12_changes in LinearOptimizer.solve()
 DISABLE_WATER_ALTLOC_OPTIM=False
 TURN_OFF_BULK_SOLVENT=False
 CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=False
@@ -67,9 +67,9 @@ class Untangler():
     always_forbid_O_swaps=False
     debug_main_chain_swaps_only=False
     main_chain_swaps_only_after_first_loop=False
-    optimize_side_and_main_separately=True
+    optimize_side_and_main_separately=False
     default_scoring_function = staticmethod(ConstraintsHandler.chi_z_sqr) #staticmethod(ConstraintsHandler.log_chi)
-    debug_skip_to_loop=0
+    debug_skip_to_loop=4
     #untwist_loop=99
     num_loops_not_refine_H=0
     untwist_moves_enabled=False
@@ -86,7 +86,7 @@ class Untangler():
     refinement=PHENIX
     ##
     O_bond_change_period=5
-    main_chain_swaps_only_period=2
+    main_chain_swaps_only_period=3
     ####
     num_threads=25
     ## 
@@ -464,7 +464,7 @@ class Untangler():
         do_water_swaps=(self.protein_altlocs==self.solvent_altlocs) and num_altlocs==2
         if need_to_prepare_geom_files:
             self.prepare_pdb_and_read_altlocs(model_to_swap,model_to_swap,sep_chain_format=False,
-                                              ring_name_grouping=True) #NOTE 
+                                              ring_name_grouping=UntangleFunctions.RING_NAME_GROUPING) #NOTE 
             Solver.LP_Input.prepare_geom_files(model_to_swap,[altloc_subset],
                                                   waters = True,
                                                   water_swaps=do_water_swaps)
@@ -801,7 +801,7 @@ class Untangler():
         old_working_model=working_model
         working_model = old_working_model[:-4]+"_fmtd.pdb"
         self.prepare_pdb_and_read_altlocs(old_working_model,working_model,
-                                          ring_name_grouping=True #NOTE
+                                          ring_name_grouping=UntangleFunctions.RING_NAME_GROUPING #NOTE
                                           )
 
         def get_tensions(restrained_model,unrestrained_model):
@@ -839,7 +839,7 @@ class Untangler():
 
 
             # Limited options
-            main_chain_swaps = not ((self.loop+(self.main_chain_swaps_only_period-1))%self.main_chain_swaps_only_period!=0
+            main_chain_swaps = not ((self.loop+1)%self.main_chain_swaps_only_period!=0
                 and not self.debug_main_chain_swaps_only
                 and not (self.main_chain_swaps_only_after_first_loop and self.loop>0))
             side_chain_swaps = not main_chain_swaps and self.optimize_side_and_main_separately
@@ -1815,8 +1815,8 @@ def main():
         endloop_wc=1, num_end_loop_refine_cycles=6,
         #endloop_wc=3, num_end_loop_refine_cycles=1,
         refine_for_positions_geo_weight=0,
-        starting_num_best_swaps_considered=25,
-        max_num_best_swaps_considered=25,
+        starting_num_best_swaps_considered=1,
+        max_num_best_swaps_considered=1,
         altloc_subset_size=10,
         unrestrained_damp=0,
         #refine_for_positions_geo_weight=0.03,
@@ -1835,7 +1835,7 @@ def main():
         starting_model,
         xray_data,
         desired_score=18.4, # score to stop at
-        max_num_runs=5,
+        max_num_runs=10,
     )
 if __name__=="__main__":
     main()

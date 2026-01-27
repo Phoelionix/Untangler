@@ -14,7 +14,7 @@ import numpy as np
 import shutil
 import itertools
 
-
+RING_NAME_GROUPING=False
 TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY=True # Because generating data is incredibly slow with multiple altlocs. 
 
 ATOMS = ('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr'
@@ -190,7 +190,8 @@ def assess_geometry_wE(pdb_file_path,turn_off_cdl=False):
             
 WATER_RESNAMES = ["HOH"]
 def res_is_water(res):
-    return res.get_id()[0]!= " " or res.get_resname() in WATER_RESNAMES
+    #return res.get_id()[0]!= " " or res.get_resname() in WATER_RESNAMES
+    return res.get_resname() in WATER_RESNAMES
 
             
 
@@ -555,6 +556,11 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                 chain = line[21]
                 resnum = int(line[22:26])
 
+                if resnum > max_resnum+1:
+                    resnum=max_resnum+1
+                    line = replace_res_num(line, resnum)
+                max_resnum=max(resnum,max_resnum)
+
                 if ring_name_grouping:
                     if resname in ["TYR","PHE"] and name in ["CD1","CD2","CE1","CE2","HD1","HD2","HE1","HE2"]:
                         original_serial_num=int(line[6:11])
@@ -570,7 +576,7 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                     continue
                 assert len(end_lines)==0
                 
-                # Non-solvent atoms
+                # Non-solvent atoms                
                 if not sep_chain_format and not warned_collapse and chain != last_chain and last_chain is not None:
                     print("Warning: Multiple chains detected. Collapsing chains into single chain")
                     warned_collapse=True
@@ -591,7 +597,6 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                     continue
                 
                 atom_dict[resnum][altloc][name]=line  
-                max_resnum=max(resnum,max_resnum)
                 last_chain = chain
                 continue
                     
@@ -636,23 +641,23 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
         for line in solvent_lines:
             solvent_resnum=int(line[22:26])
             min_solvent_resnum = min(solvent_resnum,min_solvent_resnum)
-        shift = max_resnum-min_solvent_resnum + 1
+        #shift = max_resnum-min_solvent_resnum + 1
         new_solvent_resnum_dict = {}
         for line in solvent_lines:
             n+=1
-            solvent_resnum=int(line[22:26])
+            #solvent_resnum=int(line[22:26])
             # In case of gaps...
-            if solvent_resnum not in new_solvent_resnum_dict:
-                if (solvent_resnum+shift)-max_resnum > 1:
-                    shift = max_resnum-solvent_resnum + 1 
-                elif (solvent_resnum+shift)-max_resnum < 0:
-                    print(f"Warning, are solvent res nums out of order? {max_resnum,solvent_resnum,shift, min_solvent_resnum, max_resnum, out_path}")
-                max_resnum = shift+solvent_resnum
-                new_solvent_resnum_dict[solvent_resnum]=max_resnum
+            #if solvent_resnum not in new_solvent_resnum_dict:
+                # if (solvent_resnum+shift)-max_resnum > 1:
+                #     shift = max_resnum-solvent_resnum + 1 
+                # elif (solvent_resnum+shift)-max_resnum < 0:
+                #     print(f"Warning, are solvent res nums out of order? {max_resnum,solvent_resnum,shift, min_solvent_resnum, max_resnum, out_path}")
+                # max_resnum = shift+solvent_resnum
+                #new_solvent_resnum_dict[solvent_resnum]=max_resnum
             
             
-            modified_line = replace_res_num(line,new_solvent_resnum_dict[solvent_resnum])
-            modified_line = replace_serial_num(modified_line,n)
+            #modified_line = replace_res_num(line,new_solvent_resnum_dict[solvent_resnum])
+            modified_line = replace_serial_num(line,n)
             start_lines.append(modified_line)
 
         with open(out_path,'w') as O:
@@ -708,13 +713,18 @@ class PDB_Atom_Entry:
             self.res_num =atom_entry[22:26].strip()
     def is_water(self):
         return self.res_name in WATER_RESNAMES
-    def new_altloc(self,new_altloc:str):
-        return self.atom_entry[:16]+new_altloc+self.atom_entry[17:]
+    # def new_altloc(self,new_altloc:str):
+    #     return self.atom_entry[:16]+new_altloc+self.atom_entry[17:]
     
+    # def new_coord(self,new_coord):
+    #     coord_str = ''.join([f"{v:8.4f}"for v in new_coord])
+    #     return self.atom_entry[:30]  + coord_str + self.atom_entry[54:] 
+    def new_line(self,new_altloc=None,new_coord=None):
+        new_altloc = new_altloc if new_altloc is not None else self.atom_entry[16:17]
+        coord_str = ''.join([f"{v:8.4f}"for v in new_coord]) if new_coord is not None else self.atom_entry[30:54]
+        return self.atom_entry[:16]+new_altloc+self.atom_entry[17:30]+coord_str+self.atom_entry[54:]
+        
 
-    def new_coord(self,new_coord):
-        coord_str = ''.join([f"{v:8.4f}"for v in new_coord])
-        return self.atom_entry[:30]  + coord_str + self.atom_entry[54:] 
-            
+        
 
 # %%

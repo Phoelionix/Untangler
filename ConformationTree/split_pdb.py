@@ -13,7 +13,7 @@ from UntangleFunctions import parse_symmetries_from_pdb
 
 def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[DisorderedTag],out_path=None,
                    sep_chain_format=False,protein_altloc_from_chain_fix=False,missing_water_altloc_fix=True,
-                   preserve_parent_altlocs=True):
+                   preserve_parent_altlocs=True,split_waters=False, nonexistent_parent_from_child_priority_dict={}):
     # Splits conformers of atoms (atoms_to_split) according to child_parent_altlocs_dict
 
 
@@ -41,7 +41,6 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
         occ = ' '*(6-len(occ))+occ
         return line[:54] + occ + line[60:]
         
-    protein_altlocs = []
     #solvent_altlocs = []
     with open(pdb_path) as I:
         max_resnum=0
@@ -49,9 +48,13 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
         start_lines = []
         solvent_lines=[]
         end_lines = []
-        atom_dict:dict[str,dict[str,dict[str,str]]] = {}  
+        atom_dict:dict[int,dict[str,dict[str,str]]] = {}  
+        atom_name_dict:dict[int,list[str]]={}
         last_chain=None
         solvent_res_names=["HOH"]
+        if split_waters: 
+            # FIXME
+            solvent_res_names=[]
         solvent_chain_id = "z"
         warned_collapse=False
 
@@ -98,8 +101,6 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
                     altloc = "A" 
                 elif protein_altloc_from_chain_fix:
                     altloc = chain
-                if altloc != ' ' and altloc not in protein_altlocs:
-                    protein_altlocs.append(altloc)
                 line = replace_altloc(line,altloc)
             assert len(end_lines)==0
                 
@@ -118,50 +119,72 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
 
             if resnum not in atom_dict:
                 atom_dict[resnum] = {}
-
+                atom_name_dict[resnum]=[]
 
 
             
-            assert (altloc != ' '), line 
+            #assert (altloc != ' '), line 
 
             if altloc not in atom_dict[resnum]:
                 atom_dict[resnum][altloc] = {}
                 
-                if altloc not in protein_altlocs:
-                    protein_altlocs.append(altloc) 
-                        
             atom_dict[resnum][altloc][name]=line  
+            if name not in atom_name_dict[resnum]:
+                atom_name_dict[resnum].append(name)
+
             max_resnum=max(resnum,max_resnum)
             last_chain = chain
             continue
-
-    #assert len(set(protein_altlocs) & set(solvent_altlocs))==len(protein_altlocs)==len(solvent_altlocs), (protein_altlocs,solvent_altlocs)
+    
 
     chain_dict={}
-    for res_atom_dict in atom_dict.values():
+    for resnum, res_atom_dict in atom_dict.items():
+        atom_names=atom_name_dict[resnum]
+        for atom_name in atom_names:
+            for parent_altloc,child_altlocs in nonexistent_parent_from_child_priority_dict.items():
+                if parent_altloc not in atom_dict[resnum] or atom_name not in atom_dict[resnum][parent_altloc]:
+                    compatible_child_altlocs = [alt for alt in child_altlocs if alt in atom_dict[resnum] and atom_name in atom_dict[resnum][alt]]
+                    if len(compatible_child_altlocs)>0:
+                        altloc_to_use=compatible_child_altlocs[0]
+                        if parent_altloc not in atom_dict[resnum]:
+                            atom_dict[resnum][parent_altloc]={}
+                        # Halve child occupancy
+                        og_child_line=atom_dict[resnum][altloc_to_use][atom_name]
+                        new_occupancy = float(og_child_line[54:60])/2
+                        atom_dict[resnum][altloc_to_use][atom_name]=replace_occupancy(og_child_line,new_occupancy)
+                        # Add missing parent
+                        atom_dict[resnum][parent_altloc][atom_name]=replace_altloc(atom_dict[resnum][altloc_to_use][atom_name],parent_altloc)
         #for d in range(2): # Split loop
         for parent_altloc, altloc_atom_dict in res_atom_dict.items(): 
             child_altlocs=[k for k,v in child_parent_altlocs_dict.items() if parent_altloc in v]
-            num_relevant_altlocs=preserve_parent_altlocs+len(child_altlocs)
+            num_relevant_altlocs=1+len(child_altlocs)
             for d in range(num_relevant_altlocs):
                 for line in altloc_atom_dict.values():
                     if sep_chain_format:
                         protein_chain_id=altloc
                     else:
                         protein_chain_id="A"
-                    parent_altloc=line[16]
+                    this_altloc=line[16]
+                    
                     max_serial_num+=1
                     modified_line = replace_serial_num(line,max_serial_num)
                     modified_line = replace_chain(modified_line,protein_chain_id)
                     atom_name=line[12:16].strip()
                     res_num = int(line[22:26])
                     site_tag = DisorderedTag(res_num,atom_name)
-                    atom_being_split = site_tag in child_atom_tags
+                    atom_being_split = (site_tag in child_atom_tags 
+                                        and len(child_altlocs)>0)
+                    
                     if atom_being_split:
                         occupancy=float(line[54:60])
-                        modified_line = replace_occupancy(modified_line,occupancy/num_relevant_altlocs)
+                        modified_line = replace_occupancy(modified_line,occupancy/(num_relevant_altlocs-1+preserve_parent_altlocs))
                         if d > 0:
-                            modified_line = replace_altloc(modified_line,child_altlocs[d-1])
+                            new_altloc = child_altlocs[d-1]
+                            if new_altloc in atom_dict[resnum] and atom_name in atom_dict[resnum][new_altloc]:
+                                # Already exists!
+                                pass 
+                            else:
+                                modified_line = replace_altloc(modified_line,new_altloc)
                         elif not preserve_parent_altlocs:
                             continue
                     elif d>0:
@@ -186,7 +209,6 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
         modified_line = replace_res_num(modified_line,shift+solvent_resnum)
         modified_line=replace_serial_num(modified_line,max_serial_num)
         max_serial_num+=1
-        split_waters=False
         if split_waters:
             # start_lines.append(modified_line)
             # splt = replace_altloc(modified_line,split_altloc(modified_line))

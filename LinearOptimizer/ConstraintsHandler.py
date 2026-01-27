@@ -641,7 +641,10 @@ class ConstraintsHandler:
                 if key not in phenix_clash_distances_table:
                     phenix_clash_distances_table[key]=vdw_sum
                 else:
-                    assert abs(phenix_clash_distances_table[key]-vdw_sum)<0.2, f"clash distances differ for {key}, {phenix_vdw_distances_table[key]} != {vdw_sum}"
+                    if abs(phenix_clash_distances_table[key]-vdw_sum)>0.2:
+                        print(f"Warning: clash distances differ significantly for {key}, {phenix_clash_distances_table[key]} != {vdw_sum}")
+                    phenix_clash_distances_table[key]=max(vdw_sum,phenix_clash_distances_table[key])
+                    #phenix_clash_distances_table[key]=min(vdw_sum,phenix_clash_distances_table[key])
           
 
 

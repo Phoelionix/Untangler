@@ -29,6 +29,8 @@ class DisorderedTag():
     def atom_name(self):
         return self._name 
     def element(self):
+        if "MN" == self.atom_name():
+            return "Mn"
         return self.atom_name()[0]   # FIXME !!!!!!!!!!
     def num_bound_e(self):
         return UntangleFunctions.NUM_E[self.element()]
