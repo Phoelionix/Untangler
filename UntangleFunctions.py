@@ -192,7 +192,8 @@ WATER_RESNAMES = ["HOH"]
 def res_is_water(res):
     #return res.get_id()[0]!= " " or res.get_resname() in WATER_RESNAMES
     return res.get_resname() in WATER_RESNAMES
-
+def res_is_het(res):
+    return res.get_id()[0]!= " "
             
 
 def get_R(pdb_file_path,reflections_path):
@@ -233,6 +234,9 @@ def H_get_parent_fullname(H_name:str,nonH_fullname_list:list[str],debug_none_ret
             H3 = " N  ",
             HA = " CA ",
             HB = " CB ",
+            HN0 = " N10",
+            # HN21 = " NA2",
+            # HN22 = " NA2",
         )
         # determine parent name
         if H_name in basic_dict:
@@ -530,10 +534,11 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
             end_lines = []
             atom_dict:dict[str,dict[str,dict[str,str]]] = {}  
             last_chain=None
-            solvent_res_names=["HOH"]
+            solvent_res_names=WATER_RESNAMES
             solvent_chain_id = "z"
             warned_collapse=False
-
+            gap_shift=0
+            
             for line in I:
                 if line.startswith("TER") or line.startswith("ANISOU"):
                     continue
@@ -556,9 +561,11 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                 chain = line[21]
                 resnum = int(line[22:26])
 
+                resnum=resnum-gap_shift
                 if resnum > max_resnum+1:
-                    resnum=max_resnum+1
-                    line = replace_res_num(line, resnum)
+                    gap_shift+=resnum-max_resnum-1
+                    resnum=resnum-gap_shift
+                line = replace_res_num(line, resnum)
                 max_resnum=max(resnum,max_resnum)
 
                 if ring_name_grouping:
@@ -669,7 +676,7 @@ def get_altlocs_from_pdb(pdb_path):
         protein_altlocs = []
         solvent_altlocs = []
         with open(pdb_path) as I:
-            solvent_res_names=["HOH"]
+            solvent_res_names=WATER_RESNAMES
 
             for line in I:
                 if line.startswith("TER") or line.startswith("ANISOU"):
