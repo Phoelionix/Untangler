@@ -13,7 +13,8 @@ from UntangleFunctions import parse_symmetries_from_pdb
 
 def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[DisorderedTag],out_path=None,
                    sep_chain_format=False,protein_altloc_from_chain_fix=False,missing_water_altloc_fix=True,
-                   preserve_parent_altlocs=True,split_waters=False, nonexistent_parent_from_child_priority_dict={}):
+                   preserve_parent_altlocs=True,split_waters=False, nonexistent_parent_from_child_priority_dict={},
+                   nonexistent_parents_replace_child=True):
     # Splits conformers of atoms (atoms_to_split) according to child_parent_altlocs_dict
 
 
@@ -51,7 +52,7 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
         atom_dict:dict[int,dict[str,dict[str,str]]] = {}  
         atom_name_dict:dict[int,list[str]]={}
         last_chain=None
-        solvent_res_names=["HOH"]
+        solvent_res_names=UntangleFunctions.WATER_RESNAMES
         if split_waters: 
             # FIXME
             solvent_res_names=[]
@@ -148,12 +149,18 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
                         altloc_to_use=compatible_child_altlocs[0]
                         if parent_altloc not in atom_dict[resnum]:
                             atom_dict[resnum][parent_altloc]={}
-                        # Halve child occupancy
                         og_child_line=atom_dict[resnum][altloc_to_use][atom_name]
-                        new_occupancy = float(og_child_line[54:60])/2
-                        atom_dict[resnum][altloc_to_use][atom_name]=replace_occupancy(og_child_line,new_occupancy)
-                        # Add missing parent
-                        atom_dict[resnum][parent_altloc][atom_name]=replace_altloc(atom_dict[resnum][altloc_to_use][atom_name],parent_altloc)
+                        if nonexistent_parents_replace_child:
+                            atom_dict[resnum][parent_altloc][atom_name]=replace_altloc(og_child_line,parent_altloc)
+                            del atom_dict[resnum][altloc_to_use][atom_name]
+                            if len(atom_dict[resnum][altloc_to_use])==0:
+                                del atom_dict[resnum][altloc_to_use]
+                        else:
+                            # Halve child occupancy
+                            new_occupancy = float(og_child_line[54:60])/2
+                            atom_dict[resnum][altloc_to_use][atom_name]=replace_occupancy(og_child_line,new_occupancy)
+                            # Add missing parent
+                            atom_dict[resnum][parent_altloc][atom_name]=replace_altloc(atom_dict[resnum][altloc_to_use][atom_name],parent_altloc)
         #for d in range(2): # Split loop
         for parent_altloc, altloc_atom_dict in res_atom_dict.items(): 
             child_altlocs=[k for k,v in child_parent_altlocs_dict.items() if parent_altloc in v]

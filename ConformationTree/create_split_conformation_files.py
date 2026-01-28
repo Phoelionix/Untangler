@@ -26,6 +26,10 @@ def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False):
     split_model_path=os.path.join(out_dir,UntangleFunctions.model_handle(model_path)+"_split.pdb")
     split_specific(model_path,child_parent_altlocs_dict,child_atom_tags,out_path=split_model_path,preserve_parent_altlocs=preserve_parent_altlocs)
 
+
+    # TODO delete atoms that are parent sites and don't belong to expected altlocs? 
+    # Or at least, consider atom H residue 121, 143. Altlocs B and D. D should be changed to A automatically.
+
     def get_out_path(model_handle,out_tag):
         output_dir = os.path.join(UNTANGLER_WORKING_DIRECTORY,"output","")
         return f"{output_dir}{model_handle}_{out_tag}.pdb"
@@ -35,13 +39,12 @@ def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False):
                 ring_name_grouping=False)
 
     text=create_all_child_restraints(fmted_model,child_parent_altlocs_dict,child_atom_tags)
-    out_path=os.path.join(out_dir,"split_conformations_restraints.eff")
+    out_path=os.path.join(out_dir,f"split_conformations_restraints-{UntangleFunctions.model_handle(model_path)}.eff")
     with open(out_path,"w") as f:
         f.write(text)
 
 if __name__ == "__main__":
-    #model_path="/home/speno/Untangler/output/2conf_start.pdb"
-    #model_path="/home/speno/Untangler/output/4PSS_split_refined.pdb"
+    #model_path="/home/speno/Untangler/output/synthetic_out_archive/2conf_start.pdb"
     model_path="/home/speno/Untangler/data/4PSS_split.pdb"
     #child_parent_altlocs_dict={"C":"A"}
     # child_parent_altlocs_dict={"C":"A","D":"A","E":"A","F":"A","c":"B","d":"B","e":"B","f":"B"}

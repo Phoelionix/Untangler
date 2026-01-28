@@ -22,6 +22,9 @@ from UntangleFunctions import parse_symmetries_from_pdb
 #   }
 # }
 
+
+# TODO Dont create restraints if they already exist.
+
 def create_all_child_restraints(model_path,altloc_parents_dict:dict,child_atom_tags:list[DisorderedTag]):
 
 
