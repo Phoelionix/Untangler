@@ -392,9 +392,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                             return True
             if constraint_type==VariableKind.Bond: 
                 # TODO this allows water to change. But necessary.
-                if MAIN_CHAIN_ONLY and not in_main_chain and (any(ch.get_resname() not in ["CYS","HOH"]) for ch in chunks):  # XXX tidy up and put in a separate python file for specifying what to optimize
+                if MAIN_CHAIN_ONLY and not in_main_chain and (any(ch.get_resname() not in ["CYS","HOH"] for ch in chunks)):  # XXX tidy up and put in a separate python file for specifying what to optimize
                     return True
-                if SIDE_CHAIN_ONLY and in_main_chain and (any(ch.get_resname() != ["HOH"]) for ch in chunks):
+                if SIDE_CHAIN_ONLY and in_main_chain and (any(ch.get_resname() not in ["HOH",] for ch in chunks)):
                     return True
                 if NO_CB_CHANGES and any(ch.name =="CB" for ch in chunks):
                     return True
