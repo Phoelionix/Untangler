@@ -101,9 +101,10 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
         #         unit_cell=unreasonably_large_unit_cell,
         #         space_group_symbol="P1")
     )
+    print("Processing")
     model.process(pdb_interpretation_params=params,
         make_restraints=True)
-
+    print("Processed")
 
     
 
@@ -113,7 +114,7 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
     # xrs = pnp_manager.model.get_xray_structure()
     # sites_cart  = pnp_manager.model.get_sites_cart()
 
-    grm: cctbx.geometry_restraints.manager.manager
+    #grm: cctbx.geometry_restraints.manager.manager
     #grm = model.get_restraints_manager().geometry
     #grm = validation.model.get_restraints_manager().geometry
     xrs = model.get_xray_structure()
@@ -124,19 +125,19 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
 
 
 
-    pair_proxies: geometry_restraints.pair_proxies
+    #pair_proxies: geometry_restraints.pair_proxies
     
 
     #grm.crystal_symmetry=None
-    validation =  mmtbx.validation.molprobity.molprobity(model=model)
-    grm = validation.model.get_restraints_manager().geometry
-    pair_proxies = grm.pair_proxies(
-                        sites_cart  = sites_cart,
-                        site_labels = site_labels)
-    proxies_info_nonbonded = pair_proxies.nonbonded_proxies.get_sorted( # returns C++ nonbonded_sorted_asu_proxies
-        by_value    = "delta",
-        sites_cart  = sites_cart,
-        site_labels = site_labels)
+    #validation =  mmtbx.validation.molprobity.molprobity(model=model)
+    # grm = validation.model.get_restraints_manager().geometry
+    # pair_proxies = grm.pair_proxies(
+    #                     sites_cart  = sites_cart,
+    #                     site_labels = site_labels)
+    # proxies_info_nonbonded = pair_proxies.nonbonded_proxies.get_sorted( # returns C++ nonbonded_sorted_asu_proxies
+    #     by_value    = "delta",
+    #     sites_cart  = sites_cart,
+    #     site_labels = site_labels)
     #print(proxies_info_nonbonded[0][0])
     #validation.show_summary()
 
@@ -149,6 +150,9 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
         add_vdw_arg = f"-ADDvdw{int(CLASH_SCAN_BUFFER)}.0"
         #probe_cmd_and_args=f'{probe_cmd} -u -q -mc -het -once {add_vdw_arg}  "ogt0 not water" "ogt0" - ' 
         probe_cmd_and_args=f'{probe_cmd} -u -q -mc -het -once {add_vdw_arg}  "ogt0 not water" "ogt0" - ' 
+
+        print("Running:",probe_cmd_and_args, "[pdb stdin_lines]")
+
         probe_out = easy_run.fully_buffered(probe_cmd_and_args,stdin_lines=pdb_string)
         if (probe_out.return_code != 0):
             raise RuntimeError("Probe crashed - dumping stderr:\n%s" %
