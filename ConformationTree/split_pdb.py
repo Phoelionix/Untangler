@@ -159,7 +159,7 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
             child_altlocs=[k for k,v in child_parent_altlocs_dict.items() if parent_altloc in v]
             num_relevant_altlocs=1+len(child_altlocs)
             for d in range(num_relevant_altlocs):
-                for line in altloc_atom_dict.values():
+                for key, line in altloc_atom_dict.items():
                     if sep_chain_format:
                         protein_chain_id=altloc
                     else:
@@ -182,7 +182,7 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
                             new_altloc = child_altlocs[d-1]
                             if new_altloc in atom_dict[resnum] and atom_name in atom_dict[resnum][new_altloc]:
                                 # Already exists!
-                                pass 
+                                continue
                             else:
                                 modified_line = replace_altloc(modified_line,new_altloc)
                         elif not preserve_parent_altlocs:
