@@ -11,6 +11,23 @@ from UntangleFunctions import parse_symmetries_from_pdb,UNTANGLER_WORKING_DIRECT
 from ConformationTree.split_pdb import split_specific
 
 
+# TODO FIXME
+# There appears to be a strange bug with riding hydrogens.  Two child-parent angles 
+# had to be deleted in residue 1 or the angles between HB2/HB3, CB, CA aren't recognised. 
+# However, this didn't occur with a residue with HB, CB, CA instead of HB2/HB3.
+# These are N-CA-CB
+    #   atom_selection_1 = name N and resseq 1 and chain A and altid A
+    #   atom_selection_2 = name CA and resseq 1 and chain A and altid A
+    #   atom_selection_3 = name CB and resseq 1 and chain A and altid C
+# and C-CA-CB
+    #   atom_selection_1 = name C and resseq 1 and chain A and altid A
+    #   atom_selection_2 = name CA and resseq 1 and chain A and altid A
+    #   atom_selection_3 = name CB and resseq 1 and chain A and altid C
+# TODO Don't allow these angles to be created.
+
+
+
+
 def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False):
     out_dir = os.path.join(UntangleFunctions.UNTANGLER_WORKING_DIRECTORY,"ConformationTree","output")
     if not os.path.exists(out_dir):
