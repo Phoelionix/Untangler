@@ -511,7 +511,9 @@ class ConstraintsHandler:
             #     print(self.atom_constraints[site])
         return constraint_object_to_use
 
-    def load_all_constraints(self,pdb_file,ordered_atom_lookup:OrderedAtomLookup,symmetries:list, calc_nonbonds:bool=True,water_water_nonbond:bool=None,constraints_to_skip=[],two_atom_penalty_tuples:list[tuple[tuple[str,str],tuple[int,int],float,tuple[str,str]]]=[],outliers_to_ignore_file=None,turn_off_cdl=False):
+    def load_all_constraints(self,pdb_file,ordered_atom_lookup:OrderedAtomLookup,symmetries:list, calc_nonbonds:bool=True,water_water_nonbond:bool=None,
+                             constraints_to_skip=[],two_atom_penalty_tuples:list[tuple[tuple[str,str],tuple[int,int],float,tuple[str,str]]]=[],outliers_to_ignore_file=None,turn_off_cdl=False,
+                             all_restraints_mode=False):
         # two_atom_penalty_tuples: list of tuples like ( (CA,O), (12,110), 3, (A,B) ) --> their names, their res nums, the badness, their altlocs 
 
         constraints_file = UntangleFunctions.geo_file_name(pdb_file,turn_off_cdl=turn_off_cdl) # NOTE we only read ideal and weights.
@@ -707,11 +709,11 @@ class ConstraintsHandler:
                     #print(f"Flagging cross-conformation nonbonds for{' protein' if not waters_outer_loop else ''} conformer {i}/{len(phenix_vdw_distances_table)}")
                     print(f"Flagging cross-conformation {interaction_str} {i}/{len(table)}")
 
-                if IGNORE_HYDROGEN_NONBOND and (confA.element()=="H" or confB.element=="H"):
+                if IGNORE_HYDROGEN_NONBOND and (confA.element()=="H" or confB.element=="H") and not all_restraints_mode:
                     continue
 
                 
-                if (((confA.element()=="H") and (confB.element() == "H")) # Do not consider H-H clashes (expect to be more harmful than helpful due to H positions being poor.)
+                if (((confA.element()=="H") and (confB.element() == "H") and not all_restraints_mode) # Do not consider H-H clashes (expect to be more harmful than helpful due to H positions being poor.)
                     or (frozenset((confA.disordered_tag(),confB.disordered_tag())) in bonds_added) # Nonbonded only!
                     or (frozenset((confA.disordered_tag(),confB.disordered_tag())) in AngleEnds_added)): #and other_atom.name in ["C","N","CA","CB","O"])
                     continue

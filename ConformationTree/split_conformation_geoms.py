@@ -25,7 +25,7 @@ from UntangleFunctions import parse_symmetries_from_pdb
 
 # TODO Dont create restraints if they already exist.
 
-def create_all_child_restraints(model_path,altloc_parents_dict:dict,child_atom_tags:list[DisorderedTag],all_ordered_tags:list[OrderedTag]):
+def create_all_child_restraints(model_path,altloc_parents_dict:dict,child_atom_tags:list[DisorderedTag],all_ordered_tags:list[OrderedTag],include_nonbonds=True):
 
     print("creating sub-conformation restraints")
 
@@ -37,8 +37,12 @@ def create_all_child_restraints(model_path,altloc_parents_dict:dict,child_atom_t
     struct=PDBParser().get_structure("struct",model_path)
     ordered_atom_lookup=OrderedAtomLookup(struct.get_atoms(),waters=True)
     constraints_handler=ConstraintsHandler()
+    constraints_to_skip=[ConstraintsHandler.ClashConstraint,ConstraintsHandler.TwoAtomPenalty]
+    if not include_nonbonds:
+        constraints_to_skip.append(ConstraintsHandler.NonbondConstraint)
     constraints_handler.load_all_constraints(model_path,ordered_atom_lookup,symmetries=parse_symmetries_from_pdb(model_path),water_water_nonbond=False,
-                                             constraints_to_skip=[ConstraintsHandler.ClashConstraint,ConstraintsHandler.TwoAtomPenalty])
+                                             constraints_to_skip=constraints_to_skip,
+                                             all_restraints_mode=True)
     text="""refinement {
   geometry_restraints.edits {\n"""
     for child_altloc,parent_altlocs in altloc_parents_dict.items():
@@ -60,10 +64,13 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
     ]
     # Create all geometry restraints for child atoms to mimic their parents.
     text=""
+    processed_constraints:list[ConstraintsHandler.Constraint]=[]
     for disordered_tag, constraints in constraints_handler.atom_constraints.items():
         if not disordered_tag in child_atom_tags:
             continue
         for constraint in constraints:
+            if constraint in processed_constraints:
+                continue
             if type(constraint) not in allowed_constraints:
                 continue
             parent_site_tags= [site_tag for site_tag in constraint.site_tags 
@@ -84,6 +91,12 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
                 if type(constraint) != ConstraintsHandler.NonbondConstraint:
                     ideal = constraint.ideal
                 else:
+                    #  ###
+                    #  involves_water=any([st.atom_name()=="O" for st in constraint.site_tags])
+                    #  is_H = [st.element()=="H" for st in constraint.site_tags]
+                    #  if any(is_H) and not all(is_H) and not involves_water:
+                    #      continue  # Creating bonds between H and non-H messes with riding H logic in phenix.  # Does it?
+                    #  ####
                      if (parent_altloc,parent_altloc) not in constraint.altlocs_vdw_dict:
                          continue
                      # TODO crystal-packing?
@@ -102,6 +115,7 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
       {ideal_variable_name} = {ideal:.4f}\n"""
 +(f"      sigma = {constraint.sigma:.4f}\n" if constraint.sigma is not None else "      sigma = None\n      "+f"limit = {nonbond_limit_param}"+"\n") 
                 + "    }\n")
+                processed_constraints.append(constraint)
     return text
 
 if __name__ == "__main__":
