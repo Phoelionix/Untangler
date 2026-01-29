@@ -23,9 +23,11 @@ def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False):
     atoms = ordered_atom_lookup.select_atoms_by(exclude_atom_names=["N","CA","C","O","H","HN","H2","H3","HA"])
     child_atom_tags = list(set([DisorderedTag.from_atom(a) for a in atoms]))
 
+
     split_model_path=os.path.join(out_dir,UntangleFunctions.model_handle(model_path)+"_split.pdb")
     split_specific(model_path,child_parent_altlocs_dict,child_atom_tags,out_path=split_model_path,preserve_parent_altlocs=preserve_parent_altlocs)
 
+    all_ordered_tags = [OrderedTag.from_atom(a) for a in OrderedAtomLookup(model_path, waters=False,excluded_resnames=excluded_resnames).ordered_atoms]
 
     # TODO delete atoms that are parent sites and don't belong to expected altlocs? 
     # Or at least, consider atom H residue 121, 143. Altlocs B and D. D should be changed to A automatically.
@@ -38,7 +40,7 @@ def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False):
     prepare_pdb(model_path,fmted_model,
                 ring_name_grouping=False)
 
-    text=create_all_child_restraints(fmted_model,child_parent_altlocs_dict,child_atom_tags)
+    text=create_all_child_restraints(fmted_model,child_parent_altlocs_dict,child_atom_tags,all_ordered_tags)
     out_path=os.path.join(out_dir,f"split_conformations_restraints-{UntangleFunctions.model_handle(model_path)}.eff")
     with open(out_path,"w") as f:
         f.write(text)

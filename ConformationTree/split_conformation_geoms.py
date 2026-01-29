@@ -25,7 +25,9 @@ from UntangleFunctions import parse_symmetries_from_pdb
 
 # TODO Dont create restraints if they already exist.
 
-def create_all_child_restraints(model_path,altloc_parents_dict:dict,child_atom_tags:list[DisorderedTag]):
+def create_all_child_restraints(model_path,altloc_parents_dict:dict,child_atom_tags:list[DisorderedTag],all_ordered_tags:list[OrderedTag]):
+
+    print("creating sub-conformation restraints")
 
 
     # altloc_parents_dict. Dictionary of altlocs to have interactions with in addition to itself. e.g. {"A":"","B":"","C":"A"}. <- Note here the A and B keys could be left out.
@@ -42,12 +44,14 @@ def create_all_child_restraints(model_path,altloc_parents_dict:dict,child_atom_t
     for child_altloc,parent_altlocs in altloc_parents_dict.items():
         if len(parent_altlocs)==0:
             continue 
-        text+=create_child_restraints(child_altloc,parent_altlocs,child_atom_tags,constraints_handler)
+        # Create all restraints for single child altloc
+        text+=create_child_restraints(child_altloc,parent_altlocs,child_atom_tags,all_ordered_tags,constraints_handler)
     text+="""  }
 }\n"""
     return text
 
-def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[DisorderedTag],constraints_handler:ConstraintsHandler, chain="A"):
+def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[DisorderedTag],all_ordered_tags:list[OrderedTag],
+                            constraints_handler:ConstraintsHandler, chain="A"):
 
     allowed_constraints = [
         ConstraintsHandler.BondConstraint,
@@ -62,7 +66,9 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
         for constraint in constraints:
             if type(constraint) not in allowed_constraints:
                 continue
-            parent_site_tags= [site_tag for site_tag in constraint.site_tags if site_tag not in child_atom_tags]
+            parent_site_tags= [site_tag for site_tag in constraint.site_tags 
+                               if (site_tag not in child_atom_tags 
+                                   and site_tag.ordered_tag(child_altloc) not in all_ordered_tags)]
             if len(parent_site_tags)==0:
                 continue # Constraint does not involve a parent altloc
             for parent_altloc in parent_altlocs:
