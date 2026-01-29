@@ -134,12 +134,13 @@ class OrderedResidue(Chunk):
 # Ugh, never do inheritance. TODO refactor to composition.
 class AtomChunk(OrderedResidue): 
     # Just an atom c:
-    def __init__(self,site_num,altloc,resnum,referenceResidue,atom:Atom,is_water:bool,constraints_handler,
-                 alt_pos_options:List[tuple[int,'Any']],echoed_altloc=None):
+    def __init__(self,site_num,altloc,resnum,referenceResidue,atom:Atom,is_water:bool,is_het:bool, 
+                 constraints_handler, alt_pos_options:List[tuple[int,'Any']],echoed_altloc=None):
         # Echoed altloc: If this chunk is representing a parent conformer, and only to be used when involving connections with the parent conformer.
 
         self.name=atom.get_name()
         self.is_water = is_water
+        self.is_het = is_het
         self.element = atom.element
         self.coord = atom.get_coord()
         self.alt_pos_options:dict[int,Atom] = alt_pos_options
@@ -152,7 +153,8 @@ class AtomChunk(OrderedResidue):
         self._atm=atom
     def generate_uninitialized_constraints(self,constraints_handler:ConstraintsHandler):
         self.constraints_holder:ConstraintsHandler = \
-            constraints_handler.get_constraints(self.get_disordered_tag(),no_constraints_ok=self.is_water)
+            constraints_handler.get_constraints(self.get_disordered_tag(),
+                                                no_constraints_ok=self.is_water or self.is_het)
     def has_alternate_coords(self):
         return len(self.alt_pos_options)>0
     def get_coord(self):
@@ -161,8 +163,8 @@ class AtomChunk(OrderedResidue):
         # atom = Atom(self.name,self.coord,1,1,new_altloc,
         #             " N  ",1) # Dummy values
         atom = self._atm
-        return_ch = AtomChunk(self.get_site_num(),new_altloc,self.get_resnum(),self._res, atom,self.is_water,None,
-                         self.alt_pos_options,self.altloc)
+        return_ch = AtomChunk(self.get_site_num(),new_altloc,self.get_resnum(),self._res, atom,
+                              self.is_water,self.is_het,None,self.alt_pos_options,self.altloc)
         assert return_ch.echoed_altloc is not None
         return return_ch
     def get_disordered_tag(self):
@@ -584,7 +586,9 @@ class LP_Input:
                         improvement_factor=1, # improvements are weighted by this much. Might need to be implemented in LinearOptimizer.Solver
                         weight_for_range=False, # increases weight of restraints that currently have a wide range in z scores. 
                         )->tuple[list[Chunk],dict[str,list[Geomection]]]: #disorderedResidues:list[Residue]
-        print("Calculating geometric costs for all possible connections between chunks of atoms (pairs for bonds, triplets for angles, etc.)")
+        
+        print("Geomections - Calculating geometric costs for all possible connections between chunks of atoms (pairs for bonds, triplets for angles, etc.)")
+        #print("Calculating costs for all geomections")
         
         if constraint_weights is None:
             constraint_weights={}
@@ -769,6 +773,7 @@ class LP_Input:
                                          atom.get_parent(),
                                          atom,
                                          UntangleFunctions.res_is_water(atom.get_parent()),
+                                         UntangleFunctions.res_is_het(atom.get_parent()),
                                          constraints_handler,
                                          alt_pos_options,
                                          echoed_altloc=None
@@ -823,6 +828,7 @@ class LP_Input:
         # Apply when constraints involve water
         water_constraints_that_include_H=[ConstraintsHandler.TwoAtomPenalty,ConstraintsHandler.ClashConstraint,ConstraintsHandler.NonbondConstraint]
         #water_constraints_that_include_H=[ConstraintsHandler.TwoAtomPenalty]
+        error_lines=[]
         for c, constraint in enumerate(constraints_handler.constraints):
             if c%1000 == 0: 
                 print(f"Calculating constraint {c} / {len(constraints_handler.constraints)} ({constraint}) ")
@@ -860,7 +866,6 @@ class LP_Input:
                     tension_mod = (constraint.get_max_site_tension()+1)**2
                     assert tension_mod>=1
 
-
             for atoms in combinations_iterator:
 
                 # if all([ atom_chunks[atom_id(a)] is not None for a in atoms]):
@@ -882,6 +887,7 @@ class LP_Input:
                     atom_chunks_selection:list[AtomChunk] = []
                     impossible_H_parent=False
                     contains_H=False
+                    broke=False
                     for a in atoms:
                         if a.get_name()[0] != "H":
                             atom_chunks_selection.append(atom_chunks[atom_id(a)])
@@ -899,11 +905,34 @@ class LP_Input:
                                 altlocs=[altloc],
                                 exclude_H=True,
                             )
-                            parent_name = UntangleFunctions.H_get_parent_fullname(
-                                a.get_name(),
-                                [p.get_fullname() for p in possible_parents]
-                            ).strip()
-                            parent_atom = self.ordered_atom_lookup.better_dict[res_num][parent_name][altloc]
+                            try:
+                                parent_name = UntangleFunctions.H_get_parent_fullname(
+                                    OrderedAtomLookup.atom_res_name(a),
+                                    a.get_name(),
+                                    [p.get_fullname() for p in possible_parents]
+                                ).strip()
+                            except:
+                                error_line=f"Could not find parent atom of {DisorderedTag(res_num,a.get_name())}"
+                                if error_line not in error_lines:
+                                    error_lines.append(error_line)
+                                broke=True; break
+                            try:
+                                parent_atom = self.ordered_atom_lookup.better_dict[res_num][parent_name][altloc]
+                            except:
+                                print()
+                                if res_num not in self.ordered_atom_lookup.better_dict:
+                                    missing=f"res num {res_num} mising"
+                                elif parent_name not in self.ordered_atom_lookup.better_dict[res_num]:
+                                    missing=f"atom name {parent_name} not in {list(self.ordered_atom_lookup.better_dict[res_num].keys())}"
+                                elif altloc not in self.ordered_atom_lookup.better_dict[res_num][parent_name]:
+                                    missing=f"altloc {altloc} not in {list(self.ordered_atom_lookup.better_dict[res_num][parent_name].keys())}"
+                                else:
+                                    missing="???"
+                                error_line=f"Expected parent atom {OrderedTag(res_num,parent_name,altloc)} of hydrogen {OrderedTag(res_num,a.get_name(),altloc)}, but {missing}"
+                                if error_line not in error_lines:
+                                    error_lines.append(error_line)
+                                broke=True; break
+                                
                             # Commenting out for now because breaks plotting code. #TODO should work now but need to test get same outcome.
                             # if parent_atom in atoms:
                             #     for p_a in self.ordered_atom_lookup.better_dict[res_num][parent_name]:
@@ -918,8 +947,8 @@ class LP_Input:
                             #parent_atom = parent_atom[0]
                             atom_chunks[atom_id(parent_atom)].constraints_holder.add(constraint,None) # NOTE XXX
                             atom_chunks_selection.append(atom_chunks[atom_id(parent_atom)])
-                    
-
+                    if broke:
+                        continue
 
                     
                     
@@ -988,6 +1017,9 @@ class LP_Input:
                 print("added:",len(list(possible_connections))-old_num_connections)
                 print("total:",len(list(possible_connections)))
                         #print([(ch.name,ch.resnum,distance) for ch in connection.atom_chunks])
+        if len (error_lines) > 0:
+            print(f"{len(error_lines)} errors")
+            raise Exception('\n'.join(error_lines))
         #################################################################
 
         
@@ -1091,7 +1123,8 @@ class LP_Input:
 
 
 
-        TEMP_TEST_CHILD_PARENT={"C":"A","D":"A","E":"A","c":"B","d":"B","e":"B"}
+        #TEMP_TEST_CHILD_PARENT={"C":"A","D":"A","E":"A","c":"B","d":"B","e":"B"}
+        TEMP_TEST_CHILD_PARENT={"C":"A","D":"B"}
         chunk_echoes,disordered_connection_echoes=self.get_echoes(atom_chunks,disordered_connections,TEMP_TEST_CHILD_PARENT)
         for key in disordered_connection_echoes:
             disordered_connections[key].extend(disordered_connection_echoes[key])

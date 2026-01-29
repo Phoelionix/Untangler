@@ -54,8 +54,8 @@ class Untangler():
     # As of writing, untwist step is skipped if the unrestrained step is skipped.
     debug_skip_refine = False  # Note: Can set to True alongside debug_skip_first_swaps to skip to first proposal
     debug_skip_initial_refine=True
-    debug_skip_first_unrestrained_refine=False
-    debug_skip_first_swaps=False
+    debug_skip_first_unrestrained_refine=True
+    debug_skip_first_swaps=True
     debug_skip_first_batch_refine=False # skip to assessing best model from the batch of refinements
     debug_skip_first_focus_swaps=False # many swaps strategy only 
     debug_skip_unrestrained_refine=False
@@ -69,7 +69,7 @@ class Untangler():
     main_chain_swaps_only_after_first_loop=False
     optimize_side_and_main_separately=False
     default_scoring_function = staticmethod(ConstraintsHandler.chi_z_sqr) #staticmethod(ConstraintsHandler.log_chi)
-    debug_skip_to_loop=4
+    debug_skip_to_loop=0
     #untwist_loop=99
     num_loops_not_refine_H=0
     untwist_moves_enabled=False
@@ -162,7 +162,7 @@ class Untangler():
 
     def delete_zero_occupancy_waters(self,pdb_path,out_path):
         assert os.path.abspath(pdb_path) != os.path.abspath(out_path)
-        solvent_res_names=["HOH"]
+        solvent_res_names=UntangleFunctions.WATER_RESNAMES
         start_strs_considered = ["ATOM","HETATM"]
         def replace_res_num(line,res_num):
             res_num = str(res_num)

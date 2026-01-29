@@ -15,7 +15,7 @@ def get_altlocs(pdb_path):
         end_lines = []
         atom_dict:dict[str,dict[str,dict[str,str]]] = {}  
         last_chain=None
-        solvent_res_names=["HOH"]
+        solvent_res_names=UntangleFunctions.WATER_RESNAMES
         solvent_chain_id = "z"
         warned_collapse=False
 

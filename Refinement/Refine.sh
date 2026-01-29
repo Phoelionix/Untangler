@@ -362,6 +362,7 @@ log_file=$logs_path/${out_handle}.log
 
 
 #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints.eff
+user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-4PSS_2conf4conf.eff # TEMPORARY
 phenix.refine main.random_seed=$random_seed $paramFile $user_param_file  2>$error_file 1> $log_file
 unset TMPDIR
 

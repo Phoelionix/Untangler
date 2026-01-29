@@ -20,7 +20,7 @@ def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False):
 
     excluded_resnames=["CYS","GLY","PRO"]
     ordered_atom_lookup = OrderedAtomLookup(model_path, waters=False,excluded_resnames=excluded_resnames)
-    atoms = ordered_atom_lookup.select_atoms_by(exclude_atom_names=["N","CA","C","O","H","H2","H3","HA"])
+    atoms = ordered_atom_lookup.select_atoms_by(exclude_atom_names=["N","CA","C","O","H","HN","H2","H3","HA"])
     child_atom_tags = list(set([DisorderedTag.from_atom(a) for a in atoms]))
 
     split_model_path=os.path.join(out_dir,UntangleFunctions.model_handle(model_path)+"_split.pdb")
@@ -42,6 +42,7 @@ def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False):
     out_path=os.path.join(out_dir,f"split_conformations_restraints-{UntangleFunctions.model_handle(model_path)}.eff")
     with open(out_path,"w") as f:
         f.write(text)
+        print(f"Written restraints for phenix to {out_path}")
 
 if __name__ == "__main__":
     #model_path="/home/speno/Untangler/output/synthetic_out_archive/2conf_start.pdb"

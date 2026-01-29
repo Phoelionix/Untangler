@@ -10,8 +10,11 @@ from typing import Union
 
 class OrderedAtomLookup: #TODO pandas?
     def __init__(self,atoms:Union[list[DisorderedAtom],str],protein=True,waters=False,altloc_subset=None,allowed_resnums=None,allowed_resnames=None,excluded_resnames=None,alternate_atoms:list[DisorderedAtom]=[]): # TODO type hint for sequence?
-        
-        if type(atoms)==str and os.path.isfile(atoms):
+        # atoms can be a path to a pdb file to get atoms from 
+
+        if type(atoms)==str:
+            assert os.path.isfile(atoms), f"Missing file: {atoms}" 
+            assert atoms[-4:]==".pdb", f"Invalid file extension: {atoms}" 
             atoms=PDBParser().get_structure("struct",atoms).get_atoms()
             
         
@@ -85,7 +88,7 @@ class OrderedAtomLookup: #TODO pandas?
                     self.water_residue_nums.append(res_num)
             else: 
                 if is_water:
-                    assert res_num in self.water_residue_nums, "Waters cannot reuse residue sequence numbers used in protein"
+                    assert res_num in self.water_residue_nums, f"Waters cannot reuse residue sequence numbers used in protein (res {res_num})"
 
             for orderedAtom in disorderedAtom:
                 altloc = orderedAtom.get_altloc()

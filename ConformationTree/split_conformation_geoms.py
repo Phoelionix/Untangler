@@ -35,7 +35,8 @@ def create_all_child_restraints(model_path,altloc_parents_dict:dict,child_atom_t
     struct=PDBParser().get_structure("struct",model_path)
     ordered_atom_lookup=OrderedAtomLookup(struct.get_atoms(),waters=True)
     constraints_handler=ConstraintsHandler()
-    constraints_handler.load_all_constraints(model_path,ordered_atom_lookup,symmetries=parse_symmetries_from_pdb(model_path),water_water_nonbond=False)
+    constraints_handler.load_all_constraints(model_path,ordered_atom_lookup,symmetries=parse_symmetries_from_pdb(model_path),water_water_nonbond=False,
+                                             constraints_to_skip=[ConstraintsHandler.ClashConstraint,ConstraintsHandler.TwoAtomPenalty])
     text="""refinement {
   geometry_restraints.edits {\n"""
     for child_altloc,parent_altlocs in altloc_parents_dict.items():

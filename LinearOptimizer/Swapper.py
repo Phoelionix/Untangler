@@ -208,7 +208,7 @@ class Swapper():
                 # Swap according to swaps list
                 anchored_atom_name = P.atom_name 
                 if P.atom_name[0]=="H":
-                    anchored_atom_name = H_get_parent_fullname(P.atom_name_unstripped,nonHatom_full_names).strip()
+                    anchored_atom_name = H_get_parent_fullname(P.res_name,P.atom_name_unstripped,nonHatom_full_names).strip()
                 assert P.res_num.isnumeric()
 
 

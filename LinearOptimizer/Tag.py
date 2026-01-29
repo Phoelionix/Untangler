@@ -21,7 +21,7 @@ class DisorderedTag():
             full_name = ' '+self.atom_name() + ' '*(3-name_length)
         else:
             full_name=self.atom_name()
-        if UntangleFunctions.H_get_parent_fullname(H_pdb_entry.atom_name,[full_name],debug_none_return=False)==full_name:
+        if UntangleFunctions.H_get_parent_fullname(H_pdb_entry.res_name,H_pdb_entry.atom_name,[full_name],debug_none_return=False)==full_name:
             return True
         return False
     def resnum(self):

@@ -222,26 +222,176 @@ def get_R(pdb_file_path,reflections_path):
     print(Rwork,Rfree)
     return Rwork,Rfree
 
+
+
+
 # nonH_fullname_list is with whitespaces
 # quite possibly the worst parser ever written.
-def H_get_parent_fullname(H_name:str,nonH_fullname_list:list[str],debug_none_return=True): 
+def H_get_parent_fullname(resname, H_name:str,nonH_fullname_list:list[str],debug_none_return=True): 
+        # XXX
+        extra_cif_restraints=\
+"""FOL N1  C2   SING Y N 1  
+FOL N1  C8A  SING Y N 2  
+FOL N1  HN1  SING N N 3  
+FOL C2  NA2  SING N N 4  
+FOL C2  N3   DOUB Y N 5  
+FOL NA2 HN21 SING N N 6  
+FOL NA2 HN22 SING N N 7  
+FOL N3  C4   SING Y N 8  
+FOL C4  O4   DOUB N N 9  
+FOL C4  C4A  SING Y N 10 
+FOL C4A N5   SING Y N 11 
+FOL C4A C8A  DOUB Y N 12 
+FOL N5  C6   DOUB Y N 13 
+FOL C6  C7   SING Y N 14 
+FOL C6  C9   SING N N 15 
+FOL C7  N8   DOUB Y N 16 
+FOL C7  H7   SING N N 17 
+FOL N8  C8A  SING Y N 18 
+FOL C9  N10  SING N N 19 
+FOL C9  H91  SING N N 20 
+FOL C9  H92  SING N N 21 
+FOL N10 C14  SING N N 22 
+FOL N10 HN0  SING N N 23 
+FOL C11 C12  DOUB Y N 24 
+FOL C11 C16  SING Y N 25 
+FOL C11 C    SING N N 26 
+FOL C12 C13  SING Y N 27 
+FOL C12 H12  SING N N 28 
+FOL C13 C14  DOUB Y N 29 
+FOL C13 H13  SING N N 30 
+FOL C14 C15  SING Y N 31 
+FOL C15 C16  DOUB Y N 32 
+FOL C15 H15  SING N N 33 
+FOL C16 H16  SING N N 34 
+FOL C   O    DOUB N N 35 
+FOL C   N    SING N N 36 
+FOL N   CA   SING N N 37 
+FOL N   HN   SING N N 38 
+FOL CA  CB   SING N N 39 
+FOL CA  CT   SING N N 40 
+FOL CA  HA   SING N N 41 
+FOL CB  CG   SING N N 42 
+FOL CB  HB1  SING N N 43 
+FOL CB  HB2  SING N N 44 
+FOL CG  CD   SING N N 45 
+FOL CG  HG1  SING N N 46 
+FOL CG  HG2  SING N N 47 
+FOL CD  OE1  DOUB N N 48 
+FOL CD  OE2  SING N N 49 
+FOL OE2 HOE2 SING N N 50 
+FOL CT  O1   DOUB N N 51 
+FOL CT  O2   SING N N 52 
+FOL O2  HO2  SING N N 53 
+NAP  PA   O1A   DOUB  N  N   1  
+NAP  PA   O2A   SING  N  N   2  
+NAP  PA   O5B   SING  N  N   3  
+NAP  PA   O3    SING  N  N   4  
+NAP  O2A  HOA2  SING  N  N   5  
+NAP  O5B  C5B   SING  N  N   6  
+NAP  C5B  C4B   SING  N  N   7  
+NAP  C5B  H51A  SING  N  N   8  
+NAP  C5B  H52A  SING  N  N   9  
+NAP  C4B  O4B   SING  N  N  10  
+NAP  C4B  C3B   SING  N  N  11  
+NAP  C4B  H4B   SING  N  N  12  
+NAP  O4B  C1B   SING  N  N  13  
+NAP  C3B  O3B   SING  N  N  14  
+NAP  C3B  C2B   SING  N  N  15  
+NAP  C3B  H3B   SING  N  N  16  
+NAP  O3B  HO3A  SING  N  N  17  
+NAP  C2B  O2B   SING  N  N  18  
+NAP  C2B  C1B   SING  N  N  19  
+NAP  C2B  H2B   SING  N  N  20  
+NAP  O2B  P2B   SING  N  N  21  
+NAP  C1B  N9A   SING  N  N  22  
+NAP  C1B  H1B   SING  N  N  23  
+NAP  N9A  C8A   SING  Y  N  24  
+NAP  N9A  C4A   SING  Y  N  25  
+NAP  C8A  N7A   DOUB  Y  N  26  
+NAP  C8A  H8A   SING  N  N  27  
+NAP  N7A  C5A   SING  Y  N  28  
+NAP  C5A  C6A   SING  Y  N  29  
+NAP  C5A  C4A   DOUB  Y  N  30  
+NAP  C6A  N6A   SING  N  N  31  
+NAP  C6A  N1A   DOUB  Y  N  32  
+NAP  N6A  H61A  SING  N  N  33  
+NAP  N6A  H62A  SING  N  N  34  
+NAP  N1A  C2A   SING  Y  N  35  
+NAP  C2A  N3A   DOUB  Y  N  36  
+NAP  C2A  H2A   SING  N  N  37  
+NAP  N3A  C4A   SING  Y  N  38  
+NAP  O3   PN    SING  N  N  39  
+NAP  PN   O1N   DOUB  N  N  40  
+NAP  PN   O2N   SING  N  N  41  
+NAP  PN   O5D   SING  N  N  42  
+NAP  O5D  C5D   SING  N  N  43  
+NAP  C5D  C4D   SING  N  N  44  
+NAP  C5D  H51N  SING  N  N  45  
+NAP  C5D  H52N  SING  N  N  46  
+NAP  C4D  O4D   SING  N  N  47  
+NAP  C4D  C3D   SING  N  N  48  
+NAP  C4D  H4D   SING  N  N  49  
+NAP  O4D  C1D   SING  N  N  50  
+NAP  C3D  O3D   SING  N  N  51  
+NAP  C3D  C2D   SING  N  N  52  
+NAP  C3D  H3D   SING  N  N  53  
+NAP  O3D  HO3N  SING  N  N  54  
+NAP  C2D  O2D   SING  N  N  55  
+NAP  C2D  C1D   SING  N  N  56  
+NAP  C2D  H2D   SING  N  N  57  
+NAP  O2D  HO2N  SING  N  N  58  
+NAP  C1D  N1N   SING  N  N  59  
+NAP  C1D  H1D   SING  N  N  60  
+NAP  N1N  C2N   SING  Y  N  61  
+NAP  N1N  C6N   DOUB  Y  N  62  
+NAP  C2N  C3N   DOUB  Y  N  63  
+NAP  C2N  H2N   SING  N  N  64  
+NAP  C3N  C7N   SING  N  N  65  
+NAP  C3N  C4N   SING  Y  N  66  
+NAP  C7N  O7N   DOUB  N  N  67  
+NAP  C7N  N7N   SING  N  N  68  
+NAP  N7N  H71N  SING  N  N  69  
+NAP  N7N  H72N  SING  N  N  70  
+NAP  C4N  C5N   DOUB  Y  N  71  
+NAP  C4N  H4N   SING  N  N  72  
+NAP  C5N  C6N   SING  Y  N  73  
+NAP  C5N  H5N   SING  N  N  74  
+NAP  C6N  H6N   SING  N  N  75  
+NAP  P2B  O1X   DOUB  N  N  76  
+NAP  P2B  O2X   SING  N  N  77  
+NAP  P2B  O3X   SING  N  N  78  
+NAP  O2X  HOP2  SING  N  N  79  
+NAP  O3X  HOP3  SING  N  N  80"""
+
+        residueSpecific_dict={}
+        for line in extra_cif_restraints.split("\n"):
+            entries = line.split()
+            entry_resname, name1, possibleH_name = entries[:3]
+            if possibleH_name[0]=="H":
+                if entry_resname not in residueSpecific_dict:
+                    residueSpecific_dict[entry_resname]={}
+                assert possibleH_name not in residueSpecific_dict[entry_resname] 
+                residueSpecific_dict[entry_resname][possibleH_name]=name1
+
+
+
         parent_name=None
         H_name = H_name.strip()
-        basic_dict = dict(
+        preset_dict = dict(
             H = " N  ",
             H1 = " N  ",
             H2 = " N  ",
             H3 = " N  ",
             HA = " CA ",
             HB = " CB ",
-            HN0 = " N10",
-            # HN21 = " NA2",
-            # HN22 = " NA2",
         )
+        if resname in residueSpecific_dict:
+            preset_dict = preset_dict | residueSpecific_dict[resname]
         # determine parent name
-        if H_name in basic_dict:
-            parent_name = basic_dict[H_name]
-        else:
+        if H_name in preset_dict:
+            parent_name = preset_dict[H_name]
+        else: # Guess the name based on pattern used in standard residues.
             identifier = H_name[1:]
             for k in nonH_fullname_list:
                 if k.strip()[0] == "H":
@@ -260,9 +410,10 @@ def H_get_parent_fullname(H_name:str,nonH_fullname_list:list[str],debug_none_ret
                     if parent_name is not None:
                         #if debug_none_return:
                         print(H_name, identifier)
+                        print(preset_dict)
                         for k in nonH_fullname_list:
                             print(k,k[2:].strip())
-                        assert False
+                        assert False, f"{(resname,H_name,identifier,k[2:].strip(),strip_digit)} Ambiguous choice of H parents {parent_name} {k}"
                     parent_name = k
         if parent_name is None:
             if debug_none_return:
@@ -529,6 +680,7 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
         protein_altlocs = []
         with open(pdb_path) as I:
             max_resnum=0
+            last_resname=""
             start_lines = []
             solvent_lines=[]
             end_lines = []
@@ -562,9 +714,12 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                 resnum = int(line[22:26])
 
                 resnum=resnum-gap_shift
-                if resnum > max_resnum+1:
-                    gap_shift+=resnum-max_resnum-1
-                    resnum=resnum-gap_shift
+                if (resnum != max_resnum+1) and (resname != last_resname):
+                    added_shift=resnum-max_resnum-1
+                    gap_shift+=added_shift
+                    resnum=resnum-added_shift
+                last_resname=resname
+
                 line = replace_res_num(line, resnum)
                 max_resnum=max(resnum,max_resnum)
 
@@ -644,12 +799,12 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                     start_lines.append(modified_line)
 
         # Make sure waters don't share residue numbers with protein
-        min_solvent_resnum=99999999
-        for line in solvent_lines:
-            solvent_resnum=int(line[22:26])
-            min_solvent_resnum = min(solvent_resnum,min_solvent_resnum)
+        # min_solvent_resnum=99999999
+        # for line in solvent_lines:
+        #     solvent_resnum=int(line[22:26])
+        #     min_solvent_resnum = min(solvent_resnum,min_solvent_resnum)
         #shift = max_resnum-min_solvent_resnum + 1
-        new_solvent_resnum_dict = {}
+        #new_solvent_resnum_dict = {}
         for line in solvent_lines:
             n+=1
             #solvent_resnum=int(line[22:26])
