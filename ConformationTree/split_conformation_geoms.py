@@ -23,6 +23,25 @@ from UntangleFunctions import parse_symmetries_from_pdb
 # }
 
 
+# phenix-2.0-5793/lib/python3.9/site-packages/cctbx/geometry_restraints/bond.h
+# //! weight * delta_slack**2.
+# /*! See also: Hendrickson, W.A. (1985). Meth. Enzym. 115, 252-270.
+# */
+# double
+# residual() const {
+# // unlike the dihedral angle restraint, the harmonic potential is
+# // always used if distance_model < distance_ideal, to compensate for
+# // the lack of a nonbonded restraint for the bonded atoms.
+# if ((top_out) && (delta_slack < 0)) {
+#     double top = weight * limit * limit;
+#     //top*(1-exp(-weight*x**2/top))
+#     return top * (1.0-std::exp(-weight*delta_slack*delta_slack/top));
+# } else {
+#     return weight * scitbx::fn::pow2(delta_slack);
+# }
+# }
+
+
 # TODO Dont create restraints if they already exist.
 
 def create_all_child_restraints(model_path,altloc_parents_dict:dict,child_atom_tags:list[DisorderedTag],all_ordered_tags:list[OrderedTag],include_nonbonds=True):
@@ -115,7 +134,7 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
                 + f"""      action = *add
 {atom_selection_lines}
       {ideal_variable_name} = {ideal:.4f}\n"""
-+(f"      sigma = {constraint.sigma:.4f}\n" if constraint.sigma is not None else "      sigma = 1\n      "+f"limit = {nonbond_limit_param}"+"\n") 
++(f"      sigma = {constraint.sigma:.4f}\n" if constraint.sigma is not None else "      sigma = 1\n      "+f"limit = 0\n      "+f"top_out = True"+"\n") 
                 + "    }\n")
                 processed_constraints.append(constraint)
     return text

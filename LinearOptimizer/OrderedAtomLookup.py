@@ -162,7 +162,8 @@ class OrderedAtomLookup: #TODO pandas?
         return atom.get_parent().get_resname()
     @staticmethod
     def atom_chain_id(atom:Atom)->str:
-        return atom.get_full_id()[3]
+        #return atom.get_parent().get_full_id()[2]
+        return atom.get_full_id()[2]
     def get_disordered_serial_number(self,atom:Atom)->int:
         return self.serial_num_to_disordered_num_dict[atom.get_serial_number()] 
     def get_residue_nums(self)->list[int]:
