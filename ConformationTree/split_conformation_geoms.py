@@ -49,13 +49,13 @@ def create_all_child_restraints(model_path,altloc_parents_dict:dict,child_atom_t
         if len(parent_altlocs)==0:
             continue 
         # Create all restraints for single child altloc
-        text+=create_child_restraints(child_altloc,parent_altlocs,child_atom_tags,all_ordered_tags,constraints_handler)
+        text+=create_child_restraints(child_altloc,parent_altlocs,child_atom_tags,all_ordered_tags,constraints_handler,ordered_atom_lookup.chain_dict)
     text+="""  }
 }\n"""
     return text
 
 def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[DisorderedTag],all_ordered_tags:list[OrderedTag],
-                            constraints_handler:ConstraintsHandler, chain="A"):
+                            constraints_handler:ConstraintsHandler, chain_dict):
 
     allowed_constraints = [
         ConstraintsHandler.BondConstraint,
@@ -85,7 +85,9 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
                         line_altloc=parent_altloc
                     else:
                         line_altloc=child_altloc
-                    atom_selection_lines.append(f"      atom_selection_{i+1} = name {site_tag.atom_name()} and resseq {site_tag.resnum()} and chain {chain} and altid {line_altloc}")
+                    atom_selection_lines.append(
+                        f"      atom_selection_{i+1} = name {site_tag.atom_name()} and resseq {site_tag.resnum()} and chain {chain_dict[site_tag.resnum()]} and altid {line_altloc}"
+                    )
                 atom_selection_lines='\n'.join(atom_selection_lines)
                 parameter_scope_name =constraint.get_str_rep_kind().lower()
                 if type(constraint) != ConstraintsHandler.NonbondConstraint:
@@ -113,7 +115,7 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
                 + f"""      action = *add
 {atom_selection_lines}
       {ideal_variable_name} = {ideal:.4f}\n"""
-+(f"      sigma = {constraint.sigma:.4f}\n" if constraint.sigma is not None else "      sigma = None\n      "+f"limit = {nonbond_limit_param}"+"\n") 
++(f"      sigma = {constraint.sigma:.4f}\n" if constraint.sigma is not None else "      sigma = 1\n      "+f"limit = {nonbond_limit_param}"+"\n") 
                 + "    }\n")
                 processed_constraints.append(constraint)
     return text

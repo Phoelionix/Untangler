@@ -29,6 +29,7 @@ class OrderedAtomLookup: #TODO pandas?
         self.altlocs=[]
         self.protein_altlocs=[]
         self.better_dict:dict[str,dict[str,dict[str,Atom]]] = {}  # res_num, atom name, altloc
+        self.chain_dict:dict[str,str] = {}  # res_num, chain id
         self.alt_pos_options:dict[DisorderedTag,list[dict[str,Atom]]]={}
         self.water_residue_nums:list[int]=[]
 
@@ -77,6 +78,7 @@ class OrderedAtomLookup: #TODO pandas?
                 except:
                     raise Exception("Something went wrong when making ordered atom disordered")
             if res_num not in self.better_dict:
+                self.chain_dict[res_num]=OrderedAtomLookup.atom_chain_id(disorderedAtom)
                 self.better_dict[res_num] = {}
                 #if allowed_resnums is not None and allowed_resnames is not None:
                 if allowed_resnums is None and allowed_resnames is None and excluded_resnames is None:
@@ -154,16 +156,13 @@ class OrderedAtomLookup: #TODO pandas?
 
     @staticmethod
     def atom_res_seq_num(atom:Atom)->int:
-        try:
-            return atom.get_parent().get_id()[1]
-        except:
-            print(atom)
-            print(atom.get_parent())
-            print(atom.get_parent().get_id())
-            raise Exception("AAAA")
+        return atom.get_parent().get_id()[1]
     @staticmethod
     def atom_res_name(atom:Atom)->str:
         return atom.get_parent().get_resname()
+    @staticmethod
+    def atom_chain_id(atom:Atom)->str:
+        return atom.get_full_id()[3]
     def get_disordered_serial_number(self,atom:Atom)->int:
         return self.serial_num_to_disordered_num_dict[atom.get_serial_number()] 
     def get_residue_nums(self)->list[int]:
