@@ -57,9 +57,6 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
         atom_name_dict:dict[int,list[str]]={}
         last_chain=None
         solvent_res_names=UntangleFunctions.WATER_RESNAMES
-        if split_waters: 
-            # FIXME
-            solvent_res_names=[]
         solvent_chain_id = "z"
         warned_collapse=False
 
@@ -77,6 +74,7 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
         
         resnum_chain_append_mod=0 
         last_resnum=None
+        og_resnum_dict={} # Dict of new resnums to old resnums
         for line in lines:
             if line.startswith("TER") or line.startswith("ANISOU"):
                 continue
@@ -97,7 +95,7 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
             resname = line[17:20]
             space = line[20]
             chain = line[21]
-            if resname in solvent_res_names:
+            if resname in solvent_res_names and not split_waters:
                 solvent_lines.append(line)  # Modified further below
                 continue
 
@@ -109,20 +107,21 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
                 line = replace_altloc(line,altloc)
             assert len(end_lines)==0
                 
+            this_line_resnum=int(line[22:26])
             if not sep_chain_format and chain != last_chain and last_chain is not None:
                 if not warned_collapse:
                     print("Warning: Multiple chains detected. Collapsing chains into single chain")
                 if altloc != chain: # XXX
                     if not warned_collapse:
                         print("Appending resnums")
-                    this_line_resnum=int(line[22:26])
                     resnum_chain_append_mod=last_resnum+1-this_line_resnum
                 warned_collapse=True
 
-            last_resnum=resnum = int(line[22:26])+resnum_chain_append_mod
+            last_resnum=resnum = this_line_resnum + resnum_chain_append_mod
             line = replace_res_num(line,resnum)
 
             if resnum not in atom_dict:
+                og_resnum_dict[resnum]=this_line_resnum
                 atom_dict[resnum] = {}
                 atom_name_dict[resnum]=[]
 
@@ -193,17 +192,22 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
                     
 
 
-                    
+                    new_chain_id=protein_chain_id
+                    resname = line[17:20]
+                    if resname in solvent_res_names:
+                        new_chain_id=solvent_chain_id
+
+
                     max_serial_num+=1
                     modified_line = replace_serial_num(line,max_serial_num)
-                    modified_line = replace_chain(modified_line,protein_chain_id)
+                    modified_line = replace_chain(modified_line,new_chain_id)
                     modified_line = replace_altloc(modified_line,parent_altloc)
 
 
 
                     atom_name=line[12:16].strip()
                     res_num = int(line[22:26])
-                    site_tag = DisorderedTag(res_num,atom_name)
+                    site_tag = DisorderedTag(og_resnum_dict[res_num],atom_name)
                     atom_being_split = (site_tag in child_atom_tags 
                                         and len(child_altlocs)>0)
                     
