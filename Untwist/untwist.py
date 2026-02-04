@@ -21,8 +21,8 @@ import numpy as np
 # 
 # 
 
-def apply_all_untwists_for_two_conformations(working_model):
-    untwist_file = create_untwist_file(working_model)
+def apply_all_untwists_for_two_conformations(working_model,altlocs_considered=None):
+    untwist_file = create_untwist_file(working_model,altlocs_considered=altlocs_considered)
     untwist_move_models_dir, all_untwists_models, changes_only_models = apply_untwists(working_model,untwist_file)
 
     return all_untwists_models, changes_only_models
@@ -41,12 +41,13 @@ def get_untwist_atom_options_that_survived_unrestrained(pos_refined_model, pre_u
                                                         max_twist_angle_decrease_to_ignore_angle_condition=None,
                                                         #max_twist_angle_decrease_to_ignore_min_sep_condition=0,
                                                         max_gap_close_frac_to_ignore_angle_condition=None,
-                                                        max_gap_close_frac=None,exclude_H=True):
+                                                        max_gap_close_frac=None,exclude_H=True,
+                                                        altlocs_considered=None):
     
-    untwist_atoms = {DisorderedTag.from_atom(a):a for a in PDBParser().get_structure("struct",changes_only_model).get_atoms()}
-    original_atoms = {DisorderedTag.from_atom(a):a for a in PDBParser().get_structure("struct",pre_untwist_model).get_atoms()
+    untwist_atoms:dict[DisorderedTag,DisorderedAtom] = {DisorderedTag.from_atom(a):a for a in PDBParser().get_structure("struct",changes_only_model).get_atoms()}
+    original_atoms:dict[DisorderedTag,DisorderedAtom] = {DisorderedTag.from_atom(a):a for a in PDBParser().get_structure("struct",pre_untwist_model).get_atoms()
                       if DisorderedTag.from_atom(a) in untwist_atoms}
-    post_refine_atoms = {DisorderedTag.from_atom(a):a for a in PDBParser().get_structure("struct",pos_refined_model).get_atoms()
+    post_refine_atoms:dict[DisorderedTag,DisorderedAtom] = {DisorderedTag.from_atom(a):a for a in PDBParser().get_structure("struct",pos_refined_model).get_atoms()
                          if DisorderedTag.from_atom(a) in untwist_atoms}
     
 
@@ -60,7 +61,11 @@ def get_untwist_atom_options_that_survived_unrestrained(pos_refined_model, pre_u
         if exclude_H and untwist_atm.element=="H":
             continue
         og_atm = original_atoms[site_tag]
-        post_ref_atm=post_refine_atoms[site_tag]
+        post_ref_atm_unmodified=post_refine_atoms[site_tag]
+        
+        og_atm = [a for a in original_atoms[site_tag] if (altlocs_considered is None or a.get_altloc() in altlocs_considered) ]
+        untwist_atm = [a for a in untwist_atm if (altlocs_considered is None or a.get_altloc() in altlocs_considered)]
+        post_ref_atm= [a for a in post_ref_atm_unmodified if (altlocs_considered is None or a.get_altloc() in altlocs_considered)]
 
         # Find closest atoms before unrestrained refine.
         # Very lazy check TODO
@@ -106,9 +111,9 @@ def get_untwist_atom_options_that_survived_unrestrained(pos_refined_model, pre_u
             passed=True 
 
         if passed:
-            alternate_atoms.append(post_ref_atm)
+            alternate_atoms.append(post_ref_atm_unmodified)
         else:
-            disallowed.append(post_ref_atm)
+            disallowed.append(post_ref_atm_unmodified)
                 
     return alternate_atoms,disallowed
         

@@ -42,17 +42,21 @@ disable_CDL='false' # Disable conformation-dependent library
 disable_nqh_flips='false'
 altlocs_to_refine=''
 user_param_file=''
+filter_ordered_solvent='false'
 
 max_sigma_movement_restraint=0.1
 
 refine_hydrogens='false'
 
+
 restrain_movement_of_protein='false' # Note this does nothing when True if disable_movement_restraint is True
 
 fixed_water_occupancy='false' # Fix water occupancies at value of ordered_solvent_occupancy
 
+reTry_on_fail='false' # You should not have any need to use this.
 
-while getopts ":a:f:o:u:c:e:n:s:q:whprgtzACDHNOPRSZ" flag; do
+
+while getopts ":a:f:o:u:c:e:n:s:q:whprgtzACDHNOPRSTZ" flag; do
  case $flag in
     a) altlocs_to_refine=$OPTARG
     ;;
@@ -105,6 +109,8 @@ while getopts ":a:f:o:u:c:e:n:s:q:whprgtzACDHNOPRSZ" flag; do
     R) disable_movement_restraint='true' 
     ;;
     S) ordered_solvent='true'
+    ;;
+    T) reTry_on_fail='true'
     ;;
     Z) water_and_H_only='true'
     ;;
@@ -279,6 +285,7 @@ if $refine_hydrogens; then
   # mv $tmpfile $paramFile
 fi
 
+
 if $ordered_solvent; then 
   sed "s/ordered_solvent = False/ordered_solvent = True/g" $paramFile  > $tmpfile 
   mv $tmpfile $paramFile
@@ -337,6 +344,15 @@ mv $tmpfile $paramFile
 sed "s/individual = TEMPLATE_SITES_INDIVIDUAL/individual = None/g" $paramFile > $tmpfile 
 mv $tmpfile $paramFile
 
+
+if $filter_ordered_solvent; then
+  sed 's/mode = \*second_half filter_only every_macro_cycle every_macro_cycle_after_first/mode = second_half *filter_only every_macro_cycle every_macro_cycle_after_first/g' $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+  sed "s/ordered_solvent = False/ordered_solvent = True/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+fi
+
+
 # Broad sweep attempt to stop phenix segfaulting when run in parallel
 export OMP_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
@@ -361,22 +377,48 @@ error_file=$logs_path/${out_handle}_err.log
 log_file=$logs_path/${out_handle}.log
 
 
-#user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints.eff
-user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-4PSS_2conf4conf.eff # TEMPORARY
-phenix.refine main.random_seed=$random_seed $paramFile $user_param_file  2>$error_file 1> $log_file
-unset TMPDIR
-
-if [ -s $error_file ]; then
-  echo "Failed"
-  exit 1 
-else
-  rm $error_file
+num_attempts=1
+if $reTry_on_fail; then 
+  num_attempts=20 
 fi
 
-if grep -q "Traceback (most recent call last)" "$log_file"; then
-  echo "Failed"
-  exit 1 
-fi 
+i=0
+while true; do
+  #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints.eff
+  user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-4PSS_2conf6conf.eff # TEMPORARY
+  #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-4PSS_2conf6conf_noWater.eff # TEMPORARY
+  #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-cov63_2conf6conf.eff
+  #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-cov63_2conf6conf_noWater.eff
+
+  failed=false
+  phenix.refine main.random_seed=$random_seed $paramFile $user_param_file  2>$error_file 1> $log_file
+
+  if [ -s $error_file ]; then
+    failed=true
+  fi
+
+  if grep -q "Traceback (most recent call last)" "$log_file"; then
+    failed=true
+  fi
+  # if [ ! -f $final_structure ]; then 
+  #   failed=true
+  #   echo "$final_structure missing, refinement failed for unknown reason"
+  # fi
+  if $failed; then
+    mv $error_file $error_file#
+    i=$((i+1))
+    echo
+    if (( i >= num_attempts )); then 
+      echo "Failed"
+      exit 1 
+    fi
+    echo "Failed, retrying..."
+  else
+    rm $error_file
+    break
+  fi 
+done
+unset TMPDIR
 
 
 if [ ! -f $final_structure ]; then 

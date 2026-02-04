@@ -23,8 +23,13 @@ from ConformationTree.split_pdb import split_specific
     #   atom_selection_1 = name C and resseq 1 and chain A and altid A
     #   atom_selection_2 = name CA and resseq 1 and chain A and altid A
     #   atom_selection_3 = name CB and resseq 1 and chain A and altid C
-# TODO Don't allow these angles to be created.
+# UPDATE
+# Seems unpredictable. After refining different residues had this issue but with the same altlolc.
+#  Deleting all custom angle restraints involving CA in the residue with the issue will fix.
 
+
+# TODO Fix:
+# Zero B factor hydrogens are being created somewhere... and possibly only after refining? 0.00           H
 
 
 
@@ -37,7 +42,7 @@ def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False):
 
     excluded_resnames=["CYS","GLY","PRO"]
     ordered_atom_lookup = OrderedAtomLookup(model_path, waters=False,excluded_resnames=excluded_resnames)
-    atoms = ordered_atom_lookup.select_atoms_by(exclude_atom_names=["N","CA","C","O","H","HN","H2","H3","HA"])
+    atoms = ordered_atom_lookup.select_atoms_by(exclude_atom_names=["N","CA","C","O","H","H1","HN","H2","H3","HA"])
     child_atom_tags = list(set([DisorderedTag.from_atom(a) for a in atoms]))
 
 
@@ -46,8 +51,7 @@ def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False):
 
     all_ordered_tags = [OrderedTag.from_atom(a) for a in OrderedAtomLookup(model_path, waters=False,excluded_resnames=excluded_resnames).ordered_atoms]
 
-    # TODO delete atoms that are parent sites and don't belong to expected altlocs? 
-    # Or at least, consider atom H residue 121, 143. Altlocs B and D. D should be changed to A automatically.
+    # TODO issue with nitrogen H/H1 atoms that don't belong to expected altlocs
 
     def get_out_path(model_handle,out_tag):
         output_dir = os.path.join(UNTANGLER_WORKING_DIRECTORY,"output","")
@@ -65,11 +69,18 @@ def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False):
 
 if __name__ == "__main__":
     #model_path="/home/speno/Untangler/output/synthetic_out_archive/2conf_start.pdb"
-    model_path="/home/speno/Untangler/data/4PSS_split.pdb"
+    #model_path="/home/speno/Untangler/data/4PSS_split.pdb"
+    #model_path="/home/speno/Untangler/output/4PSS_2conf4conf_Accepted9_HOH_added-4PSS.pdb"
     #child_parent_altlocs_dict={"C":"A"}
     # child_parent_altlocs_dict={"C":"A","D":"A","E":"A","F":"A","c":"B","d":"B","e":"B","f":"B"}
     # run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False)
-    child_parent_altlocs_dict={"C":"A","D":"B"}
+    #child_parent_altlocs_dict={"C":"A","D":"B"}
+    # model_path="/home/speno/Untangler/data/4PSS_2conf6conf.pdb"
+    # child_parent_altlocs_dict={"C":"A","E":"A","G":"A","I":"A","D":"B","F":"B","H":"B","J":"B"}
+
+    #model_path="/home/speno/Untangler/output/4PSS_2conf4conf_Accepted9_HOH_added-4PSS.pdb"
+    model_path="/home/speno/Untangler/ConformationTree/output/cov63_2confR_fmtd_split.pdb"
+    child_parent_altlocs_dict={"C":"A","E":"A","D":"B","F":"B"}
     run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=True)
 
 # %%

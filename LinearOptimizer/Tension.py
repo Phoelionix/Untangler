@@ -38,8 +38,7 @@ class GeoXrayTension:
 
 
             for atom in ordered_atom_lookup.select_atoms_by():
-                #disordered_tag = DisorderedTag(DisorderedTag(OrderedAtomLookup.atom_res_seq_num(atom),atom.get_name()),VariableKind.Atom)
-                disordered_tag = DisorderedTag(OrderedAtomLookup.atom_res_seq_num(atom),atom.get_name())
+                disordered_tag = DisorderedTag.from_atom(atom)
                 if disordered_tag not in atom_pos_dict:
                     atom_pos_dict[disordered_tag]={}
                 atom_pos_dict[disordered_tag][atom.get_altloc()]=atom.get_coord()

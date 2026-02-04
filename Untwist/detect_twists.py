@@ -533,6 +533,9 @@ def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_
     point_0_sets=[]
     for name_resnums in angles:
         disordered_atoms={} # The atoms involved in the angle 
+        if any([(name not in ordered_atom_lookup.better_dict[resnum]) for name,resnum in name_resnums]):
+            print(f"Missing...")
+            continue
         for name, resnum in name_resnums:
             disordered_atoms[(name,resnum)]=[ordered_atom_lookup.better_dict[resnum][name][altloc] for altloc in ordered_atom_lookup.protein_altlocs]
         assert len(disordered_atoms)==3, disordered_atoms
@@ -672,9 +675,9 @@ def find_compatible_solutions_for_separate_pairs(pair_set_1,pair_set_2,C:Disorde
 
     return solutions
 
-def create_untwist_file(pdb_path,geo_file_needs_generation=True,verbose=False):
+def create_untwist_file(pdb_path,geo_file_needs_generation=True,verbose=False,altlocs_considered=None):
     struct = PDBParser().get_structure("struct",pdb_path)
-    ordered_atom_lookup=OrderedAtomLookup(struct.get_atoms(),waters=False)
+    ordered_atom_lookup=OrderedAtomLookup(struct.get_atoms(),waters=False,altloc_subset=altlocs_considered)
     constraints_handler = get_constraints_handler(pdb_path,geo_file_needs_generation=geo_file_needs_generation)
     twists_found:list[NDArray]=[]
     twist_atom_ids:list[DisorderedTag]=[]

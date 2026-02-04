@@ -33,9 +33,15 @@ DISABLE_WATER_ALTLOC_OPTIM=False
 TURN_OFF_BULK_SOLVENT=False
 CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=False
 PHENIX_ORDERED_SOLVENT=False
-TENSIONS=False  # Enables behaviours of re-enabling connection options involving high-tension sites, and, if option enabled, to scale cost by tensions
+TENSIONS=False  # Enables behaviours of permitting otherwise forbidden geomection options involving high-tension sites, and, if option enabled, to scale cost by tensions
 PHENIX_FREEZE_WATER=False
 PHENIX_DISABLE_CDL=False # Disables the conformation-dependent library for phenix.refine. 
+DEBUG_FORCE_NEVER_RIDING_H_PHENIX=True
+PHENIX_DISABLE_NQH=True
+
+
+
+EVEN_SPLIT_OCCUPANCIES=True
 
 TIMEOUT_MINS_FACTOR=2
 
@@ -55,7 +61,8 @@ class Untangler():
     debug_skip_refine = False  # Note: Can set to True alongside debug_skip_first_swaps to skip to first proposal
     debug_skip_initial_refine=True
     debug_skip_first_unrestrained_refine=True
-    debug_skip_first_swaps=True
+    debug_skip_first_untwist_refine=False
+    debug_skip_first_swaps=False
     debug_skip_first_batch_refine=False # skip to assessing best model from the batch of refinements
     debug_skip_first_focus_swaps=False # many swaps strategy only 
     debug_skip_unrestrained_refine=False
@@ -72,9 +79,11 @@ class Untangler():
     debug_skip_to_loop=0
     #untwist_loop=99
     num_loops_not_refine_H=0
+    #untwist_moves_enabled=True
     untwist_moves_enabled=False
+    untwist_moves_enabled_on_mainch_only_loop=True
     num_loops_not_untwist=0 
-    final_untwist_loop=2 # if equal to num_loops_not_untwist, will do untwist in that loop only
+    final_untwist_loop=999 # if equal to num_loops_not_untwist, will do untwist in that loop only
     debug_skip_initial_holton_data_generation =debug_skip_initial_refine or (debug_skip_to_loop!=0) # Initial score file. Will always create if expected path to score file doesn't exist.
     #debug_skip_initial_holton_data_generation =False
     phenix_ordered_solvent_on_initial=False
@@ -205,7 +214,8 @@ class Untangler():
         prepare_pdb(pdb_path,out_path,
                     sep_chain_format=sep_chain_format,
                     altloc_from_chain_fix=altloc_from_chain_fix,
-                    ring_name_grouping=ring_name_grouping)
+                    ring_name_grouping=ring_name_grouping,
+                    even_split_occupancies=EVEN_SPLIT_OCCUPANCIES)
         self.protein_altlocs,self.solvent_altlocs = get_altlocs_from_pdb(pdb_path)
 
     def run(self,pdb_file_path,hkl_file_path,desired_score=18.6,max_num_runs=100):
@@ -477,9 +487,9 @@ class Untangler():
             
         if not read_prior_run:
             alternate_atoms=[]
-            if self.num_loops_not_untwist<=self.loop<=self.final_untwist_loop and self.untwist_moves_enabled:
+            if self.num_loops_not_untwist<=self.loop<=self.final_untwist_loop and (self.untwist_moves_enabled or (self.untwist_moves_enabled_on_mainch_only_loop and self.main_chain_only())):
                 # Get allowed untwist moves 
-                alternate_atoms = self.get_untwist_moves(model_to_swap)
+                alternate_atoms = self.get_untwist_moves(model_to_swap,debug_skip_refine=self.loop==self.first_loop and self.debug_skip_first_untwist_refine)
             atoms, connections = Solver.LP_Input(model_to_swap, restrained_refine_pdb_file_path, tensions, self.symmetries, ignore_waters=False,altloc_subset=altloc_subset,resnums=resnums,resnames=resnames,alternate_atoms=alternate_atoms).calculate_paths(
                 scoring_function=scoring_function,
                 clash_punish_thing=False,
@@ -688,14 +698,20 @@ class Untangler():
 
         return out_path
     
+
+    def main_chain_only(self):
+        return not ((self.loop+1)%self.main_chain_swaps_only_period!=0
+                and not self.debug_main_chain_swaps_only
+                and not (self.main_chain_swaps_only_after_first_loop and self.loop>0))
     #TODO only allow the atoms untwisted to be refined.
     def get_untwist_moves(self,working_model,num_unrestrained_cycles=2, debug_skip_refine=False):
-        if len(self.protein_altlocs)!=2:
-            print("Skipping untwists due to more than 2 protein altlocs")
-            return []
-                    
+        #debug_skip_refine = self.loop==0
+        # if len(self.protein_altlocs)!=2:
+        #     print("Skipping untwists due to more than 2 protein altlocs")
+        #     return []
+        altlocs_considered= "AB" # Temporary FIXME                   
         print("Performing untwist moves")
-        untwisted_models,changes_only_models = untwist.apply_all_untwists_for_two_conformations(working_model)
+        untwisted_models,changes_only_models = untwist.apply_all_untwists_for_two_conformations(working_model,altlocs_considered=altlocs_considered)
         
 
 
@@ -705,14 +721,17 @@ class Untangler():
             print(f"Refining model with set of untwist moves {i+1}/{len(untwisted_models)} with all untwists")
             # copy_path = self.get_out_path(f"untwist-{i}_")
             # shutil.copy(untwisted_model,copy_path)
-            positions_refined_model = self.refine_for_positions(untwisted_model,loops_override=num_unrestrained_cycles,debug_skip=debug_skip_refine,tag=f"Untwist-{i}_") 
+            positions_refined_model = self.refine_for_positions(untwisted_model,loops_override=num_unrestrained_cycles,
+                                                                debug_skip=debug_skip_refine,tag=f"Untwist-{i}_") 
             this_run_alternates,this_run_disallowed_alternates = untwist.get_untwist_atom_options_that_survived_unrestrained(
                 positions_refined_model,working_model, changes_only_model,
                 #min_ratio_real_sep_on_fake_sep=1,
                 min_ratio_real_sep_on_fake_sep=0.75,
                 min_twist_angle=45,
                 max_gap_close_frac=0.5,
-                exclude_H=True)
+                exclude_H=True,
+                altlocs_considered=altlocs_considered,
+                )
             new_alternate_atoms=[]
             new_alternate_atoms_already_with_moves=[]
             if i == 0:
@@ -723,7 +742,8 @@ class Untangler():
                     rel_orient_diff_min=20 # degrees
                     for a in alternate_atoms:
                         if DisorderedTag.from_atom(b)==DisorderedTag.from_atom(a):
-                            a_coords,b_coords=[ordrd.get_coord() for ordrd in a], [ordrd.get_coord() for ordrd in b]
+                            a_coords=[ordrd.get_coord() for ordrd in a if ordrd.get_altloc() in altlocs_considered]
+                            b_coords=[ordrd.get_coord() for ordrd in b if ordrd.get_altloc() in altlocs_considered]
                             assert len(a_coords)==len(b_coords)==2
                             rel_orient = relative_orientation(a_coords[0]-a_coords[1],b_coords[0]-b_coords[1])
                             if rel_orient_diff_min <= abs(rel_orient) <=180-rel_orient_diff_min:
@@ -839,9 +859,7 @@ class Untangler():
 
 
             # Limited options
-            main_chain_swaps = not ((self.loop+1)%self.main_chain_swaps_only_period!=0
-                and not self.debug_main_chain_swaps_only
-                and not (self.main_chain_swaps_only_after_first_loop and self.loop>0))
+            main_chain_swaps = self.main_chain_only()
             side_chain_swaps = not main_chain_swaps and self.optimize_side_and_main_separately
 
             focused_swap_modes=[]
@@ -1167,8 +1185,8 @@ class Untangler():
 
     def initial_refine(self,model_path,**kwargs)->str:
         # Try to get atoms as close to their true positions as possible
-        initial_shake=0.1
-        params=list(zip([1,0.5,0.2,0.1],[1,0,0,0],[2,4,5,5],[initial_shake,0,0,0]))
+        initial_shake=0.5
+        params=list(zip([1,0.5,0.2,0.1],[1,0,0,0],[6,4,5,5],[initial_shake,0,0,0]))
         for i, (wc, wu, n_cycles, phenix_shake) in enumerate(params):
         #for wc, wu, n_cycles in zip([1,0.5],[1,0],[8,4]):
         #for wc, wu, n_cycles in zip([1],[1],[self.num_end_loop_refine_cycles]):
@@ -1207,12 +1225,16 @@ class Untangler():
             )
         return model_path
 
-    def refine_for_positions(self,model_path,loops_override=None,tag="",**kwargs)->str:
+    def refine_for_positions(self,model_path,loops_override=None,tag="",refine_until_worse=None,**kwargs)->str:
 
         # TODO CRITICAL measure how geo changes. Use this to weight geo in altloc assignment (if it changes little, weight it less).
-
+        
         next_model=model_path
         debug_skip=("debug_skip" in kwargs and kwargs["debug_skip"]==True)
+        if debug_skip:
+            refine_until_worse=False
+        elif refine_until_worse is None:
+            refine_until_worse=True
         # No idea why need to do this loop. But otherwise it jumps at 1_xyzrec
         def damp(last_model,next_model):
             print(last_model,next_model)
@@ -1227,7 +1249,14 @@ class Untangler():
                 interp_coords(next_model,last_model,preinterp_path,weightA=self.unrestrained_damp)
                 print(f"After: {get_R(next_model,self.hkl_path)}")
         if self.refinement==self.PHENIX:
-            num_loops = self.num_refine_for_positions_macro_cycles_phenix if loops_override is None else loops_override
+            num_loops = self.num_refine_for_positions_macro_cycles_phenix 
+            if loops_override is not None:
+                num_loops=loops_override
+                if refine_until_worse:
+                    refine_until_worse=False
+                    print(f"Warning, refine_until_worse was disabled, num loops set to {num_loops}")
+            elif refine_until_worse:
+                num_loops=999
             for n in range(num_loops): # Workaround phenix using decreasing geo weight each loop.
                 if n > 0:
                     moved_path=f"{next_model[:-4]}_last.pdb"
@@ -1254,6 +1283,14 @@ class Untangler():
                     **kwargs
                 )
                 damp(last_model,next_model)
+                if refine_until_worse:
+                    this_Rfree=get_R(next_model,self.hkl_path)[1]
+                    if n > 0:
+                        if last_Rfree<=this_Rfree:
+                            shutil.move(last_model,next_model)
+                            break
+                    last_Rfree=this_Rfree
+
         elif self.refinement == self.REFMAC:
             refine_params=self.get_refine_params_refmac(
                 f"unrestrained{tag}{self.loop}",
@@ -1504,7 +1541,7 @@ class Untangler():
         out_path = self.get_out_path(P.out_tag,add_loop_num=False)
         assert refine_params[0].model_path is not None and os.path.exists(refine_params[0].model_path), refine_params[0]
         if not debug_skip:
-            max_attempts=10
+            max_attempts=30
             attempt=0
             backup_path = out_path+'#'
             if os.path.abspath(refine_params[0].model_path)!=os.path.abspath(out_path): # So as not to disrupt multiple refines using same file output name
@@ -1528,8 +1565,10 @@ class Untangler():
                     else:
                         raise Exception(f"refinement failed {max_attempts} times!")
                 else:
-                    assert os.path.exists(out_path), f"{out_path} does not exist"
-                    break
+                    if not os.path.exists(out_path):
+                        print(f"Unknown error: {out_path} does not exist! Retrying...")
+                    else:
+                        break
 
             if delete_old_model_when_done:
                 os.remove(refine_params[0].model_path)
@@ -1601,7 +1640,11 @@ class Untangler():
         ###
         if PHENIX_FREEZE_WATER:
             hold_water_positions=True
-            
+        if DEBUG_FORCE_NEVER_RIDING_H_PHENIX:
+            refine_hydrogens=True
+        if PHENIX_DISABLE_NQH:
+            disable_NQH_flips=True
+
         disable_CDL = PHENIX_DISABLE_CDL
 
         assert (not hold_water_positions) or (not hold_protein_positions) or refine_hydrogens
@@ -1826,8 +1869,9 @@ def main():
         weight_factors = {
             ConstraintsHandler.BondConstraint: 0.1,
             ConstraintsHandler.AngleConstraint: 80,
+            #ConstraintsHandler.NonbondConstraint: 0,#0.1,
             ConstraintsHandler.NonbondConstraint: 0.1,
-            ConstraintsHandler.ClashConstraint: 1e2,
+            ConstraintsHandler.ClashConstraint: 1e8,#1e2,
             ConstraintsHandler.TwoAtomPenalty: 0,
         },
         solution_reference=solution_reference,
@@ -1835,7 +1879,7 @@ def main():
         starting_model,
         xray_data,
         desired_score=18.4, # score to stop at
-        max_num_runs=10,
+        max_num_runs=20,
     )
 if __name__=="__main__":
     main()

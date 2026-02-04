@@ -847,8 +847,7 @@ geometry_restraints.edits {
   }
   ordered_solvent {
     low_resolution = 2.8
-    mode = *second_half filter_only every_macro_cycle \
-           every_macro_cycle_after_first
+    mode = *second_half filter_only every_macro_cycle every_macro_cycle_after_first
     mask_atoms_selection = protein and (name CA or name CB or name N or name \
                            C or name O)
     include_altlocs = True

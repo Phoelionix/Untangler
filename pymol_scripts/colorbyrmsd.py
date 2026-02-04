@@ -44,7 +44,6 @@ EXAMPLE
     doAlign, doPretty = int(doAlign), int(doPretty)
     guide, quiet = int(guide), int(quiet)
     aln, seleboth = '_aln', '_objSelBoth'
-
     try:
         align = cmd.keyword[method][0]
     except:
@@ -62,7 +61,7 @@ EXAMPLE
             align(mobile, target)
 
         # get alignment without superposing
-        align(mobile, target, cycles=0, transform=0)
+        align(mobile, target, cycles=0, transform=0, object=aln)
     except:
         print(' Error: Alignment with method %s failed' % (method))
         raise CmdException
@@ -89,7 +88,12 @@ EXAMPLE
         #cmd.orient(seleboth)
         #cmd.show_as('cartoon', 'byobj ' + seleboth)
         cmd.color('gray', seleboth)
-        cmd.spectrum('b', 'blue_red', seleboth + ' and b > -0.5',minimum=float(minim),maximum=float(maxim))
+        args = {}
+        if minim is not None:
+            args["minimum"]=minim
+        if maxim is not None:
+            args["maximum"]=maxim
+        cmd.spectrum('b', 'blue_red', seleboth + ' and b > -0.5',**args)
 
     if not quiet:
         print(" ColorByRMSD: Minimum Distance: %.2f" % (min(b_dict.values())))

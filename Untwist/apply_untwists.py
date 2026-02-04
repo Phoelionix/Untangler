@@ -36,14 +36,14 @@ def apply_untwists(model_path, untwist_file):
                     else:
                         found_resname=P.res_name
                     idx = altlocs.index(P.altloc)
-                    new_lines+=P.new_coord(coords[idx])
+                    new_lines+=P.new_line(new_coord=coords[idx])
                     parent_coords_delta[P.altloc] = coords[idx]-line_coords(line)
                     continue
                 elif site.is_riding_H_entry(P):
                     idx = altlocs.index(P.altloc)
                     assert parent_coords_delta[P.altloc] is not None, "H's ridden atom hasn't been parsed"
                     #assert parent_coords_delta[P.altloc] != "USED", f"{site} is considered riding H, but {riding_H_found} was previously identified as the riding H!"
-                    new_lines+=P.new_coord(line_coords(line)+parent_coords_delta[P.altloc])
+                    new_lines+=P.new_line(new_coord=line_coords(line)+parent_coords_delta[P.altloc])
                     #parent_coords_delta[P.altloc] = "USED"; riding_H_found=site
                     found_riding_H=True
                     continue

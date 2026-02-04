@@ -714,7 +714,7 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                 resnum = int(line[22:26])
 
                 resnum=resnum-gap_shift
-                if (resnum != max_resnum+1) and (resname != last_resname):
+                if ((resnum != max_resnum+1) and (resname != last_resname)) or resnum!=max_resnum:
                     added_shift=resnum-max_resnum-1
                     gap_shift+=added_shift
                     resnum=resnum-added_shift
@@ -764,39 +764,29 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                     
         n=0
         # Add non-solvent atoms
-        if not sep_chain_format: # format for untangler stuff
-            protein_chain_id = "A"
-            for res_atom_dict in atom_dict.values():
-                for altloc_atom_dict in res_atom_dict.values():
-                    for line in altloc_atom_dict.values():
-                        n+=1
-                        modified_line = line
-                        
-                        if even_split_occupancies:
-                            modified_line = replace_occupancy(modified_line,
-                                1/len(protein_altlocs)) # Set occupancies to all be same
-                        modified_line = replace_chain(modified_line,protein_chain_id)
-                        modified_line = replace_serial_num(modified_line,n)
-                        start_lines.append(modified_line)
-        else: # Note that lines for each chain need to be contiguous in the file
-            chain_dict={}
-            for res_atom_dict in atom_dict.values():
-                for altloc, altloc_atom_dict in res_atom_dict.items():
-                    protein_chain_id = altloc
-                    for line in altloc_atom_dict.values():
-                        n+=1
-                        modified_line = line
-                        if even_split_occupancies:
-                            modified_line = replace_occupancy(modified_line,
-                                1/len(protein_altlocs)) # Set occupancies to all be same
-                        modified_line = replace_chain(modified_line,protein_chain_id)
-                        modified_line = replace_serial_num(modified_line,n)
-                        if altloc not in chain_dict:
-                            chain_dict[altloc]=[]
-                        chain_dict[altloc].append(modified_line)
-            for _, lines in chain_dict.items():
-                for modified_line in lines:
-                    start_lines.append(modified_line)
+        chain_dict={}
+        for res_atom_dict in atom_dict.values():
+            for altloc, altloc_atom_dict in res_atom_dict.items():
+                if sep_chain_format:
+                    protein_chain_id=altloc
+                else:
+                    protein_chain_id="A"
+                for atom_name, line in altloc_atom_dict.items():
+                    num_altlocs_for_atom = len([ alt for alt in res_atom_dict if atom_name in res_atom_dict[alt] ])
+                    n+=1
+                    modified_line = line
+                    if even_split_occupancies:
+                        modified_line = replace_occupancy(modified_line,
+                            1/num_altlocs_for_atom) # Set occupancies to all be same
+                    modified_line = replace_chain(modified_line,protein_chain_id)
+                    modified_line = replace_serial_num(modified_line,n)
+                    if protein_chain_id not in chain_dict:
+                        chain_dict[protein_chain_id]=[]
+                    chain_dict[protein_chain_id].append(modified_line)
+        # This is necessary because lines for each chain need to be contiguous in the file
+        for _, lines in chain_dict.items():
+            for modified_line in lines:
+                start_lines.append(modified_line)
 
         # Make sure waters don't share residue numbers with protein
         # min_solvent_resnum=99999999
