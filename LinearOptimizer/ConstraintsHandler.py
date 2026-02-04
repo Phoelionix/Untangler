@@ -187,13 +187,13 @@ class ConstraintsHandler:
                 return None
             a,b = sorted_atoms   
             sep = self.separation(a,b)   
-            dev =  self.ideal-sep     
+            dev =  sep - self.ideal    
             z_score=abs(dev/self.sigma) # XXX
 
 
-            # To handle bonds present in only some conformations
+            # To handle bonds present in only some conformations, cap the cost of large separations
             z_score_cap=20
-            if z_score>z_score_cap:
+            if z_score>z_score_cap and dev > 0:
                 z_score=z_score_cap
                 dev=self.sigma*z_score * (dev/abs(dev))
 
@@ -227,7 +227,7 @@ class ConstraintsHandler:
                 return None
             a,b,c = sorted_atoms
             ang=self.angle(a,b,c)
-            dev = (self.ideal-ang)
+            dev = (ang - self.ideal)
             z_score=abs(dev/self.sigma) # XXX
 
             #if atoms_in_LO_variable_string("Angle_51.C_B|51.CA_A|51.CB_A",sorted_atoms):
