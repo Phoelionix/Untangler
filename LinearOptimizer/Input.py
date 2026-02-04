@@ -179,7 +179,8 @@ class LP_Input:
     #MODE="LOW_TOL" # "NONBOND_RESTRICTIONS" #"LOW_TOL" #"HIGH_TOL" #"NO_RESTRICTIONS" # PHENIX REFMAC
     #MODE= "NO_RESTRICTIONS"
     #MODE= "LOW_TOL"
-    MODE= "V_LOW_TOL"
+    #MODE= "V_LOW_TOL"
+    MODE= "V_LOW_TOL2"
     
     max_sigmas,min_sigmas_where_anything_goes,min_tension_where_anything_goes={},{},{}
     if MODE=="NO_RESTRICTIONS":
@@ -253,6 +254,12 @@ class LP_Input:
             ConstraintsHandler.BondConstraint:3.5,
             ConstraintsHandler.AngleConstraint:2,
         }  
+    elif MODE=="V_LOW_TOL2":
+        max_sigmas={
+            ConstraintsHandler.BondConstraint:2,
+            ConstraintsHandler.AngleConstraint:1.5,
+            ConstraintsHandler.ClashConstraint:-99,
+        } 
     elif MODE=="TENSIONS_TOL":
         max_sigmas={
             ConstraintsHandler.BondConstraint:2.5,
@@ -1039,7 +1046,7 @@ class LP_Input:
     
         if weight_for_range:
             for disordered_connection_id, ordered_connections in disordered_connections.items():
-                z_scores = [conn.z_score for conn in ordered_connections if conn.single_altloc()]
+                z_scores = [conn.z_score for conn in ordered_connections if conn.original()]
                 min_z = min(z_scores)                        
                 max_z = max(z_scores)   
 
@@ -1056,7 +1063,7 @@ class LP_Input:
                     pass
         if suppress_worse:
             for disordered_connection_id, ordered_connections in disordered_connections.items():
-                max_dist  = max([conn.ts_distance for conn in ordered_connections if conn.single_altloc()])
+                max_dist  = max([conn.ts_distance for conn in ordered_connections if conn.original()])
 
                 for conn in ordered_connections:
                     if conn.ts_distance > max_dist:
@@ -1092,7 +1099,7 @@ class LP_Input:
                     if conn.forbidden:
                         num_connections_re_enabled[conn.connection_type]+=1
                     conn.forbidden=False
-                    if conn.single_altloc():
+                    if conn.original():
                         if conn_type == ConstraintsHandler.AngleConstraint:
                             conn.ts_distance*=high_tension_penalty
             print(f"Number of high tension disordered connections detected: {num_bad_current_disordered_connections}") 
@@ -1110,7 +1117,7 @@ class LP_Input:
                     if ordered_connections[0].connection_type not in LP_Input.min_sigmas_where_anything_goes:
                         continue
                     for conn in ordered_connections:
-                        if conn.single_altloc() and conn.z_score >= LP_Input.min_sigmas_where_anything_goes[conn.connection_type]:
+                        if conn.original() and conn.z_score >= LP_Input.min_sigmas_where_anything_goes[conn.connection_type]:
                             num_bad_current_disordered_connections[conn.connection_type]+=1
                             break
                     else: continue
@@ -1118,13 +1125,13 @@ class LP_Input:
                         if conn.forbidden:
                             num_connections_re_enabled[conn.connection_type]+=1
                         conn.forbidden=False
-                print(f"Number of high sigma disordered connections detected: {num_bad_current_disordered_connections}") 
+                print(f"Number of high sigma disordered connections detected (before swaps): {num_bad_current_disordered_connections}") 
                 print(f"Ordered connections re-enabled: {num_connections_re_enabled}")
 
 
 
         #TEMP_TEST_CHILD_PARENT={"C":"A","D":"A","E":"A","c":"B","d":"B","e":"B"}
-        TEMP_TEST_CHILD_PARENT={"C":"A","D":"B"}
+        TEMP_TEST_CHILD_PARENT={"C":"A","E":"A","D":"B","F":"B"}
         chunk_echoes,disordered_connection_echoes=self.get_echoes(atom_chunks,disordered_connections,TEMP_TEST_CHILD_PARENT)
         for key in disordered_connection_echoes:
             disordered_connections[key].extend(disordered_connection_echoes[key])
