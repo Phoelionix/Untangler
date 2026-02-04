@@ -27,6 +27,8 @@
 # Also need to look at exploring different branches of solutions in an intelligent way, and with parallel processing.  
 # Meaning of constraint is different in Input.py, where it refers to constraints between (disordered) atoms, and Solver.py, where it refers to constraints between conformers (ordered atoms).
 
+# CRUCIAL forbid original connections where they fail later rounds 
+
 
 
 import pulp as pl
@@ -61,7 +63,7 @@ FORBID_MULTIPLE_LOCAL_CHANGES_WHEN_MAIN_CHAIN_ONLY=True
 ALLOW_ALL_POSITION_CHANGE_GEOMECTIONS= True # Only if modify_forbid_conditions = True
 FORCE_ALT_COORDS=False
 
-improvement_factors_to_tolerate=np.array([10,8,6,4,2,1])
+improvement_factors_to_tolerate=np.array([10,8,6,4,2,1.75,1.5,1.25,1])
 
 
 ###
@@ -75,7 +77,7 @@ MEMORYLIMITGB=35
 
 
 def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
-          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=600,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=20,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
           inert_water_sites=False,
           #gapRel=0.001,
           #gapRel=0,
@@ -383,13 +385,18 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     # A disordered connection refers to all the *possible* groupings of these atoms.
 
     num_small_fry_disordered_connections=0
-    # The variables of one of flexible_allowed_var_sets[i] and flexible_forbidden_var_sets[i] will be active for each "tolerance round" 
-    # Whether they are active in tolerance round `r` is given by flexible_Variable_allowed_tranches[i][r]
+    # The variables of one of flexible_allowed_constr_sets[i] and flexible_forbidden_constr_sets[i] will be active for each "tolerance round" 
+    # Whether they are active in tolerance round `r` is given by flexible_allowed_constr_tranches[i][r]
     # Each index i corresponds to a particular geomection (one variable for each altloc the geomection could be assigned).
-    flexible_allowed_var_sets:list[list[tuple]]=[]
-    flexible_forbidden_var_sets:list[list[tuple]]=[]
-    flexible_forbidden_var_types:list[Type]=[]
-    flexible_variable_allowed_tranches:list[list[bool]]=[] #  
+    flexible_allowed_constr_sets:list[list[tuple]]=[]
+    flexible_forbidden_constr_sets:list[list[tuple]]=[]
+    flexible_forbidden_constr_types:list[Type]=[]
+    flexible_allowed_constr_tranches:list[list[bool]]=[] #  TODO better name
+    flexible_bad_original_forbid_constrs:list[list]=[] # List of list of constraints forbidding an original geomection. Used if and only if original geomection is inactive and always_allow_original_tranches[i][r] = False
+    flexible_bad_original_allowed_constrs:list[list]=[]
+    flexible_bad_original_constr_types:list[Type]=[]
+    always_allow_original_tranches:list[list[bool]]=[] #  
+    flexible_bad_original_vars:list=[]
 
     initial_badness=0
     def add_constraints_from_disordered_connection(constraint_type:VariableKind,disordered_connection: list[LP_Input.Geomection],global_score_tolerate_threshold=0):
@@ -397,9 +404,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         # then all those atoms must be swapped to the same assignment.
         nonlocal lp_problem  
         nonlocal initial_badness
-        nonlocal flexible_allowed_var_sets
-        nonlocal flexible_forbidden_var_sets
-        nonlocal flexible_forbidden_var_types
+        nonlocal flexible_allowed_constr_sets
+        nonlocal flexible_forbidden_constr_sets
+        nonlocal flexible_forbidden_constr_types
+        nonlocal flexible_bad_original_forbid_constrs
+        nonlocal flexible_bad_original_constr_types
+        nonlocal always_allow_original_tranches
+        nonlocal flexible_allowed_constr_tranches
 
 
         def forbid_change_conditions():
@@ -439,27 +450,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                             if ch.name not in MCH\
                             and ch.name not in ["CG"]:
                                 return True
-            # for ch in disordered_connection[0].atom_chunks:
-            #     if constraint_type==VariableKind.Bond: 
-            #         # TODO this allows water to change. But necessary.
-            #         MCH=["N","CA","CB","C","O"]
-            #         if MAIN_CHAIN_ONLY and (ch.name not in MCH) and (ch.get_resname() not in ["CYS","HOH"]):  # XXX tidy up and put in a separate python file for specifying what to optimize
-            #             return True
-            #         if SIDE_CHAIN_ONLY and ch.name in MCH and ch.get_resname()!="HOH":
-            #             return True
-            #         if NO_CB_CHANGES and ch.name == "CB":
-            #             return True
-            #         if forbid_ring_changes:
-            #             if ch.get_resname() in ["TYR","PHE"]:
-            #                 if ch.name in ["CD1","CD2","CE1","CE2","CZ"]:
-            #                     return True
-            #             elif ch.get_resname()=="PRO":
-            #                 if ch.name in ["CG"]: # Include CD?
-            #                     return True
-            #             elif ch.get_resname()=="TRP":
-            #                 if ch.name not in MCH\
-            #                 and ch.name not in ["CG"]:
-            #                     return True
 
 
             # Forbid changes that are costly to consider and don't seem to tangle
@@ -568,7 +558,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             tag=from_ordered_atoms
             extra_tag=""
             if ordered_connection_option.hydrogen_tag!="":
-                extra_tag = "Htag["+ordered_connection_option.hydrogen_tag+"]_"
+                extra_tag = "Htag_"+ordered_connection_option.hydrogen_tag+"_"
             tag=extra_tag+tag+ordered_connection_option.poschange_tag
             return tag
         
@@ -643,23 +633,28 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         for altlocs_key, (ordered_connection_option, var_active) in connection_var_dict.items():
 
             is_flexible=False
+            is_bad_original_constraint=False
             if modify_forbid_conditions:
+                allowed_sequence=[ordered_connection_option.ts_distance<=threshold for threshold in always_tolerate_score_threshold_sequence]
                 if ordered_connection_option.original():
                     #  So possible solution is guaranteed, always allow connections of original structure.  
-                    allowed=True 
+                    if ordered_connection_option.forbidden and not all(allowed_sequence):
+                        is_bad_original_constraint=True
+                        always_allow_original_tranches.append(allowed_sequence)
+                    else:
+                        allowed=True 
                 elif forbid_constraint_change:
                     allowed=False
                 elif not ordered_connection_option.forbidden:
                     allowed=True
                 else:
-                    allowed_sequence = [ordered_connection_option.ts_distance<=threshold for threshold in always_tolerate_score_threshold_sequence]
                     if all(allowed_sequence):
                         allowed=True
                     elif not any(allowed_sequence):
                         allowed=False
                     else:
                         is_flexible=True
-                        flexible_variable_allowed_tranches.append(allowed_sequence)
+                        flexible_allowed_constr_tranches.append(allowed_sequence)
                     
                 # chance_allow_anyway=0
                 # if not allowed and chance_allow_anyway>0:
@@ -672,8 +667,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             else:
                 allowed = not ordered_connection_option.forbidden
             
-            
-            #allowed = ordered_connection_option.ts_distance <= always_tolerate_score_threshold
+            assert is_flexible + is_bad_original_constraint <=1
             
                 
             tag = get_tag(ordered_connection_option)
@@ -703,21 +697,28 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             # Note that since every connection option is looped through, this also means 
             # that if variable is active, all atoms will be assigned to the same altloc.
             
-            if not is_flexible:
-                if allowed and (ordered_connection_option not in small_fry):
+            
+            if is_flexible or is_bad_original_constraint or allowed:
+                allowed_connection_var_dict[altlocs_key]=(ordered_connection_option, var_active)
+                if ordered_connection_option not in small_fry:
                     assert ordered_connection_option.ts_distance>=0, (ordered_connection_option,ordered_connection_option.ts_distance)
                     distance_vars.append(ordered_connection_option.ts_distance*var_active)
+            # TODO change "not (is_flexible or is_bad_original_constraint or allowed)" to "always_forbidden" variable.
+            if not is_flexible and not is_bad_original_constraint:
                 num_allowed_connections[ordered_connection_option.connection_type]+=allowed
                 if not ordered_connection_option.original(): 
                     num_allowed_alternative_connections[ordered_connection_option.connection_type]+=allowed 
                 num_forbidden_connections[ordered_connection_option.connection_type]+=not allowed 
 
-                if allowed:
-                    allowed_connection_var_dict[altlocs_key]=(ordered_connection_option, var_active)
+
+
+
 
             #### CONSTRAINT 1 "If all atoms are active in a connection, that connection is active" #####
-            flexible_allowed_vars=[]
-            flexible_forbidden_vars=[]
+            flexible_allowed_constrs=[]
+            flexible_forbidden_constrs=[]
+            flexible_original_allowed=[]
+            flexible_original_forbidden=[]
             for to_altloc, assignment_vars in assignment_options.items():
                 #assert len(ordered_connection_option.atom_chunks)==len(assignment_vars) or ordered_connection_option.involves_position_changes()   
                 allowed_constraint = (
@@ -729,17 +730,25 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     f"FORBID{constraint_type.value}_{tag}{TOSYMBOL}{to_altloc}"
                 )  
                 if is_flexible:
-                    flexible_allowed_vars.append(allowed_constraint)
-                    flexible_forbidden_vars.append(forbidden_constraint)
-                else: # Whether allowed or not will depend on the round within a solution loop, as governed by `flexible_variable_allowed_tranches`  
+                    flexible_allowed_constrs.append(allowed_constraint)
+                    flexible_forbidden_constrs.append(forbidden_constraint)
+                elif is_bad_original_constraint:
+                    flexible_original_allowed.append(allowed_constraint)
+                    flexible_original_forbidden.append(forbidden_constraint)
+                else: # Whether allowed or not will depend on the round within a solution loop, as governed by `flexible_allowed_constr_tranches`  
                     if allowed:
                         lp_problem += allowed_constraint
                     else: 
                         lp_problem += forbidden_constraint
             if is_flexible:
-                flexible_allowed_var_sets.append(flexible_allowed_vars)
-                flexible_forbidden_var_sets.append(flexible_forbidden_vars)
-                flexible_forbidden_var_types.append(ordered_connection_option.connection_type)
+                flexible_allowed_constr_sets.append(flexible_allowed_constrs)
+                flexible_forbidden_constr_sets.append(flexible_forbidden_constrs)
+                flexible_forbidden_constr_types.append(ordered_connection_option.connection_type)
+            elif is_bad_original_constraint:
+                flexible_bad_original_allowed_constrs.append(flexible_original_allowed)
+                flexible_bad_original_forbid_constrs.append(flexible_original_forbidden)
+                flexible_bad_original_constr_types.append(ordered_connection_option.connection_type)
+                flexible_bad_original_vars.append(var_active)
             else:
                 del allowed
 
@@ -1111,26 +1120,76 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         nonlocal lp_problem
         if r > 0:
             # remove last flexi variables
-            for vars in flexible_allowed_var_sets + flexible_forbidden_var_sets:
-                for _, var_name in vars: 
-                    lp_problem.constraints.pop(var_name,None) # None arg because it is okay if it does not exist
-        num_allowed={k:0 for k in flexible_forbidden_var_types}
-        num_forbidden={k:0 for k in flexible_forbidden_var_types}
-        for i in range(len(flexible_variable_allowed_tranches)):
-            if flexible_variable_allowed_tranches[i][r]:
-                vars_to_add=flexible_allowed_var_sets[i]
-                num_allowed[flexible_forbidden_var_types[i]]+=1
+            for constrs in flexible_allowed_constr_sets + flexible_forbidden_constr_sets:
+                for _, constr_name in constrs: 
+                    lp_problem.constraints.pop(constr_name,None) # None arg because it is okay if it does not exist
+        num_allowed={k:0 for k in flexible_forbidden_constr_types}
+        num_forbidden={k:0 for k in flexible_forbidden_constr_types}
+        for i in range(len(flexible_allowed_constr_tranches)):
+            if flexible_allowed_constr_tranches[i][r]:
+                constrs_to_add=flexible_allowed_constr_sets[i]
+                num_allowed[flexible_forbidden_constr_types[i]]+=1
             else:
-                vars_to_add=flexible_forbidden_var_sets[i]
-                num_forbidden[flexible_forbidden_var_types[i]]+=1
-            for var in vars_to_add:
-                lp_problem+= var
+                constrs_to_add=flexible_forbidden_constr_sets[i]
+                num_forbidden[flexible_forbidden_constr_types[i]]+=1
+            for constr in constrs_to_add:
+                lp_problem+= constr
+        
+        # Forbid original geomections that are inactive and would be forbidden if . This ensures the original geomections aren't given special treatment.
+
+
+        num_inactive_og_forbidden={k:0 for k in flexible_forbidden_constr_types}
+        num_inactive_og_allowed={k:0 for k in flexible_forbidden_constr_types}
+
+        for constrs in flexible_bad_original_allowed_constrs + flexible_bad_original_forbid_constrs:
+            for _, constr_name in constrs: 
+                lp_problem.constraints.pop(constr_name,None) # None arg because it is okay if it does not exist
+
+        for i in range(len(always_allow_original_tranches)):
+            constrs_to_add=flexible_bad_original_allowed_constrs[i]
+            # Check whether the original geomection is inactive. Otherwise, do not forbid.
+            if value(flexible_bad_original_vars[i]) < 0.5:
+                if not always_allow_original_tranches[i][r]:
+                    assert r > 0
+                    constrs_to_add=flexible_bad_original_forbid_constrs[i]
+                    num_inactive_og_forbidden[flexible_bad_original_constr_types[i]]+=1
+                else:
+                    num_inactive_og_allowed[flexible_bad_original_constr_types[i]]+=1
+
+                
+            for constr in constrs_to_add:
+                #assert value(constr[0]) > 0.5
+                try:
+                    assert constr[1] not in lp_problem.constraints
+                    lp_problem+= constr
+                except Exception as e:
+                    print(constr)
+                    print(constrs_to_add)
+                    for constrs in flexible_bad_original_allowed_constrs + flexible_bad_original_forbid_constrs:
+                        for _, constr_name in constrs: 
+                            if constr_name == constr[1]:
+                                print("Found match (expect 1)")
+                    for _,other_name in constrs_to_add:
+                        if constr[1]==other_name:
+                            print("Found other match (expect 1)")
+                    raise e
+                
+                
+         
+
         print(f"Num 'flexible' geomections allowed for round {r+1}: {num_allowed}")
         print(f"Num 'flexible' geomections forbidden for round {r+1}: {num_forbidden}")
+        print(len(always_allow_original_tranches))
+        if r > 0:
+            print(f"Num inactive bad original geomections forbidden for round {r+1}: {num_inactive_og_forbidden}")
+            print(f"Num inactive bad original geomections allowed for round {r+1}: {num_inactive_og_allowed}")
 
 
-    assert len(flexible_variable_allowed_tranches)==len(flexible_allowed_var_sets)==len(flexible_forbidden_var_sets), (len(flexible_variable_allowed_tranches),len(flexible_allowed_var_sets),len(flexible_forbidden_var_sets))
-    num_tranches=len(flexible_variable_allowed_tranches[0])
+    assert len(flexible_allowed_constr_tranches)==len(flexible_allowed_constr_sets)==len(flexible_forbidden_constr_sets), (len(flexible_allowed_constr_tranches),len(flexible_allowed_constr_sets),len(flexible_forbidden_constr_sets))
+    assert len(always_allow_original_tranches)==len(flexible_bad_original_vars)==len(flexible_bad_original_allowed_constrs)==len(flexible_bad_original_forbid_constrs),\
+        (len(always_allow_original_tranches),len(flexible_bad_original_vars),len(flexible_bad_original_allowed_constrs),len(flexible_bad_original_forbid_constrs))
+    #print(len(flexible_allowed_constr_tranches),len(always_allow_original_tranches))
+    num_tranches=len(flexible_allowed_constr_tranches[0])
     for l in range(num_solutions):
         if l > 0 and l <= len(forced_swap_solutions):
             lp_problem.constraints.pop("forcedSwap")
@@ -1279,6 +1338,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 print()
                 print(f"WARNING: Finding solution {l+1} on round {r} was infeasible!")
                 break
+            ##Active Connections##
+            write_current_connections(f"{log_out_dir}/ActiveConnections.txt")
+            ####
         ### lth solution found ####
             
         if lp_problem.sol_status==LpStatusInfeasible:
@@ -1289,9 +1351,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             break
 
        
-        ##Active Connections##
-        write_current_connections(f"{log_out_dir}/ActiveConnections.txt")
-        ####
 
         ### Changed Connections ###
         # sigmas_i, costs_i, sigmas_f, costs_f
