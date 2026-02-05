@@ -3,7 +3,7 @@ from typing import Type
 from Bio.PDB.Atom import Atom,DisorderedAtom
 import UntangleFunctions 
 import numpy as np
-from multiprocessing import Pool
+from multiprocessing import Pool, Process, Value, Array
 import scipy.stats as st
 from statistics import NormalDist
 from LinearOptimizer.VariableID import *
@@ -11,7 +11,6 @@ from LinearOptimizer.Tag import *
 from LinearOptimizer.OrderedAtomLookup import OrderedAtomLookup
 from LinearOptimizer import mon_lib_read
 from typing import Union
-
 
 
 #from PhenixEnvScripts.cross_conformation_nonbonds import get_cross_conf_nonbonds
@@ -27,8 +26,8 @@ VDW_BUFFER=0
 CLASH_OVERLAP_THRESHOLD=0.45 #0.8+0.4 # 0.4 0.6
 
 
-IGNORE_SYMMETRY_CLASHES=True
-IGNORE_SYMMETRY_NONBONDS=True
+IGNORE_SYMMETRY_CLASHES=False
+IGNORE_SYMMETRY_NONBONDS=False
 
 
 def is_atom(atom:Atom,resnum,name,altloc):
@@ -498,12 +497,17 @@ class ConstraintsHandler:
             print(f"Warning: could not scale non-existent constraint: {constraint_type} {site_tags}")
         
     # For constraints that have same ideal and weight regardless of order of from conformer labels. (maybe this should never be used due to conformation-dependent library) 
-    def add(self,constraint:Constraint,residual):
+    def add(self,constraint:Constraint,residual,debug=False):
         constraint_object_to_use = None
-        for held_constraint in self.constraints:
-            if constraint==held_constraint:
-                assert constraint_object_to_use is None
-                constraint_object_to_use=held_constraint
+        first_site = constraint.site_tags[0]
+        if first_site in self.atom_constraints:
+            # Check if already added
+            for held_constraint in self.atom_constraints[first_site]:
+                if constraint==held_constraint:
+                    assert constraint_object_to_use is None
+                    constraint_object_to_use=held_constraint
+                    if not debug:
+                        break
         if constraint_object_to_use is None:
             self.constraints.append(constraint)
             constraint_object_to_use=constraint
@@ -524,7 +528,7 @@ class ConstraintsHandler:
 
     def load_all_constraints(self,pdb_file,ordered_atom_lookup:OrderedAtomLookup,symmetries:list, calc_nonbonds:bool=True,water_water_nonbond:bool=None,
                              constraints_to_skip=[],two_atom_penalty_tuples:list[tuple[tuple[str,str],tuple[int,int],float,tuple[str,str]]]=[],outliers_to_ignore_file=None,turn_off_cdl=False,
-                             all_restraints_mode=False):
+                             all_restraints_mode=False,hide_warnings=True):
         # two_atom_penalty_tuples: list of tuples like ( (CA,O), (12,110), 3, (A,B) ) --> their names, their res nums, the badness, their altlocs 
 
         constraints_file = UntangleFunctions.geo_file_name(pdb_file,turn_off_cdl=turn_off_cdl) # NOTE we only read ideal and weights.
@@ -612,7 +616,6 @@ class ConstraintsHandler:
 
         print("WARNING: assuming residue numbers are all unique")
         print("WARNING: assuming elements all single character")
-        NB_pairs_added = []
 
 
 
@@ -660,7 +663,7 @@ class ConstraintsHandler:
                     else:
                         num_entries_dict[key]+=1
                         num_entries=num_entries_dict[key]
-                        if abs(phenix_clash_distances_table[key]-vdw_sum)>0.2:
+                        if abs(phenix_clash_distances_table[key]-vdw_sum)>0.2 and not hide_warnings:
                             print(f"Warning: clash distances differ significantly for {key}, {phenix_clash_distances_table[key]} != {vdw_sum}")
                             #print("New:",phenix_clash_distances_table[key])
                         #phenix_clash_distances_table[key]= 1/num_entries * vdw_sum + (num_entries-1)/num_entries * phenix_clash_distances_table[key]
@@ -674,7 +677,8 @@ class ConstraintsHandler:
         water_water_nonbond=water_water_nonbond
         protein_protein_nonbonds=True
         cross_conformation_clashes = True
-        num_clashes_found=0
+        clashes_added=0
+        NB_pairs_added=0
         if water_water_nonbond: 
             assert general_water_nonbond
         if not skip_nonbonds and (general_water_nonbond or protein_protein_nonbonds): 
@@ -714,42 +718,44 @@ class ConstraintsHandler:
                 continue
               if table_kind == ConstraintsHandler.ClashConstraint and (not cross_conformation_clashes or (ConstraintsHandler.ClashConstraint in constraints_to_skip)):
                 continue
-              for i, (confA,confB,is_symm) in enumerate(table): # iterate over conformers
-
-                if i%10000==0:
-                    if i !=0:
-                        if table_kind == ConstraintsHandler.NonbondConstraint:
-                            print(f"LJ potentials found: {len(NB_pairs_added)-last_num_found_LJ}")
-                        if table_kind == ConstraintsHandler.ClashConstraint:
-                            print(f"Clashes found: {num_clashes_found-last_num_found_clashes}")
-                    last_num_found_LJ=len(NB_pairs_added)
-                    last_num_found_clashes=num_clashes_found
+              table_items=list(table.items())
+              global pooled_method  
+              def pooled_method(i):
+                (confA,confB,is_symm),phenix_vdw_sum = table_items[i]
+                if i%50000==0:
+                    # if i !=0:
+                    #     if table_kind == ConstraintsHandler.NonbondConstraint:
+                    #         print(f"LJ potentials found: {NB_pairs_added-last_num_found_LJ}")
+                    #     if table_kind == ConstraintsHandler.ClashConstraint:
+                    #         print(f"Clashes found: {clashes_added-last_num_found_clashes}")
+                    # last_num_found_LJ=NB_pairs_added
+                    # last_num_found_clashes=clashes_added
                     #print(f"Flagging cross-conformation nonbonds for{' protein' if not waters_outer_loop else ''} conformer {i}/{len(phenix_vdw_distances_table)}")
-                    print(f"Flagging cross-conformation {interaction_str} {i}/{len(table)}")
+                    print(f"Processing cross-conformation {interaction_str} {i}/{len(table)}")
 
                 if IGNORE_HYDROGEN_NONBOND and (confA.element()=="H" or confB.element=="H") and not all_restraints_mode:
-                    continue
+                    return
 
                 
                 if (((confA.element()=="H") and (confB.element() == "H") and not all_restraints_mode) # Do not consider H-H clashes (expect to be more harmful than helpful due to H positions being poor.)
                     or (frozenset((confA.disordered_tag(),confB.disordered_tag())) in bonds_added) # Nonbonded only!
                     or (frozenset((confA.disordered_tag(),confB.disordered_tag())) in AngleEnds_added)): #and other_atom.name in ["C","N","CA","CB","O"])
-                    continue
+                    return
                 if (confA.atom_name() == confB.atom_name()) and (confA.resnum()==confB.resnum()):
-                    continue
+                    return
                 #protein=True, waters=waters_outer_loop,exclude_H=IGNORE_HYDROGEN_NONBOND
                 atomA = ordered_atom_lookup.from_tag(confA)
                 if not waters_outer_loop\
                 and UntangleFunctions.res_is_water(atomA.get_parent()):
-                    continue
+                    return
                 #protein=protein_protein_nonbonds,waters=general_water_nonbond, exclude_H=IGNORE_HYDROGEN_NONBOND
                 atomB = ordered_atom_lookup.from_tag(confB)
                 if not general_water_nonbond\
                 and UntangleFunctions.res_is_water(atomB.get_parent()):
-                    continue
+                    return
                 if not protein_protein_nonbonds\
                 and not UntangleFunctions.res_is_water(atomB.get_parent()):
-                    continue
+                    return
 
                     
                 sep_idx = 1 if is_symm else 0
@@ -765,7 +771,7 @@ class ConstraintsHandler:
                 #     print(phenix_vdw(confA,confB))
 
                 
-                phenix_vdw_sum = phenix_vdw(confA,confB,is_symm,table)
+                #phenix_vdw_sum = phenix_vdw(confA,confB,is_symm,table)
                 if phenix_vdw_sum is None:
                     assert False
 
@@ -803,9 +809,8 @@ class ConstraintsHandler:
                         nb_weight*=H2O_clash_weight
 
                     if vdw_gap - min_separation >= CLASH_OVERLAP_THRESHOLD:  
-                        num_clashes_found+=1                            
-                        self.add_nonbond_constraint(ConstraintsHandler.ClashConstraint(conf_pair,outlier_ok("CLASH",conf_pair),symmetries,weight=nb_weight),
-                                                    residual=None,altlocs=altlocs,vdw_sum=vdw_gap,is_symm=is_symm)
+                        return (ConstraintsHandler.ClashConstraint(conf_pair,outlier_ok("CLASH",conf_pair),symmetries,weight=nb_weight),
+                                                    None,altlocs,vdw_gap,is_symm)
 
                     # if all(c in [OrderedTag(26,"SG","A"),OrderedTag(34,"HA3","A")] for c in (confA,confB)):
                     #     print(confA,confB)
@@ -813,7 +818,7 @@ class ConstraintsHandler:
                     #     print(min_separation)
 
                 if min_separation > phenix_vdw_sum-VDW_BUFFER:
-                    continue
+                    return
 
                 # Lennard-Jones (nonbonded)
                 if table_kind==ConstraintsHandler.NonbondConstraint:
@@ -824,12 +829,25 @@ class ConstraintsHandler:
                     #     continue    
                     R_min = phenix_vdw_sum
 
-                    self.add_nonbond_constraint(ConstraintsHandler.NonbondConstraint(conf_pair,outlier_ok("NONBOND",conf_pair),symmetries,weight=nb_weight),
-                                                residual=None,altlocs=altlocs,vdw_sum=R_min,is_symm=is_symm)
-                    NB_pairs_added.append(conf_pair)
-        print(f"Added {num_clashes_found} clashes")
-     
-        num_nonbonded_general = len(NB_pairs_added)
+                    return (ConstraintsHandler.NonbondConstraint(conf_pair,outlier_ok("NONBOND",conf_pair),symmetries,weight=nb_weight),
+                                                None,altlocs,R_min,is_symm)
+              num_threads=28
+              with Pool(num_threads) as p:
+                nonbond_constraints_args_list = p.map(pooled_method,range(len(table)))
+                print("Finished processing")
+              nonbond_constraints_args_list = [v for v in nonbond_constraints_args_list if v is not None]
+              print(f"Processed {len(nonbond_constraints_args_list)} constraints")
+              for i, nb_constr_args in enumerate(nonbond_constraints_args_list):
+                if i%10000==0:
+                    print(f"Registering cross-conformation {interaction_str} {i}/{len(nonbond_constraints_args_list)}")
+
+                self.add_nonbond_constraint(*nb_constr_args)
+              if table_kind == ConstraintsHandler.NonbondConstraint:
+                NB_pairs_added = len(nonbond_constraints_args_list)
+              if table_kind == ConstraintsHandler.ClashConstraint:
+                clashes_added = len(nonbond_constraints_args_list)
+        print(f"Added {clashes_added} clashes")
+        num_nonbonded_general = NB_pairs_added
         print(f"Added {num_nonbonded_general} nonbond constraints")
         
 

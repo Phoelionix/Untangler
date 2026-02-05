@@ -469,6 +469,7 @@ class LP_Input:
     def subset_model_path(pdb_file_path,altloc_subset:list[str]):
         tag=""
         if altloc_subset is not None:
+            altloc_subset=sorted(altloc_subset)
             if len(altloc_subset)==1:
                 tag = f"_conformer-{''.join(altloc_subset)}"
             else:
@@ -1131,7 +1132,8 @@ class LP_Input:
 
 
         #TEMP_TEST_CHILD_PARENT={"C":"A","D":"A","E":"A","c":"B","d":"B","e":"B"}
-        TEMP_TEST_CHILD_PARENT={"C":"A","E":"A","D":"B","F":"B"}
+        #TEMP_TEST_CHILD_PARENT={"C":"A","E":"A","D":"B","F":"B"}
+        TEMP_TEST_CHILD_PARENT={}
         chunk_echoes,disordered_connection_echoes=self.get_echoes(atom_chunks,disordered_connections,TEMP_TEST_CHILD_PARENT)
         for key in disordered_connection_echoes:
             disordered_connections[key].extend(disordered_connection_echoes[key])
