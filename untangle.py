@@ -39,7 +39,9 @@ PHENIX_DISABLE_CDL=False # Disables the conformation-dependent library for pheni
 DEBUG_FORCE_NEVER_RIDING_H_PHENIX=True
 PHENIX_DISABLE_NQH=True
 
+FORCE_DIVVY_REFINE_INTO_SINGLE_LOOPS_PHENIX=True
 
+DISABLE_ALTLOC_SUBSET_REFINE=True
 
 EVEN_SPLIT_OCCUPANCIES=True
 
@@ -75,7 +77,9 @@ class Untangler():
     debug_main_chain_swaps_only=False
     main_chain_swaps_only_after_first_loop=False
     optimize_side_and_main_separately=False
-    default_scoring_function = staticmethod(ConstraintsHandler.chi_z_sqr) #staticmethod(ConstraintsHandler.log_chi)
+    default_scoring_function = staticmethod(ConstraintsHandler.chi_z_sqr) # Like Holton score (non-outlier terms)
+    #default_scoring_function = staticmethod(ConstraintsHandler.chi) # Like how phenix scores
+    #default_scoring_function = staticmethod(ConstraintsHandler.log_chi)
     debug_skip_to_loop=0
     #untwist_loop=99
     num_loops_not_refine_H=0
@@ -102,6 +106,8 @@ class Untangler():
     if debug_skip_first_batch_refine:
         debug_skip_first_swaps=True
         debug_skip_first_focus_swaps=True
+    if DEBUG_FORCE_NEVER_RIDING_H_PHENIX:
+        num_loops_not_refine_H=np.inf
     
     class Score():
         def __init__(self,combined,wE,R_work,R_free):
@@ -120,7 +126,7 @@ class Untangler():
                  default_wc=1,endloop_wc=1,wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=20, # 20,
                  max_num_best_swaps_considered=100,num_refine_for_positions_macro_cycles_phenix=3,
                  num_loops_water_held=0,weight_factors=None,
-                 max_bond_changes=9999,altloc_subset_size=3,refine_for_positions_geo_weight=0.1,
+                 max_bond_changes=None,altloc_subset_size=3,refine_for_positions_geo_weight=0.1,
                  unrestrained_damp=0.5, solution_reference=None):
         self.set_hyper_params(acceptance_temperature,max_wE_frac_increase,num_end_loop_refine_cycles,
                               default_wc,endloop_wc,wc_anneal_start,wc_anneal_loops, starting_num_best_swaps_considered,
@@ -988,7 +994,7 @@ class Untangler():
                 refine_hydrogens_in_batch = False
                 refine_hydrogens_post_batch=False
                 
-                refined_model_dir = self.regular_batch_refine(cand_models,altloc_subsets_list=altloc_subsets_list,
+                refined_model_dir = self.regular_batch_refine(cand_models,altloc_subsets_list=altloc_subsets_list if not DISABLE_ALTLOC_SUBSET_REFINE else None,
                                                             refine_H=refine_hydrogens_in_batch,
                                                             alternate_strategy=alternate_strategy, # XXX
                                                             debug_skip=skip_batch_refine,
@@ -1003,7 +1009,7 @@ class Untangler():
                     minimize_wE=True
 
                 subset_folders=os.listdir(refined_model_dir)
-                assert len(subset_folders)>0           
+                assert len(subset_folders)>0, refined_model_dir       
                 subset_combine_model=working_model[:-4]+"_postRefine.pdb"  
                 for altloc_string in subset_folders:
                     subset_dir=os.path.join(refined_model_dir,altloc_string)
@@ -1379,6 +1385,7 @@ class Untangler():
                 refine_params = self.get_refine_params_phenix(
                         **phenix_kwargs
                     )
+                all_phenix_kwargs.append(phenix_kwargs)
             elif self.refinement == self.REFMAC:
                 refine_params=self.get_refine_params_refmac(
                     out_tag,
@@ -1401,7 +1408,6 @@ class Untangler():
                     altloc_subset=altloc_subset
                 )
             param_set.append(refine_params)
-            all_phenix_kwargs.append(phenix_kwargs)
         param_sets=[param_set,]
         if refine_H_before_end:
             assert self.refinement==self.PHENIX
@@ -1532,19 +1538,65 @@ class Untangler():
         return self.loop<self.num_loops_water_held
     def get_out_path(self,out_tag,add_loop_num=True):
         return f"{Untangler.output_dir}{self.model_handle}_{out_tag}{self.loop if add_loop_num else ''}.pdb"
-    def refine(self,refine_params:(tuple[SimpleNamespace,list[str]]),debug_skip=False,show_python_params=False,timeout_mins=None, skip_fail=False,delete_old_model_when_done=False,remove_tmpdir_on_end=False)->str:
+    
+    def refine(self,refine_params:SimpleNamespace,debug_skip=False,divvy_up=False,**kwargs):
+        
+        repeats=1
+        P=refine_params
+
+        if FORCE_DIVVY_REFINE_INTO_SINGLE_LOOPS_PHENIX and P.algorithm=="PHENIX":
+            divvy=True
+
+        if divvy:
+            # e.g. if number of macro cycles is 5, do 5 single macro cycle single loop refinement runs
+            assert P.algorithm=="PHENIX"
+            repeats=P.num_macro_cycles
+            
+            P.num_macro_cycles=1
+            original_wc=P.wc
+            # args=refine_params[1]
+            # for i, arg in enumerate(args):
+            #     if arg.strip().startswith("-n"):
+            #         repeats=int(arg.split(-1))
+            #         args[i] = "-n 1"
+            #         break
+            # else:
+            #     assert False, args # Missing -n
+            # for arg in args:
+            #     if arg.strip().startswith("-o"):
+            #         out_path=arg.split(-1)
+            #         break
+            # else:
+            #     assert False, args # Missing -o
+            
+        for n in range(repeats):
+            if n > 0:
+                moved_path=f"{P.out_path[:-4]}_last.pdb"
+                P.model_path = moved_path
+                decreasing_wc=True
+                if decreasing_wc:
+                    P.wc=original_wc*n # TODO make match however phenix calculates
+                if not debug_skip:
+                    shutil.move(P.out_path,moved_path)
+            self.run_refinement(refine_params,debug_skip=debug_skip,**kwargs)
+        return P.out_path
+
+    def run_refinement(self,refine_params:(tuple[SimpleNamespace,list[str]]),debug_skip=False,show_python_params=False,timeout_mins=None,
+                       skip_fail=False,delete_old_model_when_done=False,remove_tmpdir_on_end=False)->str:
+        
+        P, args = refine_params, self.args_from_params(refine_params)
+        
         if timeout_mins is None:
             timeout_mins=3*self.altloc_subset_size
         # assert model_path[-4:]==".pdb", model_path
         timeout_mins*=TIMEOUT_MINS_FACTOR
-        P, args = refine_params
-        out_path = self.get_out_path(P.out_tag,add_loop_num=False)
-        assert refine_params[0].model_path is not None and os.path.exists(refine_params[0].model_path), refine_params[0]
+        out_path = P.out_path
+        assert P.model_path is not None and os.path.exists(P.model_path), P
         if not debug_skip:
             max_attempts=30
             attempt=0
             backup_path = out_path+'#'
-            if os.path.abspath(refine_params[0].model_path)!=os.path.abspath(out_path): # So as not to disrupt multiple refines using same file output name
+            if os.path.abspath(P.model_path)!=os.path.abspath(out_path): # So as not to disrupt multiple refines using same file output name
                 if os.path.exists(out_path):
                     shutil.move(out_path,backup_path)
             while True:
@@ -1571,7 +1623,7 @@ class Untangler():
                         break
 
             if delete_old_model_when_done:
-                os.remove(refine_params[0].model_path)
+                os.remove(P.model_path)
             if remove_tmpdir_on_end:
                 handle = os.path.basename(out_path)[:-4]
                 tmp_refine_subdir=f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/Refinement/tmp_refinement/{handle}/"
@@ -1592,6 +1644,8 @@ class Untangler():
         assert altloc_subset is None, "altloc subset not implemented!"
         
         reflections_path = self.hkl_path
+        algorithm="REFMAC"
+
         param_dict = locals()
         del param_dict["self"]
         P = SimpleNamespace(**param_dict)
@@ -1627,6 +1681,7 @@ class Untangler():
                           water_and_H_only=False):
         if altloc_subset is not None:
             altloc_subset = ''.join(altloc_subset)  
+        assert altloc_subset is None, altloc_subset
         if wc is None:
             wc = self.default_wc
         ### Override next_model with formatted one.
@@ -1645,34 +1700,50 @@ class Untangler():
         if PHENIX_DISABLE_NQH:
             disable_NQH_flips=True
 
-        disable_CDL = PHENIX_DISABLE_CDL
+        disable_CDL = PHENIX_DISABLE_CDL            
 
         assert (not hold_water_positions) or (not hold_protein_positions) or refine_hydrogens
-        
         reflections_path = self.hkl_path
+        algorithm="PHENIX"
+
+
         param_dict = locals()
         del param_dict["self"]
-        #del param_dict["next_model"]
+        #####################
         #####################
 
         P = SimpleNamespace(**param_dict)
         assert P.model_path is not None
-  
+        P.out_path = self.get_out_path(P.out_tag,add_loop_num=False)
+
+
+        return P
+    
+    def args_from_params(self,P:SimpleNamespace):
+        if P.algorithm=="PHENIX":
+            return self.args_from_params_phenix(P)
+        elif P.algorithm=="REFMAC":
+            return self.args_from_params_refmac()
+        else: assert False, P.algorithm
+    def args_from_params_refmac(self,P:SimpleNamespace):
+        raise NotImplementedError()
+    def args_from_params_phenix(self,P:SimpleNamespace):
+        
         args=["bash", 
             f"{self.refine_shell_file}",f"{P.model_path}",f"{P.reflections_path}",
             "-c",f"{P.wc}",
             "-u",f"{P.wu}",
             "-n",f"{P.num_macro_cycles}",
-            "-o",f"{self.model_handle}_{P.out_tag}",
+            "-o",f"{os.path.basename(P.out_path)[:-4]}",
             "-s",f"{P.shake}",
             "-q",f"{P.max_sigma_movement_of_selected}",
         ]
-        if altloc_subset is not None:
-            args+= ["-a",altloc_subset]
-        if ordered_solvent:
+        if P.altloc_subset is not None:
+            args+= ["-a",P.altloc_subset]
+        if P.ordered_solvent:
             water_occ=1/len(self.protein_altlocs)
-            if altloc_subset is not None:
-                water_occ=1/len(altloc_subset)
+            if P.altloc_subset is not None:
+                water_occ=1/len(P.altloc_subset)
             args+=['-f',f"{water_occ}"]
         # TODO make a dict...
         for bool_param, flag in ([P.hold_water_positions,"-h"],[P.refine_hydrogens,"-H"],[P.optimize_R,"-r"],
@@ -1682,7 +1753,7 @@ class Untangler():
                                  [P.water_and_H_only, "-Z"]):
             if bool_param:
                 args.append(flag)
-        return P, args
+        return args
 
     def batch_refine(self,batch_tag,refine_arg_sets_series:list[list[tuple[SimpleNamespace,list[str]]]],debug_skip=False,remove_tmpdir_on_end=True)->str:
         out_directory = os.path.join(self.output_dir,"batchRefine",f"{self.model_handle}_{batch_tag}","")
@@ -1696,8 +1767,7 @@ class Untangler():
                 if altloc_subset is None:
                     return os.path.join(out_directory,"full","")
                 return os.path.join(out_directory,"".join(altloc_subset),"")
-            print(subfolder_path("AB"))
-            for altloc_subset in [arg_set[0].altloc_subset for arg_set in refine_arg_sets_series[0]]:
+            for altloc_subset in [P.altloc_subset for P in refine_arg_sets_series[0]]:
                 os.makedirs(subfolder_path(altloc_subset),exist_ok=True) 
 
             # TODO folder in output/refine_logs/
@@ -1719,17 +1789,20 @@ class Untangler():
 
                     out_path = self.refine(refine_arg_sets[i],skip_fail=True,remove_tmpdir_on_end=remove_tmpdir_on_end)
                     if altloc_subset is None:
-                        altloc_subset=refine_arg_sets[i][0].altloc_subset
+                        altloc_subset=refine_arg_sets[i].altloc_subset
                     else:
-                        assert altloc_subset==refine_arg_sets[i][0].altloc_subset
+                        assert altloc_subset==refine_arg_sets[i].altloc_subset
                 if out_path is not None and os.path.exists(out_path):
                     shutil.move(out_path,os.path.join(
                         subfolder_path(altloc_subset),f"{batch_tag}_{i+1}.pdb"
                     )) 
                 else:
                     print(f"Warning: refinement {i} failed! Skipping...")
-            with Pool(self.num_threads) as p:
-                p.map(pooled_method,range(len(refine_arg_sets_series[0])))
+            if len(refine_arg_sets_series[0])>1:
+                with Pool(self.num_threads) as p:
+                    p.map(pooled_method,range(len(refine_arg_sets_series[0])))
+            else:
+                pooled_method(0)
         return out_directory
 
 
@@ -1860,7 +1933,7 @@ def main():
         refine_for_positions_geo_weight=0,
         starting_num_best_swaps_considered=1,
         max_num_best_swaps_considered=1,
-        altloc_subset_size=10,
+        altloc_subset_size=6,
         unrestrained_damp=0,
         #refine_for_positions_geo_weight=0.03,
         num_refine_for_positions_macro_cycles_phenix=1,
@@ -1869,9 +1942,10 @@ def main():
         weight_factors = {
             ConstraintsHandler.BondConstraint: 0.1,
             ConstraintsHandler.AngleConstraint: 80,
-            #ConstraintsHandler.NonbondConstraint: 0,#0.1,
+            #ConstraintsHandler.NonbondConstraint: 0,
             ConstraintsHandler.NonbondConstraint: 0.1,
-            ConstraintsHandler.ClashConstraint: 1e8,#1e2,
+            #ConstraintsHandler.ClashConstraint: 1e8,
+            ConstraintsHandler.ClashConstraint: 1e7,#1e2,
             ConstraintsHandler.TwoAtomPenalty: 0,
         },
         solution_reference=solution_reference,
