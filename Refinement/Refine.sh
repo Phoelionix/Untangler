@@ -354,13 +354,13 @@ fi
 
 
 # Broad sweep attempt to stop phenix segfaulting when run in parallel
-export OMP_NUM_THREADS=1
-export OPENBLAS_NUM_THREADS=1
-export MKL_NUM_THREADS=1
-export VECLIB_MAXIMUM_THREADS=1
-export NUMEXPR_NUM_THREADS=1
+# export OMP_NUM_THREADS=1
+# export OPENBLAS_NUM_THREADS=1
+# export MKL_NUM_THREADS=1
+# export VECLIB_MAXIMUM_THREADS=1
+# export NUMEXPR_NUM_THREADS=1
 
-export PYTHONFAULTHANDLER=1
+# export PYTHONFAULTHANDLER=1
 
 # env -i PATH=/usr/local/phenix-2/build/bin:/usr/bin:/bin \
 #   PHENIX=/usr/local/phenix-2 \
@@ -385,8 +385,8 @@ fi
 i=0
 while true; do
   #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints.eff
-  user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-4PSS_2conf6conf.eff # TEMPORARY
-  #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-4PSS_2conf6conf_noWater.eff # TEMPORARY
+  #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-4PSS_2conf6conf.eff # TEMPORARY
+  #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-4PSS_2conf6conf_noWater.eff 
   #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-cov63_2conf6conf.eff
   #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-cov63_2conf6conf_noWater.eff
 
@@ -400,10 +400,10 @@ while true; do
   if grep -q "Traceback (most recent call last)" "$log_file"; then
     failed=true
   fi
-  # if [ ! -f $final_structure ]; then 
-  #   failed=true
-  #   echo "$final_structure missing, refinement failed for unknown reason"
-  # fi
+  if [ ! -f $final_structure ]; then 
+    failed=true
+    echo "$final_structure missing, refinement failed for unknown reason"
+  fi
   if $failed; then
     mv $error_file $error_file#
     i=$((i+1))

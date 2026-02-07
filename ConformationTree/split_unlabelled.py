@@ -33,7 +33,7 @@ def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False,nonex
     site_tags = [DisorderedTag.from_atom(a) for a in atoms_to_split]
     assert len(site_tags)>0
 
-    split_model_path=os.path.join(out_dir,UntangleFunctions.model_handle(fmted_model)+"_split.pdb")
+    split_model_path=os.path.join(out_dir,UntangleFunctions.model_handle(model_path)+"_split.pdb")
     split_specific(model_path,child_parent_altlocs_dict,site_tags,out_path=split_model_path,preserve_parent_altlocs=preserve_parent_altlocs,
                    split_waters=True,nonexistent_parent_from_child_priority_dict=nonexistent_parent_from_child_priority_dict,
                    force_lone_altloc_label=" ")

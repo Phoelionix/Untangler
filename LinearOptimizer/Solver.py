@@ -46,6 +46,7 @@ import shutil
 import matplotlib.pyplot as plt
 import matplotlib
 from typing import Union
+from time import sleep
 
 
 #THREADS=None # Num cpu threads made available to ILP solver 
@@ -63,25 +64,31 @@ FORBID_MULTIPLE_LOCAL_CHANGES_WHEN_MAIN_CHAIN_ONLY=True
 ALLOW_ALL_POSITION_CHANGE_GEOMECTIONS= True # Only if modify_forbid_conditions = True
 FORCE_ALT_COORDS=False
 
-improvement_factors_to_tolerate=np.array([10,8,6,4,2,1.75,1.5,1.25,1])
 
+
+# TODO cplex solution pool
 
 ###
 BETTER_THAN_WORST=0
 BETTER_THAN_AVERAGE=1
-tolerate_score_mode=BETTER_THAN_AVERAGE
+tolerate_score_mode=BETTER_THAN_WORST
 #MIN_IMPROVEMENT_FACTOR_TO_TOLERATE=10  # Higher is stricter (fewer high sigma connections will be allowed)
 ###
 
-MEMORYLIMITGB=35
+MEMORYLIMITGB=40
+
+def add_sos(lp_problem:LpProblem,sos_name,sos_rule):
+    lp_problem.sos1[sos_name]=sos_rule
+def add_sos2(lp_problem:LpProblem,sos2_name,sos2_rule):
+    lp_problem.sos2[sos2_name]=sos2_rule
 
 
 def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
-          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=20,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=90,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
           inert_water_sites=False,
           #gapRel=0.001,
           #gapRel=0,
-          gapRel=0.0055,
+          gapRel=0.003,
           #gapRel=0.03,
           forbid_altloc_changes={"name":[]}, forbidden_atom_bond_changes={"name":[]},forbidden_atom_any_connection_changes={"name":[]},
           MAIN_CHAIN_ONLY=False,SIDE_CHAIN_ONLY=False,NO_CB_CHANGES=False,NO_ISOLATED_O_BOND_CHANGES=False, # Forbids BOND changes that do not involve the specified atoms.
@@ -96,7 +103,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
           forbid_CECD12_changes=True, # Leaving true until fix bug from missing interchangability of C[E/D]1 and C[E/D]2 when reading geometry restraints 
           ):  
           #max_bond_changes=None):  
-    print("Constructing ILP problem")
+    print("****************\nConstructing ILP problem\n****************")
 
     # protein_sites, water_sites: Whether these can be swapped.
     # gaprel : relative gap tolerance for the solver to stop (fraction) # https://coin-or.github.io/pulp/technical/solvers.html
@@ -190,6 +197,23 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     # def site_variable_name(site: VariableID, from_altloc:str, to_altloc:str):
     #     return f"atomState_{site}_{from_altloc}.{to_altloc}"
     disordered_atom_sites:list[VariableID] = []
+
+
+
+    # TODO replace this system with one that just adds the N best constraints in round 1, 2N best constraints in round 2, etc.
+    # TODO longer term - specify priority order?
+    #improvement_factors_to_tolerate=np.array([100,8,4,3,2,1.5,1.25,1,0.9,]) 
+    if len(all_altlocs)==2:
+        improvement_factors_to_tolerate=np.array([100,2,1]) 
+    elif len(all_altlocs)<=6:
+        improvement_factors_to_tolerate=np.array([100,3,2,1.5,1.25,1.1,1,0.95,0.9,0.85]) 
+    else:
+        improvement_factors_to_tolerate=np.array([100,6,3,2,1.5,1.25,1.175,1.1,1.05,1]) 
+
+    #improvement_factors_to_tolerate=np.array([0.7]) # TODO replace this system with one that just adds the N best constraints in round 1, 2N best constraints in round 2, etc.
+
+
+
 
     # Set up atom swap variables
     forbid_flip_site_altloc_dict:dict[VariableID,list[str]] = {}
@@ -570,7 +594,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 
         if modify_forbid_conditions:
             #TODO Moves this logic to Input.py
-            original_scores=np.mean([conn.ts_distance for conn in disordered_connection if conn.original()])
+            original_scores=[conn.ts_distance for conn in disordered_connection if conn.original()]
 
             
             # Threshold below which alternatives will be considered if flagged as forbidden by Input.py.
@@ -794,7 +818,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     mega_connection_var_dict:dict[str,dict[str,tuple[LP_Input.Geomection,LpVariable]]]={}
     for i, (connection_id, ordered_connection_choices) in enumerate(disordered_connections.items()):
         if i % 250 == 0:
-            print(f"Adding constraints {i}/{len(disordered_connections)}")
+            print(f"Adding constraints {i}/{len(disordered_connections)} ({connection_id})")
         constraint_type = VariableKind[connection_id.split('_')[0]]  #XXX ?????
         disordered_connection_var_dict = add_constraints_from_disordered_connection(constraint_type,ordered_connection_choices,global_score_tolerate_threshold=global_score_tolerate_threshold)
         if disordered_connection_var_dict is not None:
@@ -1117,6 +1141,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     previously_used_variable_names=[]
 
     def set_up_flexi_variables(r:int):
+        #TODO can speed up significantly by instead flagging indices of variables to enable by round (since they will always be enabled after r > some n ).
         nonlocal lp_problem
         if r > 0:
             # remove last flexi variables
@@ -1138,9 +1163,55 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         # Forbid original geomections that are inactive and would be forbidden if . This ensures the original geomections aren't given special treatment.
 
 
-        num_inactive_og_forbidden={k:0 for k in flexible_forbidden_constr_types}
-        num_inactive_og_allowed={k:0 for k in flexible_forbidden_constr_types}
+        num_inactive_og_forbidden={k:0 for k in flexible_bad_original_constr_types}
+        num_inactive_og_allowed={k:0 for k in flexible_bad_original_constr_types}
 
+        for constrs in flexible_bad_original_allowed_constrs + flexible_bad_original_forbid_constrs:
+            for _, constr_name in constrs: 
+                lp_problem.constraints.pop(constr_name,None) # None arg because it is okay if it does not exist
+        
+        ''' # BUGGED TODO
+        global pooled_method  
+        def pooled_method(i):
+            constrs_to_add=flexible_bad_original_allowed_constrs[i]
+            tracking_tuple=None
+            # Check whether the original geomection is inactive. Otherwise, do not forbid.
+            if value(flexible_bad_original_vars[i]) < 0.5:
+                if not always_allow_original_tranches[i][r]:
+                    assert r > 0
+                    tracking_tuple=(False,flexible_bad_original_constr_types[i])
+                    constrs_to_add = flexible_bad_original_forbid_constrs[i]
+                    #num_inactive_og_forbidden[flexible_bad_original_constr_types[i]]+=1
+                else:
+                    tracking_tuple=(True,flexible_bad_original_constr_types[i])
+                    #num_inactive_og_allowed[flexible_bad_original_constr_types[i]]+=1
+            return (constrs_to_add,tracking_tuple)
+            
+        with Pool(UntangleFunctions.NUM_THREADS) as p:
+            list_of_constrs_to_add:list[list,type] = p.map(pooled_method,range(len(always_allow_original_tranches)))
+        for constrs_to_add,tracking_tuple in list_of_constrs_to_add:
+            if tracking_tuple is not None:
+                if tracking_tuple[0]:
+                    num_inactive_og_allowed[tracking_tuple[1]]+=1
+                else:
+                    num_inactive_og_forbidden[tracking_tuple[1]]+=1
+            for constr in constrs_to_add:
+                #assert value(constr[0]) > 0.5
+                try:
+                    #assert constr[1] not in lp_problem.constraints
+                    lp_problem+= constr
+                except Exception as e:
+                    print(constr)
+                    print(constrs_to_add)
+                    for constrs in flexible_bad_original_allowed_constrs + flexible_bad_original_forbid_constrs:
+                        for _, constr_name in constrs: 
+                            if constr_name == constr[1]:
+                                print("Found match (expect 1)")
+                    for _,other_name in constrs_to_add:
+                        if constr[1]==other_name:
+                            print("Found other match (expect 1)")
+                    raise e
+        '''
         for constrs in flexible_bad_original_allowed_constrs + flexible_bad_original_forbid_constrs:
             for _, constr_name in constrs: 
                 lp_problem.constraints.pop(constr_name,None) # None arg because it is okay if it does not exist
@@ -1189,7 +1260,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     assert len(always_allow_original_tranches)==len(flexible_bad_original_vars)==len(flexible_bad_original_allowed_constrs)==len(flexible_bad_original_forbid_constrs),\
         (len(always_allow_original_tranches),len(flexible_bad_original_vars),len(flexible_bad_original_allowed_constrs),len(flexible_bad_original_forbid_constrs))
     #print(len(flexible_allowed_constr_tranches),len(always_allow_original_tranches))
-    num_tranches=len(flexible_allowed_constr_tranches[0])
+    num_tranches=len(improvement_factors_to_tolerate)
     for l in range(num_solutions):
         if l > 0 and l <= len(forced_swap_solutions):
             lp_problem.constraints.pop("forcedSwap")
@@ -1210,7 +1281,14 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         print(f"-----------------------------------------------------")
         print()
 
+
+        ## Initialise variables that will update every few rounds, for use in updating the swaps file containing the solutions. 
+        site_assignment_arrays.append({})
+        distances.append(np.inf)
+        ##
+
         for r in range(num_tranches):
+
             if num_tranches>1:
                 print(f"Round {r+1}/{num_tranches}")
 
@@ -1260,11 +1338,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             if pulp_solver == Solver.COIN: 
                 solver_class = PULP_CBC_CMD
             elif pulp_solver == Solver.CPLX_CMD:
-                #assert False
                 solver_class = CPLEX_CMD
             # CPLEX parameters: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.6.0/ilog.odms.cplex.help/CPLEX/GettingStarted/topics/tutorials/InteractiveOptimizer/settingParams.html
             # CPLEX status: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.10.0/ilog.odms.cplex.help/refcallablelibrary/macros/Solution_status_codes.html
-                solver_options.append("set parallel -1")
+                #solver_options.append("set parallel -1")
                 #path='~/ibm/ILOG/CPLEX_STUDIO2211/cplex'
             #https://coin-or.github.io/pulp/technical/solvers.html#pulp.apis.CPLEX_PY
             elif pulp_solver == Solver.CPLX_PY:
@@ -1274,15 +1351,58 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             #solver = solver_class(timeLimit=timeLimit,threads=THREADS,logPath=logPath,warmStart=warmStart,gapRel=gapRel,path=path)
             extra_args={}
             if pulp_solver==Solver.CPLX_CMD:
+                aggressive_probe=False
+                pseudoreduced_branching=True # Computationally cheap. LEAVE THIS TRUE
+                emphasize_optimize=False
+                strong_branching=False # Computationally intensive
+                diverse_solutions=False
+                priority_order=3 # 1: decreasing cost coefficients, 2: increasing bound range, 3: increasing with matrix coefficient count 
                 #extra_args["path"]='/home/speno/ibm/ILOG/CPLEX_STUDIO2211/cplex/bin/x86-64_linux/cplex'
                 extra_args["maxMemory"]=MEMORYLIMITGB*1e3
+                extra_args["options"]=solver_options
+                # TODO try probe
                 #extra_args["options"]=solver_options
+                #solver_options.append("set mip strategy probe -1") # -1: no, 0: auto, 1-3: increasingly aggressive probing
+                # if len(all_altlocs) >6:
+                #     solver_options.append("set mip strategy probe 3")
+                # else:
+                #     solver_options.append("set mip strategy probe 3")
+                    #solver_options.append("set mip strategy probe -1")
+                
+                if emphasize_optimize:
+                    solver_options.append("set emphasis mip 3") #Emphasis on moving best bound value.
+                if aggressive_probe:
+                    solver_options.append("set mip strategy probe 3")
+                    solver_options.append(f"set mip limits probetime {int(max_mins_start*60/2)}")
+                #solver_options.append("set mip strategy variableselect -1")
+                if strong_branching:
+                    solver_options.append("set mip strategy variableselect 3")
+                if pseudoreduced_branching:
+                    assert not strong_branching
+                    solver_options.append("set mip strategy variableselect 4")
+                if priority_order is not None:
+                    solver_options.append(f"set mip ordertype {priority_order}")
+
+
+                if diverse_solutions:
+                    assert False, "Collecting multiple solutions this way is not yet supported"
+                    solver_options.append("set mip limits populate 20")
+                    solver_options.append("set mip pool replace 2")
+                else:
+                    solver_options.append("set mip limits populate 1")
+
+                assert pseudoreduced_branching
+                
+                #solver_options.append("set mip strategy probe -1")
+                
 
             solver = solver_class(timeLimit=timeLimit,threads=THREADS,warmStart=warmStart,logPath=logPath,gapRel=gapRel,**extra_args)
             
             set_up_flexi_variables(r)
             lp_problem.solve(solver)
-            print(solver)
+            sleep(1)
+            print()
+            print("Solver finished")
             # if pulp_solver == Solver.COIN:
             #     # solver = PULP_CBC_CMD(threads=THREADS)
             #     # lp_problem.solve(solver=solver)
@@ -1338,9 +1458,42 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 print()
                 print(f"WARNING: Finding solution {l+1} on round {r} was infeasible!")
                 break
-            ##Active Connections##
-            write_current_connections(f"{log_out_dir}/ActiveConnections.txt")
-            ####
+            ##Write Active Connections##
+            write_interval=3
+            if (r == num_tranches-1) or (r%write_interval==0): 
+                write_current_connections(f"{log_out_dir}/ActiveConnections.txt")
+            ############################
+
+            site_assignments:dict[VariableID,dict[str,dict[str,int]]] = {}
+            site_assignment_arrays[-1]=site_assignments
+            distances[-1]= value(lp_problem.objective)
+
+            # Determine which atom has been assigned where.
+            for site in site_var_dict:
+                site_assignments[site]={}
+                for from_altloc in site_var_dict[site]:
+                    if lp_problem.sol_status==LpStatusInfeasible:
+                        assert False
+                        site_assignments[site][from_altloc]=from_altloc 
+                        break 
+                    poschange_str= ""
+                    if site in site_altposvar_dict and from_altloc in site_altposvar_dict[site]:
+                        for poschange_index, altposvar in site_altposvar_dict[site][from_altloc].items():
+                            if poschange_index!=0 and altposvar.value()>0.5:
+                                assert poschange_str == ""
+                                poschange_str = f" new_position={site_altpos_dict[site][from_altloc][poschange_index].get_coord()}" 
+                    to_altloc_found = False
+                    for to_altloc in site_var_dict[site][from_altloc]:
+                        if site_var_dict[site][from_altloc][to_altloc].value()>0.5:  # For some reason CPLEX outptuts values like 1.0000000000094025 sometimes.
+                            assert not to_altloc_found
+                            to_altloc_found=True
+                            site_assignments[site][from_altloc]=to_altloc+poschange_str
+
+                                        
+                    assert to_altloc_found, (site, from_altloc)
+            
+            update_swaps_file(distances,site_assignment_arrays)  #,record_notable_improvements_threshold=0.03)
+            
         ### lth solution found ####
             
         if lp_problem.sol_status==LpStatusInfeasible:
@@ -1500,35 +1653,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 print(f"Plotting failed. Error: {e}")
                 
 
-        site_assignments:dict[VariableID,dict[str,dict[str,int]]] = {}
-        site_assignment_arrays.append(site_assignments)
 
-        # Determine which atom has been assigned where.
-        for site in site_var_dict:
-            site_assignments[site]={}
-            for from_altloc in site_var_dict[site]:
-                if lp_problem.sol_status==LpStatusInfeasible:
-                    assert False
-                    site_assignments[site][from_altloc]=from_altloc 
-                    break 
-                poschange_str= ""
-                if site in site_altposvar_dict and from_altloc in site_altposvar_dict[site]:
-                    for poschange_index, altposvar in site_altposvar_dict[site][from_altloc].items():
-                        if poschange_index!=0 and altposvar.value()>0.5:
-                            assert poschange_str == ""
-                            poschange_str = f" new_position={site_altpos_dict[site][from_altloc][poschange_index].get_coord()}" 
-                to_altloc_found = False
-                for to_altloc in site_var_dict[site][from_altloc]:
-                    if site_var_dict[site][from_altloc][to_altloc].value()>0.5:  # For some reason CPLEX outptuts values like 1.0000000000094025 sometimes.
-                        assert not to_altloc_found
-                        to_altloc_found=True
-                        site_assignments[site][from_altloc]=to_altloc+poschange_str
-
-                                    
-                assert to_altloc_found, (site, from_altloc)
-        
-        distances.append(value(lp_problem.objective))
-        update_swaps_file(distances,site_assignment_arrays)  #,record_notable_improvements_threshold=0.03)
 
         #  Conditions  imposed for next best solutions
         include_alt_pos_as_next_best_options=False

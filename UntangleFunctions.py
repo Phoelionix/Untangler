@@ -14,6 +14,8 @@ import numpy as np
 import shutil
 import itertools
 
+NUM_THREADS=24
+
 RING_NAME_GROUPING=False
 TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY=True # Because generating data is incredibly slow with multiple altlocs. 
 

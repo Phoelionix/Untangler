@@ -181,36 +181,27 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
         #     if keyB[-4:-2]==" 2":
         #         print(keyA,keyB)
         #         print(site_labels[i_seq],site_labels[j_seq])
-        distance_cutoff = 4
         
         debug_packing_added={}
         debug_nonpacking_added={}
-        for (conformer_site_label_A,coordA) in ordered_atom_sites_dict[keyA]:
-            for (conformer_site_label_B,coordB) in ordered_atom_sites_dict[keyB]:
-                model_distance=sep(coordA,coordB)
-                if model_distance > distance_cutoff:
-                    continue
-                # if keyA=='pdb=" C  GLY A  59 "':
-                #     if keyB[-5:-2]==" 60":
-                #         print(model_distance,vdw_sum)
-                #         print(conformer_site_label_A,conformer_site_label_B)
-                #         print(site_labels[i_seq],site_labels[j_seq])
-                is_crystal_packing_contact= "true" if symop_str.strip()!="" else "false"
-    
-                datum=[
-                    conformer_site_label_A.split('"')[1], #pdb1 (pdb entry 1)
-                    conformer_site_label_B.split('"')[1], #pdb2 (pdb entry 2)
-                    vdw_sum,
-                    is_crystal_packing_contact,
-                ]
-                debug_key=datum[0]+" " +datum[1]
-                debug_dict = debug_packing_added if is_crystal_packing_contact else debug_nonpacking_added
-                # Assuming only difference in vdw for same energy types is whether it is a crystal packing contact
-                if debug_key in debug_dict:
-                    assert debug_dict[debug_key]==vdw_sum, (datum,debug_dict[debug_key])
-                else:
-                    debug_dict[debug_key]=vdw_sum
-                    out_data.append(datum)
+        conformer_site_label_A,conformer_site_label_B = ordered_atom_sites_dict[keyA][0][0],ordered_atom_sites_dict[keyB][0][0]
+
+        is_crystal_packing_contact= "true" if symop_str.strip()!="" else "false"
+
+        datum=[
+            conformer_site_label_A.split('"')[1], #pdb1 (pdb entry 1)
+            conformer_site_label_B.split('"')[1], #pdb2 (pdb entry 2)
+            vdw_sum,
+            is_crystal_packing_contact,
+        ]
+        debug_key=datum[0]+" " +datum[1]
+        debug_dict = debug_packing_added if is_crystal_packing_contact else debug_nonpacking_added
+        # Assuming only difference in vdw for same energy types is whether it is a crystal packing contact
+        if debug_key in debug_dict:
+            assert debug_dict[debug_key]==vdw_sum, (datum,debug_dict[debug_key])
+        else:
+            debug_dict[debug_key]=vdw_sum
+            out_data.append(datum)
             
     if out_file is not None:
         with open(out_file,"w") as f:

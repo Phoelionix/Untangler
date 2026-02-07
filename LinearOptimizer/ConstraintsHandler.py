@@ -319,6 +319,7 @@ class ConstraintsHandler:
             super().__init__(atom_ids,outlier_ok,None,weight,None)
             # if (DisorderedTag(17,"H") in self.site_tags) and (DisorderedTag(81,"O") in self.site_tags):
             self.symmetries=symmetries
+        '''
         def add_ordered(self,altlocs,vdw,is_symm):
             assert len(altlocs)==2
             assert tuple(altlocs) not in self.altlocs_vdw_dict
@@ -329,6 +330,12 @@ class ConstraintsHandler:
                 self.altlocs_vdw_dict[key]=[None,None] # [same-asu contacts, crystal-packing contacts] 
             idx = 1 if is_symm else 0
             self.altlocs_vdw_dict[key][idx]=vdw
+        '''
+        def add_disordered(self,vdw,is_symm):
+            idx = 1 if is_symm else 0
+            if None not in self.altlocs_vdw_dict:
+                self.altlocs_vdw_dict[None]=[None,None]
+            self.altlocs_vdw_dict[None][idx]=vdw
         @staticmethod
         def symm_min_separation(a:Atom,b:Atom,symmetries):
             coord_dict={"a":[],"b":[]}
@@ -405,10 +412,14 @@ class ConstraintsHandler:
                 return None
             a,b = sorted_atoms            
             altlocs=(a.get_altloc(),b.get_altloc()) # NOTE order matters!!
-            if (altlocs not in self.altlocs_vdw_dict):
-                return -1, -1, 0, 0
+            vdw_key=altlocs
+            if (vdw_key not in self.altlocs_vdw_dict):
+                if None in self.altlocs_vdw_dict:
+                    vdw_key=None
+                else:
+                    return -1, -1, 0, 0
             
-            r0,r0_sym = self.altlocs_vdw_dict[altlocs]
+            r0,r0_sym = self.altlocs_vdw_dict[vdw_key]
             r, r_sym_min = ConstraintsHandler.NonbondConstraint.symm_min_separation(a,b,self.symmetries)
 
             #if atoms_in_LO_variable_string("62.HD2_A|128.O_A",sorted_atoms):
@@ -475,13 +486,16 @@ class ConstraintsHandler:
                 constraint.add_ordered(altlocs,badness)
                 found+=1
         assert found == 1
-    def add_nonbond_constraint(self,constraint:NonbondConstraint,residual,altlocs,vdw_sum:float,is_symm:bool): # or clash constraint.
+    def add_nonbond_constraint(self,constraint:Union[NonbondConstraint,ClashConstraint],residual,altlocs,vdw_sum:float,is_symm:bool): # or clash constraint.
         constraint = self.add(constraint,residual)
         found=0
         first_site = constraint.site_tags[0]
         for held_constraint in self.atom_constraints[first_site]:
             if held_constraint == constraint:
-                constraint.add_ordered(altlocs,vdw_sum,is_symm)
+                if type(constraint) is ConstraintsHandler.NonbondConstraint:
+                    constraint.add_disordered(vdw_sum,is_symm)
+                else:
+                    constraint.add_ordered(altlocs,vdw_sum,is_symm)
                 found+=1
         assert found == 1
     def scale_constraint_weight(self,pdb_ids:list[str],constraint_type:Type,weight_factor:float):
@@ -830,9 +844,9 @@ class ConstraintsHandler:
                     R_min = phenix_vdw_sum
 
                     return (ConstraintsHandler.NonbondConstraint(conf_pair,outlier_ok("NONBOND",conf_pair),symmetries,weight=nb_weight),
-                                                None,altlocs,R_min,is_symm)
-              num_threads=28
-              with Pool(num_threads) as p:
+                                                None,None,R_min,is_symm)
+              
+              with Pool(UntangleFunctions.NUM_THREADS) as p:
                 nonbond_constraints_args_list = p.map(pooled_method,range(len(table)))
                 print("Finished processing")
               nonbond_constraints_args_list = [v for v in nonbond_constraints_args_list if v is not None]

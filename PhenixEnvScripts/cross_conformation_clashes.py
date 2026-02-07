@@ -347,7 +347,7 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
     if out_file is not None:
         with open(out_file,"w") as f:
             f.write('\n'.join(['|'.join([str(i) for i in items]) for items in out_data]))
-    print(f"number of cross-conformer nonbonds: {len(out_data)}")
+    print(f"number of cross-conformer clashes: {len(out_data)}")
     if verbose:
         pair_proxies.nonbonded_proxies.show_histogram_of_model_distances(
             sites_cart=sites_cart,

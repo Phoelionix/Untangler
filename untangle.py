@@ -74,7 +74,7 @@ class Untangler():
     never_do_unrestrained=False # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
     always_allow_O_swaps=False
     always_forbid_O_swaps=False
-    debug_main_chain_swaps_only=False
+    debug_main_chain_swaps_only=True
     main_chain_swaps_only_after_first_loop=False
     optimize_side_and_main_separately=False
     default_scoring_function = staticmethod(ConstraintsHandler.chi_z_sqr) # Like Holton score (non-outlier terms)
@@ -85,7 +85,7 @@ class Untangler():
     num_loops_not_refine_H=0
     #untwist_moves_enabled=True
     untwist_moves_enabled=False
-    untwist_moves_enabled_on_mainch_only_loop=True
+    untwist_moves_enabled_on_mainch_only_loop=False
     num_loops_not_untwist=0 
     final_untwist_loop=999 # if equal to num_loops_not_untwist, will do untwist in that loop only
     debug_skip_initial_holton_data_generation =debug_skip_initial_refine or (debug_skip_to_loop!=0) # Initial score file. Will always create if expected path to score file doesn't exist.
@@ -881,7 +881,8 @@ class Untangler():
                 kwargs_list.extend([{} for _ in altloc_subsets])
             else: # Focused swaps 
                 #focused_subset_size =7 
-                focused_subset_size =self.altloc_subset_size 
+                #focused_subset_size =self.altloc_subset_size 
+                focused_subset_size =12
                 num_focused_combinations=3
                 focused_subsets = self.get_altloc_subsets(focused_subset_size,num_focused_combinations)
                 for subset in focused_subsets:
@@ -1933,7 +1934,7 @@ def main():
         refine_for_positions_geo_weight=0,
         starting_num_best_swaps_considered=1,
         max_num_best_swaps_considered=1,
-        altloc_subset_size=6,
+        altloc_subset_size=5,
         unrestrained_damp=0,
         #refine_for_positions_geo_weight=0.03,
         num_refine_for_positions_macro_cycles_phenix=1,
