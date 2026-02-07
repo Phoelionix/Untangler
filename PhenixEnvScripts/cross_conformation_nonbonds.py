@@ -47,6 +47,7 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
 
     tmp_pdb_file = os.path.join(os.path.abspath(os.path.join(__file__ ,"../")),"tmp_samealtloc.pdb")
 
+    first_altloc=None
     with open(pdb_file_path) as f, open(tmp_pdb_file,"w") as w:
         lines = f.readlines()
         max_resnum=num_altlocs=0
@@ -56,7 +57,9 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
             if any([line.startswith(k) for k in valid_record_types]):
                 max_resnum= max(max_resnum,int(line[22:26]))
                 altloc = line[16]
-                if altloc != "B":
+                if first_altloc is None:
+                    first_altloc=altloc
+                if altloc != first_altloc:
                     continue
                 if len(conformation_number)>0:  # single altloc
                     continue
@@ -161,6 +164,7 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
         
 
     out_data=[]
+    # TODO XXX very unnecessary compute time if values are same regardless of conformation. Have many keys for one value.  
     for i, item in enumerate(nonbonded_list):
         if i%100000==0:
             print(f"{i}/{len(nonbonded_list)}")
@@ -169,7 +173,7 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
         #model_distance = item[3]
         vdw_sum        = item[4]
         symop_str      = item[5] 
-        symop          = item[6]
+        #symop          = item[6]
 
 
         keyA,keyB = [site_label[:9]+site_label[10:] for site_label in [site_labels[i_seq],site_labels[j_seq]]]
@@ -184,23 +188,23 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
         for (conformer_site_label_A,coordA) in ordered_atom_sites_dict[keyA]:
             for (conformer_site_label_B,coordB) in ordered_atom_sites_dict[keyB]:
                 model_distance=sep(coordA,coordB)
-                if sep(coordA,coordB) > distance_cutoff:
+                if model_distance > distance_cutoff:
                     continue
                 # if keyA=='pdb=" C  GLY A  59 "':
                 #     if keyB[-5:-2]==" 60":
                 #         print(model_distance,vdw_sum)
                 #         print(conformer_site_label_A,conformer_site_label_B)
                 #         print(site_labels[i_seq],site_labels[j_seq])
-                crystal_packing_contact= "true" if symop_str.strip()!="" else "false"
+                is_crystal_packing_contact= "true" if symop_str.strip()!="" else "false"
     
                 datum=[
                     conformer_site_label_A.split('"')[1], #pdb1 (pdb entry 1)
                     conformer_site_label_B.split('"')[1], #pdb2 (pdb entry 2)
                     vdw_sum,
-                    crystal_packing_contact,
+                    is_crystal_packing_contact,
                 ]
                 debug_key=datum[0]+" " +datum[1]
-                debug_dict = debug_packing_added if crystal_packing_contact else debug_nonpacking_added
+                debug_dict = debug_packing_added if is_crystal_packing_contact else debug_nonpacking_added
                 # Assuming only difference in vdw for same energy types is whether it is a crystal packing contact
                 if debug_key in debug_dict:
                     assert debug_dict[debug_key]==vdw_sum, (datum,debug_dict[debug_key])
