@@ -3,7 +3,7 @@ import os, sys, pathlib
 sys.path.append(str(pathlib.Path(__file__).parent.parent))
 from UntangleFunctions import UNTANGLER_WORKING_DIRECTORY
 # Interface for phenix.python call
-def get_cross_conf_nonbonds(pdb_file_path,use_previous=True,use_previous_nonbonds=False,nonbonds=False,symmetries=True):
+def get_cross_conf_nonbonds(pdb_file_path,use_previous=False,use_previous_nonbonds=False,nonbonds=False,symmetries=True):
     # use_previous_nonbonds is useful, as the code gets all nonbond distances for atoms within a wide range of each other. 
     # But clashes need to be regenerated each time due to calling the probe program.
 

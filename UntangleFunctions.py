@@ -813,7 +813,8 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
             #modified_line = replace_res_num(line,new_solvent_resnum_dict[solvent_resnum])
             modified_line = replace_serial_num(line,n)
             start_lines.append(modified_line)
-
+        
+        os.makedirs(os.path.dirname(out_path),exist_ok=True)
         with open(out_path,'w') as O:
             O.writelines(start_lines+end_lines)
 
