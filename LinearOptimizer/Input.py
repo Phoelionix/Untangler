@@ -756,7 +756,7 @@ class LP_Input:
                 altloc_counts[atom.get_altloc()]=0
             altloc_counts[atom.get_altloc()]+=1
             
-            if n%1000==0:
+            if n%10000==0:
                 print(f"Creating chunk {n} / {len(ordered_atoms)} ")
 
             

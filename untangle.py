@@ -74,7 +74,7 @@ class Untangler():
     never_do_unrestrained=False # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
     always_allow_O_swaps=False
     always_forbid_O_swaps=False
-    debug_main_chain_swaps_only=True
+    debug_main_chain_swaps_only=False  ##
     main_chain_swaps_only_after_first_loop=False
     optimize_side_and_main_separately=False
     default_scoring_function = staticmethod(ConstraintsHandler.chi_z_sqr) # Like Holton score (non-outlier terms)
@@ -882,7 +882,7 @@ class Untangler():
             else: # Focused swaps 
                 #focused_subset_size =7 
                 #focused_subset_size =self.altloc_subset_size 
-                focused_subset_size =12
+                focused_subset_size =4
                 num_focused_combinations=3
                 focused_subsets = self.get_altloc_subsets(focused_subset_size,num_focused_combinations)
                 for subset in focused_subsets:
@@ -1574,11 +1574,11 @@ class Untangler():
             if n > 0:
                 moved_path=f"{P.out_path[:-4]}_last.pdb"
                 P.model_path = moved_path
-                decreasing_wc=True
-                if decreasing_wc:
-                    P.wc=original_wc*n # TODO make match however phenix calculates
                 if not debug_skip:
                     shutil.move(P.out_path,moved_path)
+            decreasing_wc=True
+            if decreasing_wc:
+                P.wc=original_wc*(repeats - n) # TODO make match however phenix calculates
             self.run_refinement(refine_params,debug_skip=debug_skip,**kwargs)
         return P.out_path
 
@@ -1934,12 +1934,12 @@ def main():
         refine_for_positions_geo_weight=0,
         starting_num_best_swaps_considered=1,
         max_num_best_swaps_considered=1,
-        altloc_subset_size=5,
+        altloc_subset_size=6,
         unrestrained_damp=0,
         #refine_for_positions_geo_weight=0.03,
         num_refine_for_positions_macro_cycles_phenix=1,
         #max_bond_changes=2,
-        max_bond_changes=99999,
+        max_bond_changes=None,
         weight_factors = {
             ConstraintsHandler.BondConstraint: 0.1,
             ConstraintsHandler.AngleConstraint: 80,

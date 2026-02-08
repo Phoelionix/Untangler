@@ -46,12 +46,13 @@ import shutil
 import matplotlib.pyplot as plt
 import matplotlib
 from typing import Union
-from time import sleep
+from time import time,sleep
+import random
 
 
 #THREADS=None # Num cpu threads made available to ILP solver 
 #THREADS=24
-THREADS=18
+THREADS=26
 
 
 #import pulp as pl
@@ -64,6 +65,13 @@ FORBID_MULTIPLE_LOCAL_CHANGES_WHEN_MAIN_CHAIN_ONLY=True
 ALLOW_ALL_POSITION_CHANGE_GEOMECTIONS= True # Only if modify_forbid_conditions = True
 FORCE_ALT_COORDS=False
 
+KEEP_PREVIOUS_FLEXI=True
+NUM_RELEASE_ROUNDS=3
+
+ALTLOC_RUN_SUBSET_SIZE=4 # None
+NUM_ALTLOC_SUBSET_RUNS=1 # None
+NUM_ALTLOC_SUBSET_RUNS_AFTER_DIFFICULT=5 # None
+DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS=2
 
 
 # TODO cplex solution pool
@@ -75,7 +83,7 @@ tolerate_score_mode=BETTER_THAN_WORST
 #MIN_IMPROVEMENT_FACTOR_TO_TOLERATE=10  # Higher is stricter (fewer high sigma connections will be allowed)
 ###
 
-MEMORYLIMITGB=40
+MEMORYLIMITGB=35
 
 def add_sos(lp_problem:LpProblem,sos_name,sos_rule):
     lp_problem.sos1[sos_name]=sos_rule
@@ -198,17 +206,26 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     #     return f"atomState_{site}_{from_altloc}.{to_altloc}"
     disordered_atom_sites:list[VariableID] = []
 
-
-
     # TODO replace this system with one that just adds the N best constraints in round 1, 2N best constraints in round 2, etc.
     # TODO longer term - specify priority order?
     #improvement_factors_to_tolerate=np.array([100,8,4,3,2,1.5,1.25,1,0.9,]) 
-    if len(all_altlocs)==2:
-        improvement_factors_to_tolerate=np.array([100,2,1]) 
-    elif len(all_altlocs)<=6:
-        improvement_factors_to_tolerate=np.array([100,3,2,1.5,1.25,1.1,1,0.95,0.9,0.85]) 
-    else:
-        improvement_factors_to_tolerate=np.array([100,6,3,2,1.5,1.25,1.175,1.1,1.05,1]) 
+    if tolerate_score_mode==BETTER_THAN_AVERAGE:
+        if len(all_altlocs)==2:
+            improvement_factors_to_tolerate=np.array([100,2,1]) 
+        elif len(all_altlocs)<=6:
+            improvement_factors_to_tolerate=np.array([100,3,2,1.5,1.25,1.1,1,0.95,0.9,0.85,0.8,0.75,0.7,0.65]) 
+        else:
+            improvement_factors_to_tolerate=np.array([100,6,3,2,1.5,1.25,1.175,1.1,1.05,1]) 
+    if tolerate_score_mode==BETTER_THAN_WORST:
+        if len(all_altlocs)==2:
+            improvement_factors_to_tolerate=np.array([100,2,1]) 
+        elif len(all_altlocs)<=4:
+            improvement_factors_to_tolerate=np.array([100,12,10,4,3,2,1.5,1.2,1.1,1,0.95]) 
+        elif len(all_altlocs)<=6:
+            improvement_factors_to_tolerate=np.array([100,30,20,15,12,10,8,6,5,4.5,4,3.5,3,2.5,2,1.75,1.5,1.35,1.2,1.1,1,0.95]) 
+            #improvement_factors_to_tolerate=np.array([100,10,8,5,4,3.5,3,2.5,2,1.75,1.5,1.35,1.2,1.1,1]) 
+        else:
+            improvement_factors_to_tolerate=np.array([100,30,20,15,12,10,8,6,5,4.5,4,3.5,3,2.5,2,1.75,1.5,1.35,1.2,1.1,1]) 
 
     #improvement_factors_to_tolerate=np.array([0.7]) # TODO replace this system with one that just adds the N best constraints in round 1, 2N best constraints in round 2, etc.
 
@@ -258,6 +275,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     else:
         have_water=False
 
+    def get_force_no_flips_name(site,altloc):
+        return f"forceNoFlips_{site}_{altloc}"
 
     for site in disordered_atom_sites:
         if not site_being_considered(site) :
@@ -389,7 +408,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         for altloc in no_flip_from_altlocs:
             lp_problem += (
                 site_var_dict[site][altloc][altloc]==1,
-                f"forceNoFlips_{site}_{altloc}"
+                get_force_no_flips_name(site,altloc)
             ) 
         
         if CHANGES_MUST_INVOLVE is not None:
@@ -415,6 +434,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     flexible_allowed_constr_sets:list[list[tuple]]=[]
     flexible_forbidden_constr_sets:list[list[tuple]]=[]
     flexible_forbidden_constr_types:list[Type]=[]
+    flexible_vars:list=[]
     flexible_allowed_constr_tranches:list[list[bool]]=[] #  TODO better name
     flexible_bad_original_forbid_constrs:list[list]=[] # List of list of constraints forbidding an original geomection. Used if and only if original geomection is inactive and always_allow_original_tranches[i][r] = False
     flexible_bad_original_allowed_constrs:list[list]=[]
@@ -768,6 +788,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 flexible_allowed_constr_sets.append(flexible_allowed_constrs)
                 flexible_forbidden_constr_sets.append(flexible_forbidden_constrs)
                 flexible_forbidden_constr_types.append(ordered_connection_option.connection_type)
+                flexible_vars.append(var_active)
             elif is_bad_original_constraint:
                 flexible_bad_original_allowed_constrs.append(flexible_original_allowed)
                 flexible_bad_original_forbid_constrs.append(flexible_original_forbidden)
@@ -1052,7 +1073,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             f.write(f"{out_handle} altloc optimizer log\n")
     def log(line:str):
         with open(log_file, 'a') as f:
-            f.write(line+"\n")
+            f.write(str(line)+"\n")
             
 
     swaps_file =  swaps_file_path(out_dir,out_handle,all_altlocs)
@@ -1140,9 +1161,50 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     non_original_variable_history = []
     previously_used_variable_names=[]
 
+    flexifix_constr_names=[]
+    def get_num_tranches():
+        return len(improvement_factors_to_tolerate)
+    def get_num_rounds():
+        return get_num_tranches() + KEEP_PREVIOUS_FLEXI*NUM_RELEASE_ROUNDS
+    
+    def flexifix_variables(r:int):
+        # TODO could consider making this an elastic constraint.
+        nonlocal flexifix_constr_names
+        nonlocal lp_problem
+        if r < get_num_tranches()-1:
+            for var in flexible_vars:
+                flexifix_name=f"flexiFixed_{var.name}"
+                if flexifix_name in flexifix_constr_names:
+                    continue
+                if value(var) > 0.5:
+                    flexifix_constr_names.append(flexifix_name)
+                    lp_problem+=(
+                        var==1,
+                        flexifix_name
+                    )
+        else: # unfix everything on final round
+            release_round_idx = r-get_num_tranches()
+            seg_length=len(flexifix_constr_names)/NUM_RELEASE_ROUNDS
+            
+            start_idx=math.ceil(release_round_idx*seg_length)
+            end_idx=math.ceil((release_round_idx+1)*seg_length)
+            if release_round_idx>=NUM_RELEASE_ROUNDS-1:
+                end_idx=len(flexifix_constr_names)
+            
+            for flexifix_name in flexifix_constr_names[start_idx:end_idx]:
+                lp_problem.constraints.pop(flexifix_name)
+
     def set_up_flexi_variables(r:int):
         #TODO can speed up significantly by instead flagging indices of variables to enable by round (since they will always be enabled after r > some n ).
         nonlocal lp_problem
+
+
+        if KEEP_PREVIOUS_FLEXI:
+            flexifix_variables(r)
+
+        if r>=get_num_tranches():
+            return
+
         if r > 0:
             # remove last flexi variables
             for constrs in flexible_allowed_constr_sets + flexible_forbidden_constr_sets:
@@ -1256,11 +1318,153 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             print(f"Num inactive bad original geomections allowed for round {r+1}: {num_inactive_og_allowed}")
 
 
+    sites_restricted_by_altloc=[]
+    altloc_pool=[]
+    def set_up_altloc_subset_restrictions(j:int):
+        nonlocal sites_restricted_by_altloc
+        nonlocal lp_problem
+        nonlocal altloc_pool
+        
+        # Free restrictions on variables from last function call
+        for var_name in sites_restricted_by_altloc:
+            lp_problem.constraints.pop(var_name)        
+        sites_restricted_by_altloc=[]
+
+        if j >= num_altloc_subset_runs-1:
+            return
+
+    
+        
+        
+        altlocs_to_restrict=[]
+        assert ALTLOC_RUN_SUBSET_SIZE< len(all_altlocs)
+        while len(altlocs_to_restrict)<len(all_altlocs)-ALTLOC_RUN_SUBSET_SIZE:
+            if len(altloc_pool)==0:
+                altloc_pool = [a for a in all_altlocs if a not in altlocs_to_restrict]
+            altloc_selected = random.choice(altloc_pool)
+            altloc_pool.remove(altloc_selected)
+            altlocs_to_restrict.append(altloc_selected)
+        for site in site_var_dict:
+            for restricted_to_altloc in altlocs_to_restrict:
+                var_name = get_force_no_flips_name(site,restricted_to_altloc) 
+                # Note this variable name might correspond to different variables in different rounds.
+                if var_name not in lp_problem.constraints:
+                    for from_altloc in site_var_dict[site]:
+                        if site_var_dict[site][from_altloc][restricted_to_altloc].value()>0.5:
+                            active_var= site_var_dict[site][from_altloc][restricted_to_altloc]
+                            break
+                    lp_problem += (
+                        active_var==1,
+                        get_force_no_flips_name(site,restricted_to_altloc)
+                    ) 
+                    sites_restricted_by_altloc.append(var_name)
+        return [alt for alt in all_altlocs if alt not in altlocs_to_restrict]
+
+
     assert len(flexible_allowed_constr_tranches)==len(flexible_allowed_constr_sets)==len(flexible_forbidden_constr_sets), (len(flexible_allowed_constr_tranches),len(flexible_allowed_constr_sets),len(flexible_forbidden_constr_sets))
     assert len(always_allow_original_tranches)==len(flexible_bad_original_vars)==len(flexible_bad_original_allowed_constrs)==len(flexible_bad_original_forbid_constrs),\
         (len(always_allow_original_tranches),len(flexible_bad_original_vars),len(flexible_bad_original_allowed_constrs),len(flexible_bad_original_forbid_constrs))
+    
+    ########### LP Solver options ###########
+    class Solver(Enum):
+        COIN=PULP_CBC_CMD
+        CPLX_PY=CPLEX_PY
+        CPLX_CMD=CPLEX_CMD # NOTE Need to follow "Additional environment variables per solver" section in this guide: https://coin-or.github.io/pulp/guides/how_to_configure_solvers.html
+    pulp_solver=Solver.CPLX_CMD
+    #pulp_solver = Solver.CPLX_PY
+    #pulp_solver = Solver.COIN
+    
+    easy_timeLimit=DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS
+    if max_mins_start is not None:
+        difficult_timeLimit=max_mins_start
+    else:
+        difficult_timeLimit=None
+    #timeLimit=None
+    logPath=log_out_dir+"solver_log.txt"
+    #logPath=None
+
+    warmStart=True
+    #gapRel=0.0003
+    #gapRel=0.001
+    solver_class=PULP_CBC_CMD
+    solver_options=[]
+    if pulp_solver == Solver.COIN: 
+        solver_class = PULP_CBC_CMD
+    elif pulp_solver == Solver.CPLX_CMD:
+        solver_class = CPLEX_CMD
+    # CPLEX parameters: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.6.0/ilog.odms.cplex.help/CPLEX/GettingStarted/topics/tutorials/InteractiveOptimizer/settingParams.html
+    # CPLEX status: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.10.0/ilog.odms.cplex.help/refcallablelibrary/macros/Solution_status_codes.html
+        #solver_options.append("set parallel -1")
+        #path='~/ibm/ILOG/CPLEX_STUDIO2211/cplex'
+    #https://coin-or.github.io/pulp/technical/solvers.html#pulp.apis.CPLEX_PY
+    elif pulp_solver == Solver.CPLX_PY:
+        solver_class = CPLEX_PY
+    else:
+        raise Exception("not implemented")
+    #solver = solver_class(timeLimit=timeLimit,threads=THREADS,logPath=logPath,warmStart=warmStart,gapRel=gapRel,path=path)
+    extra_args={}
+    if pulp_solver==Solver.CPLX_CMD:
+        disable_probe=False
+        aggressive_probe=False
+        pseudoreduced_branching=True # Computationally cheap. LEAVE THIS TRUE
+        emphasize_optimize=False
+        strong_branching=False # Computationally intensive
+        diverse_solutions=False
+        network_simplex=True # Employ network simplex for initial root relaxation
+        priority_order=None # 1: decreasing cost coefficients, 2: increasing bound range, 3: increasing with matrix coefficient count 
+        opportunistic_parallelism=True # Faster but not deterministic
+        #extra_args["path"]='/home/speno/ibm/ILOG/CPLEX_STUDIO2211/cplex/bin/x86-64_linux/cplex'
+        extra_args["maxMemory"]=MEMORYLIMITGB*1e3
+        extra_args["options"]=solver_options
+        # TODO try probe
+        #extra_args["options"]=solver_options
+        #solver_options.append("set mip strategy probe -1") # -1: no, 0: auto, 1-3: increasingly aggressive probing
+        # if len(all_altlocs) >6:
+        #     solver_options.append("set mip strategy probe 3")
+        # else:
+        #     solver_options.append("set mip strategy probe 3")
+            #solver_options.append("set mip strategy probe -1")
+        
+        if emphasize_optimize:
+            solver_options.append("set emphasis mip 3") #Emphasis on moving best bound value.
+        if disable_probe:
+            solver_options.append("set mip strategy probe -1")
+        if aggressive_probe:
+            assert not disable_probe
+            solver_options.append("set mip strategy probe 3")
+            solver_options.append(f"set mip limits probetime {int(max_mins_start*60/2)}")
+        #solver_options.append("set mip strategy variableselect -1")
+        if strong_branching:
+            solver_options.append("set mip strategy variableselect 3")
+        if pseudoreduced_branching:
+            assert not strong_branching
+            solver_options.append("set mip strategy variableselect 4")
+        if priority_order is not None:
+            solver_options.append(f"set mip ordertype {priority_order}")
+
+        if network_simplex:
+            solver_options.append(f"set mip strategy startalgorithm 3")
+        else:
+            solver_options.append(f"set mip strategy startalgorithm 2") # dual simplex.
+
+        if opportunistic_parallelism:
+            solver_options.append("set parallel -1")
+
+
+        if diverse_solutions:
+            assert False, "Collecting multiple solutions this way is not yet supported"
+            solver_options.append("set mip limits populate 20")
+            solver_options.append("set mip pool replace 2")
+        else:
+            solver_options.append("set mip limits populate 1")
+
+        assert pseudoreduced_branching
+        assert not disable_probe
+        
+        #solver_options.append("set mip strategy probe -1")
+    #########################################
+
     #print(len(flexible_allowed_constr_tranches),len(always_allow_original_tranches))
-    num_tranches=len(improvement_factors_to_tolerate)
     for l in range(num_solutions):
         if l > 0 and l <= len(forced_swap_solutions):
             lp_problem.constraints.pop("forcedSwap")
@@ -1281,192 +1485,149 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         print(f"-----------------------------------------------------")
         print()
 
-
+        log(f"Loop {l+1}/{num_solutions}")
         ## Initialise variables that will update every few rounds, for use in updating the swaps file containing the solutions. 
         site_assignment_arrays.append({})
         distances.append(np.inf)
         ##
 
-        for r in range(num_tranches):
+        num_rounds=get_num_rounds()
+        difficult=False
+        for r in range(num_rounds):
 
-            if num_tranches>1:
-                print(f"Round {r+1}/{num_tranches}")
+            num_altloc_subset_runs=1
+            if ALTLOC_RUN_SUBSET_SIZE is not None and ALTLOC_RUN_SUBSET_SIZE<len(all_altlocs):
+                num_altloc_subset_runs=NUM_ALTLOC_SUBSET_RUNS+1
+                if difficult:
+                    num_altloc_subset_runs=NUM_ALTLOC_SUBSET_RUNS_AFTER_DIFFICULT+1
 
-            if create_initial_variable_files:
-                lp_problem.writeLP(f"{log_out_dir}/LP.lp")
+            if num_rounds>1:
+                print(f"Round {r+1}/{num_rounds}")
+                log(f"Round {r+1}/{num_rounds}")
+                if r < len(improvement_factors_to_tolerate):
+                    print(improvement_factors_to_tolerate[r])
+                    log(f"{improvement_factors_to_tolerate[r]}")
+
+            set_up_flexi_variables(r)
 
 
-            class Solver(Enum):
-                COIN=PULP_CBC_CMD
-                CPLX_PY=CPLEX_PY
-                CPLX_CMD=CPLEX_CMD # NOTE Need to follow "Additional environment variables per solver" section in this guide: https://coin-or.github.io/pulp/guides/how_to_configure_solvers.html
-            pulp_solver=Solver.CPLX_CMD
-            #pulp_solver = Solver.CPLX_PY
-            #pulp_solver = Solver.COIN
-            
-            timeLimit=None
-            if max_mins_start is not None:
-                extra_time_per_loop=60*mins_extra_per_loop
-                timeLimitStart=60*max_mins_start
-                timeLimit=timeLimitStart+l*extra_time_per_loop
-            elif mins_extra_per_loop != 0:
-                print("Warning: extra time per loop is not 0, but there is no time limit")
-            #timeLimit=None
-            logPath=log_out_dir+"solver_log.txt"
-            #logPath=None
+            for j in range(num_altloc_subset_runs):
+                if num_altloc_subset_runs>1:
+                    altlocs_restricted = set_up_altloc_subset_restrictions(j)
+                    
+                    if altlocs_restricted is None:
+                        restricted_text = "No altlocs restricted"
+                    else:
+                        restricted_text=f"Altlocs restricted to {altlocs_restricted}"
+                    print(f"{restricted_text} ({j+1}/{num_altloc_subset_runs})")
 
-            warmStart=True
-            #gapRel=0.0003
-            #gapRel=0.001
-            
-            #gapRel=None
-            if create_initial_variable_files:
-                with open(f"{log_out_dir}/ProblemStatusStart.txt",'w') as f:
+                
+
+                if create_initial_variable_files:
+                    ###
+                    lp_problem.writeLP(f"{log_out_dir}/LP.lp")    
+                    ###
+                    with open(f"{log_out_dir}/ProblemStatusStart.txt",'w') as f:
+                        f.write(f"Status: {LpStatus[lp_problem.status]}\n")
+
+                        for v in lp_problem.variables():
+                            try:
+                                if v.value() > 0.5:
+                                    f.write(f"{v.name} = {v.value()}\n")
+                            except:
+                                raise Exception(v,v.value())
+                        f.write(f"Total distance = {value(lp_problem.objective)}")
+
+
+
+
+                
+                def run_solve():
+                    start_time=time()
+                    minutes = easy_timeLimit if not difficult else difficult_timeLimit
+                    solver = solver_class(timeLimit=60*minutes,threads=THREADS,warmStart=warmStart,logPath=logPath,gapRel=gapRel,**extra_args)
+                    lp_problem.solve(solver)
+                    solve_time = time()-start_time
+                    sleep(1)
+                    return solve_time
+                
+                solve_time = run_solve()
+                if not difficult and solve_time/60>=easy_timeLimit:
+                    print("shifting gears to difficult problem mode")
+                    difficult=True
+                    solve_time=run_solve()
+                log(f"Solver time: {int(solve_time/60)} m {int(solve_time%60)} s")
+
+                print()
+                print("Solver finished")
+                # if solve_time/60>=max_mins*0.95:
+                #     pass
+
+
+                # if pulp_solver == Solver.COIN:
+                #     # solver = PULP_CBC_CMD(threads=THREADS)
+                #     # lp_problem.solve(solver=solver)
+                #     maxNodes=None
+                #     #pulpTestAll()
+                #     #asdds
+                #     solver = PULP_CBC_CMD(logPath=,threads=THREADS,timeLimit=timeLimit,maxNodes=maxNodes)
+                # elif pulp_solver == Solver.COIN:
+                #     solver = CPLEX_PY(timeLimit=timeLimit,threads=THREADS)
+                # lp_problem.solve(solver)
+
+                
+                def get_status(verbose=False):
+                    print("Status:", LpStatus[lp_problem.status])
+                    
+
+                    if verbose:
+                        for v in lp_problem.variables():
+                            if v.value() > 0.5:
+                                print(v.name, "=", v.value())
+
+                    print(f"Target: {out_handle}")
+                    total_distance = value(lp_problem.objective)
+                    diff=total_distance/initial_badness-1
+                    print(f"Total distance = {total_distance} ({100*(diff):.3f}%)")
+                    log(f"{100*(diff):.3f}%")
+                    #plt.scatter()
+                get_status(verbose=False)
+
+
+
+
+                # dry = None
+                # for val in connections.values():
+                #     for v in val.values():
+                #         dry=v.calculated_dry()
+                #         break
+                # tag = "_dry" if dry else ""
+                with open(f"{log_out_dir}/ProblemStatusEnd.txt",'w') as f:
                     f.write(f"Status: {LpStatus[lp_problem.status]}\n")
 
                     for v in lp_problem.variables():
                         try:
-                            if v.value() > 0.5:
+                            if v.value() > 0.5 or v.name.startswith("Debug"):
                                 f.write(f"{v.name} = {v.value()}\n")
                         except:
                             raise Exception(v,v.value())
                     f.write(f"Total distance = {value(lp_problem.objective)}")
 
+                if lp_problem.sol_status==LpStatusInfeasible:
+                    assert l>0, "Solution was infeasible!"
 
-            solver_class=PULP_CBC_CMD
-            solver_options=[]
-            if pulp_solver == Solver.COIN: 
-                solver_class = PULP_CBC_CMD
-            elif pulp_solver == Solver.CPLX_CMD:
-                solver_class = CPLEX_CMD
-            # CPLEX parameters: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.6.0/ilog.odms.cplex.help/CPLEX/GettingStarted/topics/tutorials/InteractiveOptimizer/settingParams.html
-            # CPLEX status: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.10.0/ilog.odms.cplex.help/refcallablelibrary/macros/Solution_status_codes.html
-                #solver_options.append("set parallel -1")
-                #path='~/ibm/ILOG/CPLEX_STUDIO2211/cplex'
-            #https://coin-or.github.io/pulp/technical/solvers.html#pulp.apis.CPLEX_PY
-            elif pulp_solver == Solver.CPLX_PY:
-                solver_class = CPLEX_PY
-            else:
-                raise Exception("not implemented")
-            #solver = solver_class(timeLimit=timeLimit,threads=THREADS,logPath=logPath,warmStart=warmStart,gapRel=gapRel,path=path)
-            extra_args={}
-            if pulp_solver==Solver.CPLX_CMD:
-                aggressive_probe=False
-                pseudoreduced_branching=True # Computationally cheap. LEAVE THIS TRUE
-                emphasize_optimize=False
-                strong_branching=False # Computationally intensive
-                diverse_solutions=False
-                priority_order=3 # 1: decreasing cost coefficients, 2: increasing bound range, 3: increasing with matrix coefficient count 
-                #extra_args["path"]='/home/speno/ibm/ILOG/CPLEX_STUDIO2211/cplex/bin/x86-64_linux/cplex'
-                extra_args["maxMemory"]=MEMORYLIMITGB*1e3
-                extra_args["options"]=solver_options
-                # TODO try probe
-                #extra_args["options"]=solver_options
-                #solver_options.append("set mip strategy probe -1") # -1: no, 0: auto, 1-3: increasingly aggressive probing
-                # if len(all_altlocs) >6:
-                #     solver_options.append("set mip strategy probe 3")
-                # else:
-                #     solver_options.append("set mip strategy probe 3")
-                    #solver_options.append("set mip strategy probe -1")
-                
-                if emphasize_optimize:
-                    solver_options.append("set emphasis mip 3") #Emphasis on moving best bound value.
-                if aggressive_probe:
-                    solver_options.append("set mip strategy probe 3")
-                    solver_options.append(f"set mip limits probetime {int(max_mins_start*60/2)}")
-                #solver_options.append("set mip strategy variableselect -1")
-                if strong_branching:
-                    solver_options.append("set mip strategy variableselect 3")
-                if pseudoreduced_branching:
-                    assert not strong_branching
-                    solver_options.append("set mip strategy variableselect 4")
-                if priority_order is not None:
-                    solver_options.append(f"set mip ordertype {priority_order}")
+                    print()
+                    print(f"WARNING: Finding solution {l+1} on round {r} was infeasible!")
+                    break
+                ##Write Active Connections##
+                write_interval=3
+                if (r == num_rounds-1) or (r%write_interval==0): 
+                    write_current_connections(f"{log_out_dir}/ActiveConnections.txt")
+                ############################
 
-
-                if diverse_solutions:
-                    assert False, "Collecting multiple solutions this way is not yet supported"
-                    solver_options.append("set mip limits populate 20")
-                    solver_options.append("set mip pool replace 2")
-                else:
-                    solver_options.append("set mip limits populate 1")
-
-                assert pseudoreduced_branching
-                
-                #solver_options.append("set mip strategy probe -1")
-                
-
-            solver = solver_class(timeLimit=timeLimit,threads=THREADS,warmStart=warmStart,logPath=logPath,gapRel=gapRel,**extra_args)
-            
-            set_up_flexi_variables(r)
-            lp_problem.solve(solver)
-            sleep(1)
-            print()
-            print("Solver finished")
-            # if pulp_solver == Solver.COIN:
-            #     # solver = PULP_CBC_CMD(threads=THREADS)
-            #     # lp_problem.solve(solver=solver)
-            #     maxNodes=None
-            #     #pulpTestAll()
-            #     #asdds
-            #     solver = PULP_CBC_CMD(logPath=,threads=THREADS,timeLimit=timeLimit,maxNodes=maxNodes)
-            # elif pulp_solver == Solver.COIN:
-            #     solver = CPLEX_PY(timeLimit=timeLimit,threads=THREADS)
-            # lp_problem.solve(solver)
-
-            
-            def get_status(verbose=False):
-                print("Status:", LpStatus[lp_problem.status])
-                
-
-                if verbose:
-                    for v in lp_problem.variables():
-                        if v.value() > 0.5:
-                            print(v.name, "=", v.value())
-
-                print(f"Target: {out_handle}")
-                total_distance = value(lp_problem.objective)
-                diff=total_distance/initial_badness-1
-                print(f"Total distance = {total_distance} ({100*(diff):.3f}%)")
-                log(f"{100*(diff):.3f}%")
-                #plt.scatter()
-            get_status(verbose=False)
-
-
-
-
-            # dry = None
-            # for val in connections.values():
-            #     for v in val.values():
-            #         dry=v.calculated_dry()
-            #         break
-            # tag = "_dry" if dry else ""
-            with open(f"{log_out_dir}/ProblemStatusEnd.txt",'w') as f:
-                f.write(f"Status: {LpStatus[lp_problem.status]}\n")
-
-                for v in lp_problem.variables():
-                    try:
-                        if v.value() > 0.5 or v.name.startswith("Debug"):
-                            f.write(f"{v.name} = {v.value()}\n")
-                    except:
-                        raise Exception(v,v.value())
-                f.write(f"Total distance = {value(lp_problem.objective)}")
-
-            if lp_problem.sol_status==LpStatusInfeasible:
-                assert l>0, "Solution was infeasible!"
-
-                print()
-                print(f"WARNING: Finding solution {l+1} on round {r} was infeasible!")
-                break
-            ##Write Active Connections##
-            write_interval=3
-            if (r == num_tranches-1) or (r%write_interval==0): 
-                write_current_connections(f"{log_out_dir}/ActiveConnections.txt")
-            ############################
-
-            site_assignments:dict[VariableID,dict[str,dict[str,int]]] = {}
-            site_assignment_arrays[-1]=site_assignments
-            distances[-1]= value(lp_problem.objective)
+                site_assignments:dict[VariableID,dict[str,dict[str,int]]] = {}
+                site_assignment_arrays[-1]=site_assignments
+                distances[-1]= value(lp_problem.objective)
 
             # Determine which atom has been assigned where.
             for site in site_var_dict:
