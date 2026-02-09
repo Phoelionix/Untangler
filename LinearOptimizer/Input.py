@@ -712,9 +712,9 @@ class LP_Input:
             for altloc in self.ordered_atom_lookup.get_altlocs():
                 unflipped_water_dict[altloc]=altloc
             #clashes =  get_clashes(model_handle) 
+            original_clashes = get_clashes(UntangleFunctions.model_handle(self.restrained_model_path))
+            print(f"Original structure has {len(original_clashes)} clashes")
             if constraint_weights[ConstraintsHandler.TwoAtomPenalty]>0:
-                original_clashes = get_clashes(UntangleFunctions.model_handle(self.restrained_model_path))
-                print(f"Original structure has {len(original_clashes)} clashes")
                 if len(original_clashes) <= 5:
                     for clash in original_clashes:
                         print(clash)

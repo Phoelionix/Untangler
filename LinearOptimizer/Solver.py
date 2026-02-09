@@ -51,8 +51,8 @@ import random
 
 
 #THREADS=None # Num cpu threads made available to ILP solver 
-#THREADS=24
-THREADS=26
+THREADS=24
+
 
 
 #import pulp as pl
@@ -68,10 +68,14 @@ FORCE_ALT_COORDS=False
 KEEP_PREVIOUS_FLEXI=True
 NUM_RELEASE_ROUNDS=3
 
-ALTLOC_RUN_SUBSET_SIZE=4 # None
+ALTLOC_RUN_SUBSET_SIZES=[4] # None
+ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT=[4,4,5,5]
+
 NUM_ALTLOC_SUBSET_RUNS=1 # None
-NUM_ALTLOC_SUBSET_RUNS_AFTER_DIFFICULT=5 # None
+NUM_ALTLOC_SUBSET_RUNS_AFTER_DIFFICULT=4 # None
 DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS=2
+
+
 
 
 # TODO cplex solution pool
@@ -79,11 +83,18 @@ DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS=2
 ###
 BETTER_THAN_WORST=0
 BETTER_THAN_AVERAGE=1
+BETTER_THAN_AVERAGE_MULT=2
 tolerate_score_mode=BETTER_THAN_WORST
 #MIN_IMPROVEMENT_FACTOR_TO_TOLERATE=10  # Higher is stricter (fewer high sigma connections will be allowed)
 ###
 
 MEMORYLIMITGB=35
+
+
+# TODO Just make rhs = lhs
+assert len(ALTLOC_RUN_SUBSET_SIZES)>=NUM_ALTLOC_SUBSET_RUNS
+assert len(ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT)>=NUM_ALTLOC_SUBSET_RUNS_AFTER_DIFFICULT
+
 
 def add_sos(lp_problem:LpProblem,sos_name,sos_rule):
     lp_problem.sos1[sos_name]=sos_rule
@@ -132,6 +143,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     num_forbidden_connections={k:0 for k in connection_types}
     num_allowed_connections={k:0 for k in connection_types}
     num_allowed_alternative_connections={k:0 for k in connection_types}
+    num_small_fry_geomections={k:0 for k in connection_types}
 
     # if inert_protein_sites:
     #     assert protein_sites
@@ -209,23 +221,31 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     # TODO replace this system with one that just adds the N best constraints in round 1, 2N best constraints in round 2, etc.
     # TODO longer term - specify priority order?
     #improvement_factors_to_tolerate=np.array([100,8,4,3,2,1.5,1.25,1,0.9,]) 
-    if tolerate_score_mode==BETTER_THAN_AVERAGE:
-        if len(all_altlocs)==2:
-            improvement_factors_to_tolerate=np.array([100,2,1]) 
-        elif len(all_altlocs)<=6:
-            improvement_factors_to_tolerate=np.array([100,3,2,1.5,1.25,1.1,1,0.95,0.9,0.85,0.8,0.75,0.7,0.65]) 
-        else:
-            improvement_factors_to_tolerate=np.array([100,6,3,2,1.5,1.25,1.175,1.1,1.05,1]) 
-    if tolerate_score_mode==BETTER_THAN_WORST:
+    # if tolerate_score_mode==BETTER_THAN_AVERAGE:
+    #     if len(all_altlocs)==2:
+    #         improvement_factors_to_tolerate=np.array([100,2,1]) 
+    #     elif len(all_altlocs)<=6:
+    #         improvement_factors_to_tolerate=np.array([100,3,2,1.5,1.25,1.1,1,0.95,0.9,0.85,0.8,0.75,0.7,0.65]) 
+    #     else:
+    #         improvement_factors_to_tolerate=np.array([100,6,3,2,1.5,1.25,1.175,1.1,1.05,1]) 
+    if True:
         if len(all_altlocs)==2:
             improvement_factors_to_tolerate=np.array([100,2,1]) 
         elif len(all_altlocs)<=4:
             improvement_factors_to_tolerate=np.array([100,12,10,4,3,2,1.5,1.2,1.1,1,0.95]) 
         elif len(all_altlocs)<=6:
-            improvement_factors_to_tolerate=np.array([100,30,20,15,12,10,8,6,5,4.5,4,3.5,3,2.5,2,1.75,1.5,1.35,1.2,1.1,1,0.95]) 
+            improvement_factors_to_tolerate=np.array([100,12,10,8,6,5,4.5,4,3.5,3,2.5,2.25,2,1.75,1.5,1.35,1.2,1.1,1,0.95]) 
+            #improvement_factors_to_tolerate=np.array([12,12,10,8,6,6,5,5,4,4,3.5,3.5,3,3,2.5,2.5,2,2,1.75,1.5,1.35,1.2,1.1,1,0.95]) # TESTING
+            
+            # For when Nth_best_threshold = inf:
+            #improvement_factors_to_tolerate=np.concatenate((np.array([100,12,10,8,7.5,7,6.5,6,6,5.5,5]),np.arange(4.5,3,-0.3), np.arange(3,2,-0.25),np.arange(2,1.2,-0.1),np.arange(1.2,0.9,-0.05)))
+            
             #improvement_factors_to_tolerate=np.array([100,10,8,5,4,3.5,3,2.5,2,1.75,1.5,1.35,1.2,1.1,1]) 
+            #improvement_factors_to_tolerate=np.concatenate((np.array([100,12,10,8]),np.arange(8,4,-0.2), np.arange(4,2,-0.1),np.arange(2,1.2,-0.05),np.arange(1.2,0.9,-0.025)))
         else:
             improvement_factors_to_tolerate=np.array([100,30,20,15,12,10,8,6,5,4.5,4,3.5,3,2.5,2,1.75,1.5,1.35,1.2,1.1,1]) 
+    #TODO limit alternatives to consider to the top N alternatives. Otherwise when have really bad outliers, introduce a huge number of branches.
+    # TODO dynamical solution space size. Stop solve if taking too long, and increase the required improvement_factor, then retry. 
 
     #improvement_factors_to_tolerate=np.array([0.7]) # TODO replace this system with one that just adds the N best constraints in round 1, 2N best constraints in round 2, etc.
 
@@ -427,14 +447,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     # A "connection" just refers to a group of atoms with a constraint assigned by LinearOptimizer.Input.
     # A disordered connection refers to all the *possible* groupings of these atoms.
 
-    num_small_fry_disordered_connections=0
     # The variables of one of flexible_allowed_constr_sets[i] and flexible_forbidden_constr_sets[i] will be active for each "tolerance round" 
     # Whether they are active in tolerance round `r` is given by flexible_allowed_constr_tranches[i][r]
     # Each index i corresponds to a particular geomection (one variable for each altloc the geomection could be assigned).
     flexible_allowed_constr_sets:list[list[tuple]]=[]
     flexible_forbidden_constr_sets:list[list[tuple]]=[]
     flexible_forbidden_constr_types:list[Type]=[]
-    flexible_vars:list=[]
+    flexible_vars:list[LpVariable]=[]
     flexible_allowed_constr_tranches:list[list[bool]]=[] #  TODO better name
     flexible_bad_original_forbid_constrs:list[list]=[] # List of list of constraints forbidding an original geomection. Used if and only if original geomection is inactive and always_allow_original_tranches[i][r] = False
     flexible_bad_original_allowed_constrs:list[list]=[]
@@ -524,7 +543,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
         scores = [conn.ts_distance for conn in disordered_connection]
         # if max(scores)-min(scores) < required_cost_range_to_consider:
-        #     num_small_fry_disordered_connections+=1
+        #     num_small_fry_geomections+=1
         #     return
         min_score = min(scores)
         
@@ -534,6 +553,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         absolute_small_fry_scale = True
         if absolute_small_fry_scale:
             # If difference in cost from lowest costing ordered connection of the disordered connection is tiny, don't bother optimizing for it. (small fry)
+            # Small fry variables are not included in the cost function. 
             # TODO forbid next-best solutions from reusing same set of non-small fry connections. 
             #required_cost_range_to_consider=1.0e-2
             required_cost_range_to_consider=0
@@ -546,8 +566,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         small_fry = [conn for conn in disordered_connection if conn.ts_distance < small_fry_threshold]
         
         #small_fry = [conn for conn in disordered_connection if conn.ts_distance - min_score < required_cost_range_to_consider]
-        nonlocal num_small_fry_disordered_connections
-        num_small_fry_disordered_connections+=len(small_fry)
+        nonlocal num_small_fry_geomections
+        num_small_fry_geomections[disordered_connection[0].connection_type]+=len(small_fry)
         
             
 
@@ -629,10 +649,21 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 local_score_tolerate_threshold=max(original_scores)  # * len(altlocs)?   # TODO This should be done in input when setting what is forbidfden.
             if tolerate_score_mode==BETTER_THAN_AVERAGE:
                 local_score_tolerate_threshold=np.mean(original_scores)  # * len(altlocs)?   # TODO This should be done in input when setting what is forbidfden.
+            if tolerate_score_mode==BETTER_THAN_AVERAGE_MULT:
+                local_score_tolerate_threshold=min(np.mean(original_scores)*2,max(original_scores))
             always_tolerate_score_threshold = max(local_score_tolerate_threshold,global_score_tolerate_threshold) #worst_no_change_score*10+1e4
 
     
             always_tolerate_score_threshold_sequence=always_tolerate_score_threshold/improvement_factors_to_tolerate
+
+            ########
+            tmp_scores= [conn.ts_distance for conn in disordered_connection]
+            tmp_scores.sort()
+            add_flexi_up_to=int(len(all_altlocs)*10)
+            #Nth_best_threshold=tmp_scores[min(add_flexi_up_to-1,len(tmp_scores)-1)]
+            Nth_best_threshold=np.inf
+            del tmp_scores; del add_flexi_up_to
+            ########
         
         for ordered_connection_option in disordered_connection:
             tag = get_tag(ordered_connection_option)
@@ -680,6 +711,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             is_bad_original_constraint=False
             if modify_forbid_conditions:
                 allowed_sequence=[ordered_connection_option.ts_distance<=threshold for threshold in always_tolerate_score_threshold_sequence]
+                allowed_sequence=[(ordered_connection_option.ts_distance<=Nth_best_threshold and allowed) for allowed in allowed_sequence]
                 if ordered_connection_option.original():
                     #  So possible solution is guaranteed, always allow connections of original structure.  
                     if ordered_connection_option.forbidden and not all(allowed_sequence):
@@ -847,7 +879,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     print(f"Num allowed geomections: {num_allowed_connections}")
     print(f"Num allowed alternative geomections: {num_allowed_alternative_connections}")
     print(f"Num forbidden geomections: {num_forbidden_connections}")
-    print(f"Num small fry: {num_small_fry_disordered_connections}")
+    print(f"Num small fry: {num_small_fry_geomections}")
 
     max_bond_changes_tuple=None
     exclude_alt_positions_from_max_changes=True
@@ -1194,10 +1226,18 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             for flexifix_name in flexifix_constr_names[start_idx:end_idx]:
                 lp_problem.constraints.pop(flexifix_name)
 
+    previously_allowed_flexi_var_names:list[str]=[]
     def set_up_flexi_variables(r:int):
         #TODO can speed up significantly by instead flagging indices of variables to enable by round (since they will always be enabled after r > some n ).
         nonlocal lp_problem
+        nonlocal previously_allowed_flexi_var_names
 
+        do_prior_solve_cut=False
+
+        last_run_cut_var_name="lastRunCut"
+
+        if r > 1 and do_prior_solve_cut:
+            lp_problem.constraints.pop(last_run_cut_var_name)
 
         if KEEP_PREVIOUS_FLEXI:
             flexifix_variables(r)
@@ -1212,10 +1252,12 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     lp_problem.constraints.pop(constr_name,None) # None arg because it is okay if it does not exist
         num_allowed={k:0 for k in flexible_forbidden_constr_types}
         num_forbidden={k:0 for k in flexible_forbidden_constr_types}
+        allowed_flexi_vars:list[LpVariable]=[]
         for i in range(len(flexible_allowed_constr_tranches)):
             if flexible_allowed_constr_tranches[i][r]:
                 constrs_to_add=flexible_allowed_constr_sets[i]
                 num_allowed[flexible_forbidden_constr_types[i]]+=1
+                allowed_flexi_vars.append(flexible_vars[i])
             else:
                 constrs_to_add=flexible_forbidden_constr_sets[i]
                 num_forbidden[flexible_forbidden_constr_types[i]]+=1
@@ -1225,12 +1267,34 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         # Forbid original geomections that are inactive and would be forbidden if . This ensures the original geomections aren't given special treatment.
 
 
+        if r > 0 and do_prior_solve_cut:
+            # Add constraint that lpsum(currently_active_variables) >= len(currently_active_variables)*(1 - sum(flexi_variables_allowed_for_first_time_this_round))
+            # Essentially the cut that we already know from prior solve.
+            new_allowed_vars=[var for var in allowed_flexi_vars if var.name not in previously_allowed_flexi_var_names]
+            print("New allowed vars (first 10):",new_allowed_vars[:10])
+            #print(len(allowed_flexi_vars),len(previously_allowed_flexi_vars))
+            active_site_vars = []
+            for site in site_var_dict:
+                for from_altloc in site_var_dict[site]:
+                    active_site_vars.extend(var for var in site_var_dict[site][from_altloc].values() if var.value()>0.5)
+            for site in site_altposvar_dict:
+                for from_altloc in site_altposvar_dict[site]:
+                    active_site_vars.extend(var for var in site_altposvar_dict[site][from_altloc].values() if var.value()>0.5) 
+            lp_problem+=(
+                lpSum(active_site_vars)>=len(active_site_vars)*(1-lpSum(new_allowed_vars)),
+                last_run_cut_var_name
+            )
+            
+        previously_allowed_flexi_var_names=[var.name for var in allowed_flexi_vars]
+
         num_inactive_og_forbidden={k:0 for k in flexible_bad_original_constr_types}
         num_inactive_og_allowed={k:0 for k in flexible_bad_original_constr_types}
 
         for constrs in flexible_bad_original_allowed_constrs + flexible_bad_original_forbid_constrs:
             for _, constr_name in constrs: 
                 lp_problem.constraints.pop(constr_name,None) # None arg because it is okay if it does not exist
+        
+
         
         ''' # BUGGED TODO
         global pooled_method  
@@ -1274,9 +1338,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                             print("Found other match (expect 1)")
                     raise e
         '''
-        for constrs in flexible_bad_original_allowed_constrs + flexible_bad_original_forbid_constrs:
-            for _, constr_name in constrs: 
-                lp_problem.constraints.pop(constr_name,None) # None arg because it is okay if it does not exist
 
         for i in range(len(always_allow_original_tranches)):
             constrs_to_add=flexible_bad_original_allowed_constrs[i]
@@ -1320,7 +1381,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
     sites_restricted_by_altloc=[]
     altloc_pool=[]
-    def set_up_altloc_subset_restrictions(j:int):
+    def set_up_altloc_subset_restrictions(altloc_subset_size):
         nonlocal sites_restricted_by_altloc
         nonlocal lp_problem
         nonlocal altloc_pool
@@ -1330,15 +1391,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             lp_problem.constraints.pop(var_name)        
         sites_restricted_by_altloc=[]
 
-        if j >= num_altloc_subset_runs-1:
-            return
 
-    
-        
         
         altlocs_to_restrict=[]
-        assert ALTLOC_RUN_SUBSET_SIZE< len(all_altlocs)
-        while len(altlocs_to_restrict)<len(all_altlocs)-ALTLOC_RUN_SUBSET_SIZE:
+        assert altloc_subset_size< len(all_altlocs)
+        while len(altlocs_to_restrict)<len(all_altlocs)-altloc_subset_size:
             if len(altloc_pool)==0:
                 altloc_pool = [a for a in all_altlocs if a not in altlocs_to_restrict]
             altloc_selected = random.choice(altloc_pool)
@@ -1374,7 +1431,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     #pulp_solver = Solver.CPLX_PY
     #pulp_solver = Solver.COIN
     
-    easy_timeLimit=DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS
+    easy_timeLimit=min(DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS,max_mins_start)
     if max_mins_start is not None:
         difficult_timeLimit=max_mins_start
     else:
@@ -1406,33 +1463,100 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     if pulp_solver==Solver.CPLX_CMD:
         disable_probe=False
         aggressive_probe=False
-        pseudoreduced_branching=True # Computationally cheap. LEAVE THIS TRUE
+        #### Options to speed up root node relaxation: https://www.ibm.com/docs/en/icos/22.1.2?topic=problems-too-much-time-node-0
+        pseudoreduced_branching=True # Y |  Computationally cheap. LEAVE THIS TRUE
+        emphasize_feasibility=True  # ?
+        # Other options related to root node relaxation
+        detailed_display=True
+        barrier_root_solve=False
+        #### Options to speed up root node processing:
+        turn_off_cuts=True # Y |
+        disable_heuristics=True # Y |
+
+        testing_options=True
+
+        #####
         emphasize_optimize=False
         strong_branching=False # Computationally intensive
         diverse_solutions=False
-        network_simplex=True # Employ network simplex for initial root relaxation
+        network_simplex=False # Employ network simplex for initial relaxation (of what? When?)
         priority_order=None # 1: decreasing cost coefficients, 2: increasing bound range, 3: increasing with matrix coefficient count 
         opportunistic_parallelism=True # Faster but not deterministic
+        repeat_presolve=True
+        symmetry_breaking_aggressiveness=None
+        aggressive_GUB_cuts=False
+        branch_up=True # We use many set partitioning constraints, which suggests this option may be good, according to Klotz & Newman 2013 DOI: 10.1016/j.sorms.2012.12.001
+        max_cutting_planes_at_root=1
+        disable_coefficient_reduction=False # TODO Try this
+        disable_presolve=False # TODO Try this
+        preprocessing_on_relaxation=True #TODO Try disabling
         #extra_args["path"]='/home/speno/ibm/ILOG/CPLEX_STUDIO2211/cplex/bin/x86-64_linux/cplex'
         extra_args["maxMemory"]=MEMORYLIMITGB*1e3
         extra_args["options"]=solver_options
+
+        #### Perturbations https://www.ibm.com/docs/en/icos/22.1.1?topic=problems-numeric-difficulties
+        always_perturb=True
+        ####
         # TODO try probe
-        #extra_args["options"]=solver_options
         #solver_options.append("set mip strategy probe -1") # -1: no, 0: auto, 1-3: increasingly aggressive probing
         # if len(all_altlocs) >6:
         #     solver_options.append("set mip strategy probe 3")
         # else:
         #     solver_options.append("set mip strategy probe 3")
             #solver_options.append("set mip strategy probe -1")
-        
+
+        # Note: Dual simplex seems to be unusually horrible for this problem. Avoid at all costs. 
+        if testing_options:
+            solver_options.append("set read scale 1") # aggressive scaling
+            PRIMAL_SIMPLEX=1 # NOTE: Seems better than dual simplex
+            BARRIER=4 # Also better than dual simplex.  # https://www.ibm.com/docs/en/icos/22.1.0?topic=performance-detecting-eliminating-dense-columns
+            SIFTING=5 
+            CONCURRENT=6
+            # Do NOT use Concurrent (or barrier?) for ???, as it will employ dual simplex after root node relaxation which can be EXTREMELY slow.
+            solver_options.append(f"set mip strategy startalgorithm {PRIMAL_SIMPLEX}") # https://www.ibm.com/docs/en/icos/22.1.2?topic=problems-unsatisfactory-optimization-subproblems
+            solver_options.append(f"set lpmethod {PRIMAL_SIMPLEX}") # https://www.ibm.com/docs/en/cofz/12.9.0?topic=parameters-algorithm-continuous-linear-problems
+            #solver_options.append(f"set barrier limits objrange ??") # https://www.ibm.com/docs/en/icos/22.1.1?topic=parameters-barrier-objective-range
+            #solver_options.append(f"set barrier algorithm 3") # https://www.ibm.com/docs/en/icos/22.1.0?topic=parameters-barrier-algorithm
+            #solver_options.append("set simplex tolerances feasibility 1e-1")
+            #solver_options.append("set simplex tolerances optimality 1e-1")
+            #solver_options.append("set simplex pgradient -1") # Reduced cost pricing # https://www.ibm.com/docs/en/icos/22.1.1?topic=performance-simplex-parameters
+            #solver_options.append("set simplex pgradient 4") # BAD
+            #solver_options.append("set preprocessing dependency 3") # https://www.ibm.com/docs/en/icos/22.1.1?topic=parameters-dependency-switch
+            #symmetry_breaking_aggressiveness=5
+            branch_up=False
+            #aggressive_GUB_cuts=True
+            #aggressive_probe=True
+            turn_off_cuts=True
+            #max_cutting_planes_at_root=1
+            emphasize_feasibility=True
+
+            solver_options.append(f"set preprocessing dual -1") # Don't solve dual https://www.ibm.com/docs/en/cofz/12.10.0?topic=parameters-presolve-dual-setting
+
+            #####
+            #solver_options.append(f"set mip limits auxrootthreads {int(THREADS/2)}") # Just to ensure some consistency...
+        else: # Best-performing set of variables tested so far, which are modified above.
+            solver_options.append("set read scale 1") # aggressive scaling
+            solver_options.append(f"set mip strategy startalgorithm {BARRIER}") # https://www.ibm.com/docs/en/icos/22.1.2?topic=problems-unsatisfactory-optimization-subproblems
+            solver_options.append(f"set lpmethod {CONCURRENT}")
+            emphasize_feasibility=True
+            branch_up=True
+
+
+        if turn_off_cuts:
+            solver_options.append(f" set mip cuts all -1")
+
         if emphasize_optimize:
             solver_options.append("set emphasis mip 3") #Emphasis on moving best bound value.
+        if emphasize_feasibility:
+            assert not emphasize_optimize
+            solver_options.append("set emphasis mip 1") 
         if disable_probe:
             solver_options.append("set mip strategy probe -1")
         if aggressive_probe:
             assert not disable_probe
             solver_options.append("set mip strategy probe 3")
-            solver_options.append(f"set mip limits probetime {int(max_mins_start*60/2)}")
+            probe_time_limit_mins=5
+            solver_options.append(f"set mip limits probetime {int(probe_time_limit_mins*60)}")
         #solver_options.append("set mip strategy variableselect -1")
         if strong_branching:
             solver_options.append("set mip strategy variableselect 3")
@@ -1440,12 +1564,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             assert not strong_branching
             solver_options.append("set mip strategy variableselect 4")
         if priority_order is not None:
+            assert -1 <= priority_order <= 3
             solver_options.append(f"set mip ordertype {priority_order}")
 
         if network_simplex:
             solver_options.append(f"set mip strategy startalgorithm 3")
-        else:
-            solver_options.append(f"set mip strategy startalgorithm 2") # dual simplex.
 
         if opportunistic_parallelism:
             solver_options.append("set parallel -1")
@@ -1458,13 +1581,72 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         else:
             solver_options.append("set mip limits populate 1")
 
+        if repeat_presolve and not disable_presolve:
+            solver_options.append("set preprocessing repeatpresolve 3") # TODO 2 or 3?
+
+        if symmetry_breaking_aggressiveness is not None:
+            assert -1<=symmetry_breaking_aggressiveness<=5
+            solver_options.append(f"set preprocessing symmetry {symmetry_breaking_aggressiveness}")
+            
+        if aggressive_GUB_cuts:
+            solver_options.append(f"set mip cuts gubcovers 2")
+        if max_cutting_planes_at_root is not None:
+            solver_options.append(f"set mip limits cutpasses {max_cutting_planes_at_root}")
+        if disable_heuristics:
+            solver_options.append(f"set mip strategy heuristiceffort 0")
+            solver_options.append(f"set mip strategy heuristicfreq -1")
+
+        if branch_up:
+            solver_options.append(f"set mip strategy branch 1")
+
+         # https://www.ibm.com/docs/en/icos/22.1.1?topic=mip-preprocessing-presolver-aggregator
+        if disable_coefficient_reduction:
+            solver_options.append(f"set preprocessing coeffreduce 0")
+        if disable_presolve:
+            solver_options.append(f"set preprocessing presolve no")
+        if detailed_display:
+            #solver_options.append(f"set mip display 4") # Set to 5 to show LP subproblem at nodes, and not just root.
+            solver_options.append(f"set mip display 5") # Set to 5 to show LP subproblem at nodes, and not just root.
+
+        if (preprocessing_on_relaxation is not None) and (not disable_presolve):
+            solver_options.append(f"set preprocessing relax {int(preprocessing_on_relaxation)}") # Whether to apply presolve (again/during?), to the root relaxation
+
+
+        if always_perturb:
+            solver_options.append(f"set simplex perturbationlimit yes 1e-06")
+
         assert pseudoreduced_branching
         assert not disable_probe
+        #assert turn_off_cuts # TODO test which cuts are worth keeping.
         
+        if barrier_root_solve:
+            solver_options.append("set lpmethod 4")
+
+
+
+
+        # TODO CRITICAL start from advanced basis 
+        # https://www.ibm.com/docs/en/cofz/12.9.0?topic=performance-starting-from-advanced-basis
+        # read bas
+        # Need to modify
+        # python3.12/site-packages/pulp/apis/cplex_api.py:
+        # tmpLp, tmpSol, tmpMst,***tmpBas*** = self.create_tmp_files(lp.name, "lp", "sol", "mst",***"bas"***)
+        # ...
+        # cplex_cmds += "optimize\n"
+        # cplex_cmds += "write " + tmpSol + "\n"
+        # ***cplex_cmds += "write " + tmpBas + "\n" + "y\n"***
+        #advanced_basis_solver_options = [s for s in solver_options]
+
+        # advanced_basis=True
+        # if advanced_basis:
+        #     extra_args["keepFiles"]=True
+        #     advanced_basis_solver_options.append(f"read Untangling_Problem-pulp.bas")
+
         #solver_options.append("set mip strategy probe -1")
     #########################################
 
     #print(len(flexible_allowed_constr_tranches),len(always_allow_original_tranches))
+    start_time=time()
     for l in range(num_solutions):
         if l > 0 and l <= len(forced_swap_solutions):
             lp_problem.constraints.pop("forcedSwap")
@@ -1496,10 +1678,12 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         for r in range(num_rounds):
 
             num_altloc_subset_runs=1
-            if ALTLOC_RUN_SUBSET_SIZE is not None and ALTLOC_RUN_SUBSET_SIZE<len(all_altlocs):
+            if NUM_ALTLOC_SUBSET_RUNS is not None:
                 num_altloc_subset_runs=NUM_ALTLOC_SUBSET_RUNS+1
+                altloc_subset_sizes=ALTLOC_RUN_SUBSET_SIZES
                 if difficult:
                     num_altloc_subset_runs=NUM_ALTLOC_SUBSET_RUNS_AFTER_DIFFICULT+1
+                    altloc_subset_sizes=ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT
 
             if num_rounds>1:
                 print(f"Round {r+1}/{num_rounds}")
@@ -1513,12 +1697,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
             for j in range(num_altloc_subset_runs):
                 if num_altloc_subset_runs>1:
-                    altlocs_restricted = set_up_altloc_subset_restrictions(j)
+                    assert len(altloc_subset_sizes)+1>=num_altloc_subset_runs
                     
-                    if altlocs_restricted is None:
-                        restricted_text = "No altlocs restricted"
-                    else:
+                    if j < num_altloc_subset_runs-1:
+                        altlocs_restricted = set_up_altloc_subset_restrictions(altloc_subset_sizes[j])
                         restricted_text=f"Altlocs restricted to {altlocs_restricted}"
+                    else:
+                        restricted_text = "No altlocs restricted"
                     print(f"{restricted_text} ({j+1}/{num_altloc_subset_runs})")
 
                 
@@ -1543,12 +1728,19 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
                 
                 def run_solve():
-                    start_time=time()
+                    run_start_time=time()
                     minutes = easy_timeLimit if not difficult else difficult_timeLimit
+                    # if pulp_solver==Solver.CPLX_CMD and advanced_basis:
+                    #     if l==r==j==0 or os.path.getsize("Untangling_Problem-pulp.bas")<=1000:
+                    #         extra_args["options"]=solver_options
+                    #     else:
+                    #         extra_args["options"]=advanced_basis_solver_options
                     solver = solver_class(timeLimit=60*minutes,threads=THREADS,warmStart=warmStart,logPath=logPath,gapRel=gapRel,**extra_args)
                     lp_problem.solve(solver)
-                    solve_time = time()-start_time
+                    solve_time = time()-run_start_time
                     sleep(1)
+                    gc.collect()
+
                     return solve_time
                 
                 solve_time = run_solve()
@@ -1556,7 +1748,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     print("shifting gears to difficult problem mode")
                     difficult=True
                     solve_time=run_solve()
-                log(f"Solver time: {int(solve_time/60)} m {int(solve_time%60)} s")
+                total_solve_time=time()-start_time
+                log(f"Solver time: {int(solve_time/60)} m {int(solve_time%60)} s, Total: {int(total_solve_time/60)} m {int(total_solve_time%60)} s")
 
                 print()
                 print("Solver finished")
