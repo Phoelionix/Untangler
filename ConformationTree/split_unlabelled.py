@@ -23,7 +23,8 @@ def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False,nonex
 
     fmted_model = get_out_path(UntangleFunctions.model_handle(model_path),"fmtd")
     prepare_pdb(model_path,fmted_model,
-            ring_name_grouping=False)
+            ring_name_grouping=False,
+            allow_no_altloc=True)
 
     #excluded_resnames=["CYS","GLY","PRO"]
     excluded_resnames=[]
@@ -34,19 +35,24 @@ def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False,nonex
     assert len(site_tags)>0
 
     split_model_path=os.path.join(out_dir,UntangleFunctions.model_handle(model_path)+"_split.pdb")
-    split_specific(model_path,child_parent_altlocs_dict,site_tags,out_path=split_model_path,preserve_parent_altlocs=preserve_parent_altlocs,
+    split_specific(fmted_model,child_parent_altlocs_dict,site_tags,out_path=split_model_path,preserve_parent_altlocs=preserve_parent_altlocs,
                    split_waters=True,nonexistent_parent_from_child_priority_dict=nonexistent_parent_from_child_priority_dict,
                    force_lone_altloc_label=" ")
 
 
 if __name__ == "__main__":
-    #model_path="/home/speno/Untangler/data/4PSS.pdb"
-    model_path="/home/speno/Untangler/data/cov63/cov63_2confR.pdb"
+    model_path="/home/speno/Untangler/data/4PSS.pdb"
+    #model_path="/home/speno/Untangler/data/cov63/cov63_2confR.pdb"
     #child_parent_altlocs_dict={"C":"A"}
     # child_parent_altlocs_dict={"C":"A","D":"A","E":"A","F":"A","c":"B","d":"B","e":"B","f":"B"}
     # run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False)
-    child_parent_altlocs_dict={"A":" ","B":" "}
-    nonexistent_parent_from_child_priority_dict={"A":"CD","B":"DC"}
+    # 2conf<N>conf
+    # child_parent_altlocs_dict={"A":" ","B":" ",}
+    #nonexistent_parent_from_child_priority_dict={"A":"CD","B":"DC"}
+    # 4conf<N>conf
+    child_parent_altlocs_dict={"A":" ","B":" ","C":" ","D": " "}
+    #nonexistent_parent_from_child_priority_dict={"A":"CDB","B":"DCA","C":"ABD","D":"BAC" }
+    nonexistent_parent_from_child_priority_dict={" ":"ABCD"}
     run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False,nonexistent_parent_from_child_priority_dict=nonexistent_parent_from_child_priority_dict)
 
 # %%

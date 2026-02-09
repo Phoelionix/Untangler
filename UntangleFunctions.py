@@ -643,7 +643,7 @@ def relabel_ring(pdb_path):
     return ring_relabel_dict
     
 
-def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False,ring_name_grouping=False,altlocs_allowed=None,even_split_occupancies=False):
+def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False,ring_name_grouping=False,altlocs_allowed=None,even_split_occupancies=False,allow_no_altloc=False):
         # Gets into format we expect. !!!!!!Assumes single chain!!!!!
         # Relabels ring atoms CE1/CE2, CD1/CD2 so that all with same label are closest         
         def replace_occupancy(line,occ):
@@ -747,7 +747,8 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                 if resnum not in atom_dict:
                     atom_dict[resnum] = {}
                 
-                assert (altloc != ' '), line 
+                if not allow_no_altloc:
+                    assert (altloc != ' '), line 
 
 
 
