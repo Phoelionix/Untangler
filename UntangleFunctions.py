@@ -18,6 +18,7 @@ NUM_THREADS=24
 
 RING_NAME_GROUPING=False
 TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY=True # Because generating data is incredibly slow with multiple altlocs. 
+ALWAYS_PRINT_CURRENT_CLASHES=False
 
 ATOMS = ('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr'
        +' Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe').split()
@@ -96,9 +97,9 @@ def get_score(score_file,phenixgeometry_only=False,verbose=True):
 
 def create_clashes_file(pdb_file_path,turn_off_cdl=False,reflections_for_R:str=None,skip_fail=False,timeout_mins=5): 
     #TODO
-    return create_score_file(pdb_file_path,turn_off_cdl=turn_off_cdl,reflections_for_R=reflections_for_R,skip_fail=skip_fail,timeout_mins=timeout_mins)
+    return create_score_file(pdb_file_path,turn_off_cdl=turn_off_cdl,reflections_for_R=reflections_for_R,skip_fail=skip_fail,timeout_mins=timeout_mins,TEMP_force_all_altlocs=True)
 
-def create_score_file(pdb_file_path,turn_off_cdl=False,reflections_for_R:str=None,skip_fail=False,timeout_mins=5): 
+def create_score_file(pdb_file_path,turn_off_cdl=False,reflections_for_R:str=None,skip_fail=False,timeout_mins=5,TEMP_force_all_altlocs=False): 
     # model_and_reflections_for_R overrides the R and R free values in the pdb path.
     
     holton_folder_path = UNTANGLER_WORKING_DIRECTORY+"StructureGeneration/"
@@ -109,11 +110,11 @@ def create_score_file(pdb_file_path,turn_off_cdl=False,reflections_for_R:str=Non
     #generate_holton_data_shell_file=self.holton_folder_path+'GenerateHoltonDataOriginal.sh' # for testing...
     generate_holton_data_shell_file=holton_folder_path+'GenerateHoltonData.sh'
 
-    score_file=score_file_name(pdb_file_path,turn_off_cdl=turn_off_cdl)
+    score_file=score_file_name(pdb_file_path,turn_off_cdl=turn_off_cdl,TEMP_force_all_altlocs=TEMP_force_all_altlocs)
     if os.path.exists(score_file):
         os.remove(score_file)
 
-    if TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY:
+    if TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY and not TEMP_force_all_altlocs:
         new_pdb_file_path=f"{UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/output/{handle}_temp1altloc.pdb"
         prepare_pdb(pdb_file_path,new_pdb_file_path,
                     altlocs_allowed=sorted(list(get_altlocs_from_pdb(pdb_file_path)[0]))[0])
@@ -173,8 +174,8 @@ def clear_geo(excluded_suffixes=["_start.geo","_fmtd.geo"]):
             else: 
                 os.remove(os.path.join(geo_path,filename))
 
-def score_file_name(model_handle_or_path,turn_off_cdl=False):
-    if TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY:
+def score_file_name(model_handle_or_path,turn_off_cdl=False,TEMP_force_all_altlocs=False):
+    if TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY and not TEMP_force_all_altlocs:
         model_handle_or_path=model_handle(model_handle_or_path)+"_temp1altloc"
     handle = model_handle(model_handle_or_path)+("_noCDL" if turn_off_cdl else "")
     return os.path.join(UNTANGLER_WORKING_DIRECTORY,"StructureGeneration",'HoltonOutputs',f'{handle}_score.txt')

@@ -29,7 +29,7 @@ from Untwist import untwist
 
 
   # Note argument forbid_CECD12_changes in LinearOptimizer.solve()
-DISABLE_WATER_ALTLOC_OPTIM=False
+DISABLE_WATER_ALTLOC_OPTIM=True
 TURN_OFF_BULK_SOLVENT=False
 CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=False
 PHENIX_ORDERED_SOLVENT=False
@@ -39,7 +39,7 @@ PHENIX_DISABLE_CDL=False # Disables the conformation-dependent library for pheni
 DEBUG_FORCE_NEVER_RIDING_H_PHENIX=True
 PHENIX_DISABLE_NQH=True
 
-FORCE_DIVVY_REFINE_INTO_SINGLE_LOOPS_PHENIX=True
+FORCE_DIVVY_REFINE_INTO_SINGLE_LOOPS_PHENIX=False
 
 DISABLE_ALTLOC_SUBSET_REFINE=True
 
@@ -402,7 +402,7 @@ class Untangler():
                 # TODO swaps can create nonbond issues that are not recorded due to not being present in geo file?
                 Solver.LP_Input.prepare_geom_files(working_model,altloc_subsets,allowed_resnames=allowed_resnames,
                                                       water_swaps=(altloc_subset_size==2))
-                if r==0 and self.loop==0 and self.weight_factors[ConstraintsHandler.TwoAtomPenalty]!=0:
+                if r==0 and self.loop==0 and (self.weight_factors[ConstraintsHandler.TwoAtomPenalty]!=0 or UntangleFunctions.ALWAYS_PRINT_CURRENT_CLASHES):
                     create_clashes_file(restrained_refine_pdb_file_path,timeout_mins=2*self.altloc_subset_size*TIMEOUT_MINS_FACTOR)
             else:
                 print("Warning: reusing old geom files")
@@ -472,7 +472,7 @@ class Untangler():
             #Override
             need_to_prepare_geom_files=False
             need_to_prepare_restrained_model_clashes=False
-        if self.weight_factors[ConstraintsHandler.TwoAtomPenalty]==0:
+        if self.weight_factors[ConstraintsHandler.TwoAtomPenalty]==0 and not UntangleFunctions.ALWAYS_PRINT_CURRENT_CLASHES:
             need_to_prepare_restrained_model_clashes=False
         
         # keep altloc_subset None if all subsets. This is to save regenerating some files and to make it clear from file names when we are using a subset.
@@ -1540,13 +1540,14 @@ class Untangler():
     def get_out_path(self,out_tag,add_loop_num=True):
         return f"{Untangler.output_dir}{self.model_handle}_{out_tag}{self.loop if add_loop_num else ''}.pdb"
     
-    def refine(self,refine_params:SimpleNamespace,debug_skip=False,divvy_up=False,**kwargs):
+    def refine(self,refine_params:SimpleNamespace,debug_skip=False,divvy=False,**kwargs):
         
         repeats=1
         P=refine_params
-
+        
         if FORCE_DIVVY_REFINE_INTO_SINGLE_LOOPS_PHENIX and P.algorithm=="PHENIX":
             divvy=True
+            original_wc=P.wc
 
         if divvy:
             # e.g. if number of macro cycles is 5, do 5 single macro cycle single loop refinement runs
@@ -1554,7 +1555,6 @@ class Untangler():
             repeats=P.num_macro_cycles
             
             P.num_macro_cycles=1
-            original_wc=P.wc
             # args=refine_params[1]
             # for i, arg in enumerate(args):
             #     if arg.strip().startswith("-n"):
@@ -1576,9 +1576,9 @@ class Untangler():
                 P.model_path = moved_path
                 if not debug_skip:
                     shutil.move(P.out_path,moved_path)
-            decreasing_wc=True
-            if decreasing_wc:
-                P.wc=original_wc*(repeats - n) # TODO make match however phenix calculates
+            if divvy:
+                # Decreasing wc each cycle. # TODO make match however phenix calculates
+                P.wc=original_wc*(repeats - n) 
             self.run_refinement(refine_params,debug_skip=debug_skip,**kwargs)
         return P.out_path
 

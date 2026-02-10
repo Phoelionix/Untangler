@@ -712,8 +712,9 @@ class LP_Input:
             for altloc in self.ordered_atom_lookup.get_altlocs():
                 unflipped_water_dict[altloc]=altloc
             #clashes =  get_clashes(model_handle) 
-            original_clashes = get_clashes(UntangleFunctions.model_handle(self.restrained_model_path))
-            print(f"Original structure has {len(original_clashes)} clashes")
+            if constraint_weights[ConstraintsHandler.TwoAtomPenalty]>0 or UntangleFunctions.ALWAYS_PRINT_CURRENT_CLASHES:
+                original_clashes = get_clashes(UntangleFunctions.model_handle(self.restrained_model_path))
+                print(f"Original structure has {len(original_clashes)} clashes")
             if constraint_weights[ConstraintsHandler.TwoAtomPenalty]>0:
                 if len(original_clashes) <= 5:
                     for clash in original_clashes:
@@ -1131,9 +1132,10 @@ class LP_Input:
 
 
 
+        TEMP_TEST_CHILD_PARENT={}
         #TEMP_TEST_CHILD_PARENT={"C":"A","D":"A","E":"A","c":"B","d":"B","e":"B"}
         #TEMP_TEST_CHILD_PARENT={"C":"A","E":"A","D":"B","F":"B"}
-        TEMP_TEST_CHILD_PARENT={}
+        #TEMP_TEST_CHILD_PARENT={c:"A" for c in "EFGH"} | {c:"B" for c in "IJKL"} | {c:"C" for c in "MNOP"} | {c:"D" for c in "QRST"}
         chunk_echoes,disordered_connection_echoes=self.get_echoes(atom_chunks,disordered_connections,TEMP_TEST_CHILD_PARENT)
         for key in disordered_connection_echoes:
             disordered_connections[key].extend(disordered_connection_echoes[key])
