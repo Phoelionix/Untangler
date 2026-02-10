@@ -66,7 +66,7 @@ ALLOW_ALL_POSITION_CHANGE_GEOMECTIONS= True # Only if modify_forbid_conditions =
 FORCE_ALT_COORDS=False
 
 KEEP_PREVIOUS_FLEXI=True
-NUM_RELEASE_ROUNDS=3
+NUM_RELEASE_ROUNDS=0
 
 ALTLOC_RUN_SUBSET_SIZES=[4] # None
 ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT=[4,4,5,5]
@@ -234,14 +234,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         elif len(all_altlocs)<=4:
             improvement_factors_to_tolerate=np.array([100,12,10,4,3,2,1.5,1.2,1.1,1,0.95]) 
         elif len(all_altlocs)<=6:
-            improvement_factors_to_tolerate=np.array([100,12,10,8,6,5,4.5,4,3.5,3,2.5,2.25,2,1.75,1.5,1.35,1.2,1.1,1,0.95]) 
-            #improvement_factors_to_tolerate=np.array([12,12,10,8,6,6,5,5,4,4,3.5,3.5,3,3,2.5,2.5,2,2,1.75,1.5,1.35,1.2,1.1,1,0.95]) # TESTING
-            
-            # For when Nth_best_threshold = inf:
-            #improvement_factors_to_tolerate=np.concatenate((np.array([100,12,10,8,7.5,7,6.5,6,6,5.5,5]),np.arange(4.5,3,-0.3), np.arange(3,2,-0.25),np.arange(2,1.2,-0.1),np.arange(1.2,0.9,-0.05)))
-            
-            #improvement_factors_to_tolerate=np.array([100,10,8,5,4,3.5,3,2.5,2,1.75,1.5,1.35,1.2,1.1,1]) 
-            #improvement_factors_to_tolerate=np.concatenate((np.array([100,12,10,8]),np.arange(8,4,-0.2), np.arange(4,2,-0.1),np.arange(2,1.2,-0.05),np.arange(1.2,0.9,-0.025)))
+            #improvement_factors_to_tolerate=np.array([100,12,10,8,6,5,4.5,4,3.5,3,2.5,2.25,2,1.75,1.5,1.35,1.2,1.1,1,0.95,0.90]) 
+            improvement_factors_to_tolerate=np.array([100,12,6,4,3,2,1.5,1,0.95,0.90,0.85]) 
         else:
             improvement_factors_to_tolerate=np.array([100,30,20,15,12,10,8,6,5,4.5,4,3.5,3,2.5,2,1.75,1.5,1.35,1.2,1.1,1]) 
     #TODO limit alternatives to consider to the top N alternatives. Otherwise when have really bad outliers, introduce a huge number of branches.
@@ -1407,9 +1401,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 # Note this variable name might correspond to different variables in different rounds.
                 if var_name not in lp_problem.constraints:
                     for from_altloc in site_var_dict[site]:
+                        if restricted_to_altloc not in site_var_dict[site][from_altloc]: 
+                            continue
                         if site_var_dict[site][from_altloc][restricted_to_altloc].value()>0.5:
                             active_var= site_var_dict[site][from_altloc][restricted_to_altloc]
                             break
+                    else: # This conformer site can't possibly have been assigned the restricted altloc.
+                        continue
                     lp_problem += (
                         active_var==1,
                         get_force_no_flips_name(site,restricted_to_altloc)
@@ -1605,8 +1603,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         if disable_presolve:
             solver_options.append(f"set preprocessing presolve no")
         if detailed_display:
-            #solver_options.append(f"set mip display 4") # Set to 5 to show LP subproblem at nodes, and not just root.
-            solver_options.append(f"set mip display 5") # Set to 5 to show LP subproblem at nodes, and not just root.
+            solver_options.append(f"set mip display 4") # Set to 5 to show LP subproblem at nodes, and not just root.
+            #solver_options.append(f"set mip display 5") 
 
         if (preprocessing_on_relaxation is not None) and (not disable_presolve):
             solver_options.append(f"set preprocessing relax {int(preprocessing_on_relaxation)}") # Whether to apply presolve (again/during?), to the root relaxation
