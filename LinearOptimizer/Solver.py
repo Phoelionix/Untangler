@@ -183,7 +183,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
 
 
-    lp_problem = pl.LpProblem("Untangling_Problem", LpMinimize)
+    lp_problem = pl.LpProblem(f"Untangling_Problem-{out_handle}", LpMinimize)
 
     
 
@@ -1197,7 +1197,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         # TODO could consider making this an elastic constraint.
         nonlocal flexifix_constr_names
         nonlocal lp_problem
-        if r < get_num_tranches()-1:
+        if r < get_num_tranches():
             for var in flexible_vars:
                 flexifix_name=f"flexiFixed_{var.name}"
                 if flexifix_name in flexifix_constr_names:
@@ -1208,7 +1208,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                         var==1,
                         flexifix_name
                     )
-        else: # unfix everything on final round
+        else: # unfix everything on final rounds
+            print("Releasing flexi variables")
+            if NUM_RELEASE_ROUNDS==0:
+                warnings.warn("This shouldn't happen")
+                return
             release_round_idx = r-get_num_tranches()
             seg_length=len(flexifix_constr_names)/NUM_RELEASE_ROUNDS
             
@@ -2151,7 +2155,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
 
     del lp_problem
-    del solver
     gc.collect()
         ##################
 
