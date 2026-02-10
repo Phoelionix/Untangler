@@ -235,9 +235,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             improvement_factors_to_tolerate=np.array([100,12,10,4,3,2,1.5,1.2,1.1,1,0.95]) 
         elif len(all_altlocs)<=6:
             #improvement_factors_to_tolerate=np.array([100,12,10,8,6,5,4.5,4,3.5,3,2.5,2.25,2,1.75,1.5,1.35,1.2,1.1,1,0.95,0.90]) 
-            improvement_factors_to_tolerate=np.array([100,12,6,4,3,2,1.5,1,0.95,0.90,0.85]) 
+            #improvement_factors_to_tolerate=np.array([100,12,6,4,3,2,1.5,1,0.95,0.90,0.85]) 
+            improvement_factors_to_tolerate=np.array([1.2,1,0.90,0.85,0.80]) 
         else:
-            improvement_factors_to_tolerate=np.array([100,30,20,15,12,10,8,6,5,4.5,4,3.5,3,2.5,2,1.75,1.5,1.35,1.2,1.1,1]) 
+            #improvement_factors_to_tolerate=np.array([100,30,20,15,12,10,8,6,5,4.5,4,3.5,3,2.5,2,1.75,1.5,1.35,1.2,1.1,1]) 
+            improvement_factors_to_tolerate=np.array([1]) 
     #TODO limit alternatives to consider to the top N alternatives. Otherwise when have really bad outliers, introduce a huge number of branches.
     # TODO dynamical solution space size. Stop solve if taking too long, and increase the required improvement_factor, then retry. 
 
@@ -479,14 +481,16 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             #involves_main_chain=any(ch.name in MCH for ch in chunks)
             in_main_chain=all(ch.name in MCH for ch in chunks)
 
+            
             if forbid_CECD12_changes:
-                for ch in chunks:
-                    if ch.get_resname() in ["TYR","PHE"]:
-                        if ch.name in ["CD1","CD2","CE1","CE2","CZ"]:
-                            for conn in disordered_connection: # Fix the bug...
-                                conn.ts_distance=0
-                                conn.z_score=0
-                            return True
+                if constraint_type==VariableKind.Bond or constraint_type==VariableKind.Angle: 
+                    for ch in chunks:
+                        if ch.get_resname() in ["TYR","PHE"]:
+                            if ch.name in ["CD1","CD2","CE1","CE2","CZ"]:
+                                for conn in disordered_connection: # Fix the bug...
+                                    conn.ts_distance=0
+                                    conn.z_score=0
+                                return True
             if constraint_type==VariableKind.Bond: 
                 # TODO this allows water to change. But necessary.
                 if MAIN_CHAIN_ONLY and not in_main_chain and (any(ch.get_resname() not in ["CYS","HOH"] for ch in chunks)):  # XXX tidy up and put in a separate python file for specifying what to optimize
