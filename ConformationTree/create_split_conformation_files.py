@@ -79,8 +79,9 @@ if __name__ == "__main__":
     # child_parent_altlocs_dict={"C":"A","E":"A","G":"A","I":"A","D":"B","F":"B","H":"B","J":"B"}
 
     #model_path="/home/speno/Untangler/output/4PSS_2conf4conf_Accepted9_HOH_added-4PSS.pdb"
-    model_path="/home/speno/Untangler/ConformationTree/output/cov63_2confR_fmtd_split.pdb"
-    child_parent_altlocs_dict={"C":"A","E":"A","D":"B","F":"B"}
+    #model_path="/home/speno/Untangler/ConformationTree/output/cov63_2confR_fmtd_split.pdb"
+    model_path="/home/speno/Untangler/ConformationTree/output/4PSS_4split.pdb"
+    child_parent_altlocs_dict={c:"A" for c in "EFGH"} | {c:"B" for c in "IJKL"} | {c:"C" for c in "MNOP"} | {c:"D" for c in "QRST"}
     run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=True)
 
 # %%

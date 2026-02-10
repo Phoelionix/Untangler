@@ -119,9 +119,13 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
                     #      continue  # Creating bonds between H and non-H messes with riding H logic in phenix.  # Does it?
                     #  ####
                      if (parent_altloc,parent_altloc) not in constraint.altlocs_vdw_dict:
-                         continue
+                        if None in constraint.altlocs_vdw_dict:
+                            ideal_same_asu,ideal_crystal_packing = constraint.altlocs_vdw_dict[None]
+                        else:
+                            continue
+                     else:
                      # TODO crystal-packing?
-                     ideal_same_asu,ideal_crystal_packing = constraint.altlocs_vdw_dict[(parent_altloc,parent_altloc)]  
+                        ideal_same_asu,ideal_crystal_packing = constraint.altlocs_vdw_dict[(parent_altloc,parent_altloc)]  
                      ideal = ideal_same_asu  
                      parameter_scope_name="bond" # FIXME
                      nonbond_limit_param=ideal # TODO check this does what expect... 
