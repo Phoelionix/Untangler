@@ -53,14 +53,16 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
 
     SINGLE_ALTLOC_MODE=False
     new_resnum_to_old_resnum_dict={}
+    last_og_resnum=0
+    last_altloc=None
+    new_resnum=0
     with open(pdb_file_path) as f, open(tmp_pdb_file,"w") as w:
         lines = f.readlines()
-        max_resnum=num_altlocs=0
+        num_altlocs=0
         conformation_number:dict[str,int]={}
         for line in lines:
             valid_record_types=["ATOM","HETATM"]
             if any([line.startswith(k) for k in valid_record_types]):
-                max_resnum= max(max_resnum,int(line[22:26]))
                 altloc = line[16]
                 # if altloc != "B":
                 #     continue
@@ -74,12 +76,13 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
             if any([line.startswith(k) for k in valid_record_types]):
                 resnum = int(line[22:26])
                 altloc = line[16]
+                if last_og_resnum!=resnum or altloc!=last_altloc:
+                    last_og_resnum=resnum; last_altloc=altloc
+                    new_resnum+=1
                 #new_chain="X"
                 new_chain=old_chain=line[21]
                 if altloc not in conformation_number:
                     continue
-                #new_resnum=resnum+(-1+conformation_number[altloc])*max_resnum
-                new_resnum=resnum+(-1+conformation_number[altloc])*max_resnum
                 new_resnum_to_old_resnum_dict[new_resnum]=resnum
 
                 if line[17:20]=="HOH":
