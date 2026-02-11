@@ -47,7 +47,7 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
 
     tmp_pdb_file = os.path.join(os.path.abspath(os.path.join(__file__ ,"../")),"tmp_samealtloc.pdb")
 
-    first_altloc=None
+    first_altloc={}
     with open(pdb_file_path) as f, open(tmp_pdb_file,"w") as w:
         lines = f.readlines()
         max_resnum=num_altlocs=0
@@ -55,27 +55,22 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
         for line in lines:
             valid_record_types=["ATOM","HETATM"]
             if any([line.startswith(k) for k in valid_record_types]):
-                max_resnum= max(max_resnum,int(line[22:26]))
+                og_resnum=int(line[22:26])
+                max_resnum= max(max_resnum,og_resnum)
                 altloc = line[16]
-                if first_altloc is None:
-                    first_altloc=altloc
-                if altloc != first_altloc:
-                    continue
-                if len(conformation_number)>0:  # single altloc
-                    continue
-                if altloc not in conformation_number:
-                    num_altlocs+=1
-                    conformation_number[altloc]=num_altlocs
+                
+                if og_resnum not in first_altloc:
+                    first_altloc[og_resnum]=altloc
         for line in lines:
             valid_record_types=["ATOM","HETATM"]
             if any([line.startswith(k) for k in valid_record_types]):
-                resnum = int(line[22:26])
+                og_resnum = int(line[22:26])
                 altloc = line[16]
                 #new_chain="X"
                 new_chain=old_chain=line[21]
-                if altloc not in conformation_number:
+                if altloc !=first_altloc[og_resnum]:
                     continue
-                new_resnum=resnum+(-1+conformation_number[altloc])*max_resnum
+                new_resnum=og_resnum
 
                 if line[17:20]=="HOH":
                     line= "HETATM"+line[6:]
@@ -164,7 +159,6 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
         
 
     out_data=[]
-    # TODO XXX very unnecessary compute time if values are same regardless of conformation. Have many keys for one value.  
     for i, item in enumerate(nonbonded_list):
         if i%100000==0:
             print(f"{i}/{len(nonbonded_list)}")
@@ -206,7 +200,7 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
     if out_file is not None:
         with open(out_file,"w") as f:
             f.write('\n'.join(['|'.join([str(i) for i in items]) for items in out_data]))
-    print(f"number of cross-conformer nonbonds: {len(out_data)}")
+    print(f"number of cross-conformer nonbond entries: {len(out_data)}")
     if verbose:
         pair_proxies.nonbonded_proxies.show_histogram_of_model_distances(
             sites_cart=sites_cart,

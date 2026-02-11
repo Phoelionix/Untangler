@@ -68,12 +68,13 @@ FORCE_ALT_COORDS=False
 KEEP_PREVIOUS_FLEXI=True
 NUM_RELEASE_ROUNDS=0
 
-ALTLOC_RUN_SUBSET_SIZES=[4] # None
-ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT=[4,4,5,5]
+# Specify None to consider all altlocs.
+ALTLOC_RUN_SUBSET_SIZES=[3,3,3,4,5,None] # None 
+ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT=[3,4,4,5,5,None]
 
-NUM_ALTLOC_SUBSET_RUNS=1 # None
-NUM_ALTLOC_SUBSET_RUNS_AFTER_DIFFICULT=4 # None
-DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS=2
+NUM_ALTLOC_SUBSET_RUNS=5 # None
+NUM_ALTLOC_SUBSET_RUNS_AFTER_DIFFICULT=5 # None
+DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS=9999999
 
 
 
@@ -103,11 +104,12 @@ def add_sos2(lp_problem:LpProblem,sos2_name,sos2_rule):
 
 
 def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
-          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=90,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=25,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
           inert_water_sites=False,
           #gapRel=0.001,
           #gapRel=0,
           gapRel=0.003,
+          gapRel_subset_run=0.005,
           #gapRel=0.03,
           forbid_altloc_changes={"name":[]}, forbidden_atom_bond_changes={"name":[]},forbidden_atom_any_connection_changes={"name":[]},
           MAIN_CHAIN_ONLY=False,SIDE_CHAIN_ONLY=False,NO_CB_CHANGES=False,NO_ISOLATED_O_BOND_CHANGES=False, # Forbids BOND changes that do not involve the specified atoms.
@@ -119,7 +121,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
           change_punish_factor=0, # Adds cost of: change_punish_factor x num_conformer_labels_changed/num_conformers x original_cost. Num conformers excludes conformers that are being ignore (see `site_being_considered()`).
           forbid_ring_changes=False,
           forbid_solutions_composed_of_better_solutions=False,
-          forbid_CECD12_changes=True, # Leaving true until fix bug from missing interchangability of C[E/D]1 and C[E/D]2 when reading geometry restraints 
+          forbid_CECD12_changes=False, # Leaving true until fix bug from missing interchangability of C[E/D]1 and C[E/D]2 when reading geometry restraints 
           ):  
           #max_bond_changes=None):  
     print("****************\nConstructing ILP problem\n****************")
@@ -228,6 +230,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     #         improvement_factors_to_tolerate=np.array([100,3,2,1.5,1.25,1.1,1,0.95,0.9,0.85,0.8,0.75,0.7,0.65]) 
     #     else:
     #         improvement_factors_to_tolerate=np.array([100,6,3,2,1.5,1.25,1.175,1.1,1.05,1]) 
+    mainchain_improvement_factor_requirement_mult_bond=1
+    mainchain_improvement_factor_requirement_mult_angle=0.01
+    sidechain_improvement_factor_requirement_mult_bond=1
+    sidechain_improvement_factor_requirement_mult_angle=1
     if True:
         if len(all_altlocs)==2:
             improvement_factors_to_tolerate=np.array([100,2,1]) 
@@ -236,7 +242,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         elif len(all_altlocs)<=6:
             #improvement_factors_to_tolerate=np.array([100,12,10,8,6,5,4.5,4,3.5,3,2.5,2.25,2,1.75,1.5,1.35,1.2,1.1,1,0.95,0.90]) 
             #improvement_factors_to_tolerate=np.array([100,12,6,4,3,2,1.5,1,0.95,0.90,0.85]) 
-            improvement_factors_to_tolerate=np.array([1.2,1,0.90,0.85,0.80]) 
+            #improvement_factors_to_tolerate=np.array([5,1.75,1.2,1,0.90,0.85,0.80]) 
+            #improvement_factors_to_tolerate=np.array([1.75,1.5,1.25,1,0.9,0.8]) 
+            #improvement_factors_to_tolerate=np.array([1,0.8]) 
+            improvement_factors_to_tolerate=np.array([1]) 
         else:
             #improvement_factors_to_tolerate=np.array([100,30,20,15,12,10,8,6,5,4.5,4,3.5,3,2.5,2,1.75,1.5,1.35,1.2,1.1,1]) 
             improvement_factors_to_tolerate=np.array([1]) 
@@ -642,18 +651,30 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             #local_score_tolerate_threshold=10*worst_no_change_score
             #local_score_tolerate_threshold=3*worst_no_change_score  # * len(altlocs)?
             #local_score_tolerate_threshold=2*worst_no_change_score  # * len(altlocs)?   # TODO This should be done in input when setting what is forbidfden.
-
-            if tolerate_score_mode==BETTER_THAN_WORST:
+            if len(original_scores)==0: # FIXME
+                local_score_tolerate_threshold=0
+            elif tolerate_score_mode==BETTER_THAN_WORST:
                 local_score_tolerate_threshold=max(original_scores)  # * len(altlocs)?   # TODO This should be done in input when setting what is forbidfden.
-            if tolerate_score_mode==BETTER_THAN_AVERAGE:
+            elif tolerate_score_mode==BETTER_THAN_AVERAGE:
                 local_score_tolerate_threshold=np.mean(original_scores)  # * len(altlocs)?   # TODO This should be done in input when setting what is forbidfden.
-            if tolerate_score_mode==BETTER_THAN_AVERAGE_MULT:
+            elif tolerate_score_mode==BETTER_THAN_AVERAGE_MULT:
                 local_score_tolerate_threshold=min(np.mean(original_scores)*2,max(original_scores))
             always_tolerate_score_threshold = max(local_score_tolerate_threshold,global_score_tolerate_threshold) #worst_no_change_score*10+1e4
 
     
             always_tolerate_score_threshold_sequence=always_tolerate_score_threshold/improvement_factors_to_tolerate
-
+            # If is sidechain
+            #if any(name not in ["CB","C","CA","N","O"] for name in disordered_connection[0].atom_names):
+            if any(name not in ["C","CA","N","O"] for name in disordered_connection[0].atom_names):
+                if disordered_connection[0].connection_type is ConstraintsHandler.AngleConstraint:
+                    always_tolerate_score_threshold_sequence/=sidechain_improvement_factor_requirement_mult_angle
+                elif disordered_connection[0].connection_type is ConstraintsHandler.BondConstraint:
+                    always_tolerate_score_threshold_sequence/=sidechain_improvement_factor_requirement_mult_bond
+            else:
+                if disordered_connection[0].connection_type is ConstraintsHandler.AngleConstraint:
+                    always_tolerate_score_threshold_sequence/=mainchain_improvement_factor_requirement_mult_angle
+                elif disordered_connection[0].connection_type is ConstraintsHandler.BondConstraint:
+                    always_tolerate_score_threshold_sequence/=mainchain_improvement_factor_requirement_mult_bond
             ########
             tmp_scores= [conn.ts_distance for conn in disordered_connection]
             tmp_scores.sort()
@@ -1195,6 +1216,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     def get_num_tranches():
         return len(improvement_factors_to_tolerate)
     def get_num_rounds():
+        if get_num_tranches()==1:
+            return 1
         return get_num_tranches() + KEEP_PREVIOUS_FLEXI*NUM_RELEASE_ROUNDS
     
     def flexifix_variables(r:int):
@@ -1396,10 +1419,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
         
         altlocs_to_restrict=[]
+        DEBUG_ALWAYS_HAVE_ALTLOCS=["B"] # TODO always have worst conformation.
         assert altloc_subset_size< len(all_altlocs)
         while len(altlocs_to_restrict)<len(all_altlocs)-altloc_subset_size:
             if len(altloc_pool)==0:
                 altloc_pool = [a for a in all_altlocs if a not in altlocs_to_restrict]
+            if DEBUG_ALWAYS_HAVE_ALTLOCS is not None:
+                altloc_pool = [a for a in altloc_pool if a not in DEBUG_ALWAYS_HAVE_ALTLOCS]
             altloc_selected = random.choice(altloc_pool)
             altloc_pool.remove(altloc_selected)
             altlocs_to_restrict.append(altloc_selected)
@@ -1471,12 +1497,12 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         aggressive_probe=False
         #### Options to speed up root node relaxation: https://www.ibm.com/docs/en/icos/22.1.2?topic=problems-too-much-time-node-0
         pseudoreduced_branching=True # Y |  Computationally cheap. LEAVE THIS TRUE
-        emphasize_feasibility=True  # ?
+        emphasize_feasibility=False  # ?
         # Other options related to root node relaxation
         detailed_display=True
         barrier_root_solve=False
         #### Options to speed up root node processing:
-        turn_off_cuts=True # Y |
+        turn_off_cuts=False # Y |
         disable_heuristics=True # Y |
 
         testing_options=True
@@ -1529,6 +1555,33 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             #solver_options.append("set simplex pgradient 4") # BAD
             #solver_options.append("set preprocessing dependency 3") # https://www.ibm.com/docs/en/icos/22.1.1?topic=parameters-dependency-switch
             #symmetry_breaking_aggressiveness=5
+            emphasize_feasibility=False
+            #aggressive_GUB_cuts=True
+            #aggressive_probe=True
+            max_cutting_planes_at_root=0
+            # TO TEST
+            #branch_up=True
+            #solver_options.append(f"set mip strategy subalgorithm {PRIMAL_SIMPLEX}") # https://www.ibm.com/docs/en/icos/22.1.1?topic=parameters-mip-subproblem-algorithm
+
+            solver_options.append(f"set preprocessing dual -1") # Don't solve dual https://www.ibm.com/docs/en/cofz/12.10.0?topic=parameters-presolve-dual-setting
+
+        else: # Best-performing set of variables tested so far, which are modified above.
+            solver_options.append("set read scale 1") # aggressive scaling
+            PRIMAL_SIMPLEX=1 # NOTE: Seems better than dual simplex
+            BARRIER=4 # Also better than dual simplex.  # https://www.ibm.com/docs/en/icos/22.1.0?topic=performance-detecting-eliminating-dense-columns
+            SIFTING=5 
+            CONCURRENT=6
+            # Do NOT use Concurrent (or barrier?) for ???, as it will employ dual simplex after root node relaxation which can be EXTREMELY slow.
+            solver_options.append(f"set mip strategy startalgorithm {PRIMAL_SIMPLEX}") # https://www.ibm.com/docs/en/icos/22.1.2?topic=problems-unsatisfactory-optimization-subproblems
+            solver_options.append(f"set lpmethod {PRIMAL_SIMPLEX}") # https://www.ibm.com/docs/en/cofz/12.9.0?topic=parameters-algorithm-continuous-linear-problems
+            #solver_options.append(f"set barrier limits objrange ??") # https://www.ibm.com/docs/en/icos/22.1.1?topic=parameters-barrier-objective-range
+            #solver_options.append(f"set barrier algorithm 3") # https://www.ibm.com/docs/en/icos/22.1.0?topic=parameters-barrier-algorithm
+            #solver_options.append("set simplex tolerances feasibility 1e-1")
+            #solver_options.append("set simplex tolerances optimality 1e-1")
+            #solver_options.append("set simplex pgradient -1") # Reduced cost pricing # https://www.ibm.com/docs/en/icos/22.1.1?topic=performance-simplex-parameters
+            #solver_options.append("set simplex pgradient 4") # BAD
+            #solver_options.append("set preprocessing dependency 3") # https://www.ibm.com/docs/en/icos/22.1.1?topic=parameters-dependency-switch
+            #symmetry_breaking_aggressiveness=5
             branch_up=False
             #aggressive_GUB_cuts=True
             #aggressive_probe=True
@@ -1537,16 +1590,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             emphasize_feasibility=True
 
             solver_options.append(f"set preprocessing dual -1") # Don't solve dual https://www.ibm.com/docs/en/cofz/12.10.0?topic=parameters-presolve-dual-setting
-
-            #####
-            #solver_options.append(f"set mip limits auxrootthreads {int(THREADS/2)}") # Just to ensure some consistency...
-        else: # Best-performing set of variables tested so far, which are modified above.
-            solver_options.append("set read scale 1") # aggressive scaling
-            solver_options.append(f"set mip strategy startalgorithm {BARRIER}") # https://www.ibm.com/docs/en/icos/22.1.2?topic=problems-unsatisfactory-optimization-subproblems
-            solver_options.append(f"set lpmethod {CONCURRENT}")
-            emphasize_feasibility=True
-            branch_up=True
-
 
         if turn_off_cuts:
             solver_options.append(f" set mip cuts all -1")
@@ -1683,13 +1726,12 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         difficult=False
         for r in range(num_rounds):
 
-            num_altloc_subset_runs=1
-            if NUM_ALTLOC_SUBSET_RUNS is not None:
-                num_altloc_subset_runs=NUM_ALTLOC_SUBSET_RUNS+1
+            altloc_subset_sizes=[None]
+            if not difficult and (NUM_ALTLOC_SUBSET_RUNS is not None):
                 altloc_subset_sizes=ALTLOC_RUN_SUBSET_SIZES
-                if difficult:
-                    num_altloc_subset_runs=NUM_ALTLOC_SUBSET_RUNS_AFTER_DIFFICULT+1
-                    altloc_subset_sizes=ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT
+            elif difficult and (ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT is not None):
+                altloc_subset_sizes=ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT
+            num_altloc_subset_runs=len(altloc_subset_sizes)
 
             if num_rounds>1:
                 print(f"Round {r+1}/{num_rounds}")
@@ -1702,15 +1744,12 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
 
             for j in range(num_altloc_subset_runs):
-                if num_altloc_subset_runs>1:
-                    assert len(altloc_subset_sizes)+1>=num_altloc_subset_runs
-                    
-                    if j < num_altloc_subset_runs-1:
-                        altlocs_restricted = set_up_altloc_subset_restrictions(altloc_subset_sizes[j])
-                        restricted_text=f"Altlocs restricted to {altlocs_restricted}"
-                    else:
-                        restricted_text = "No altlocs restricted"
-                    print(f"{restricted_text} ({j+1}/{num_altloc_subset_runs})")
+                if altloc_subset_sizes[j] is not None:
+                    altlocs_restricted = set_up_altloc_subset_restrictions(altloc_subset_sizes[j])
+                    restricted_text=f"Altlocs restricted to {altlocs_restricted}"
+                else:
+                    restricted_text = "No altlocs restricted"
+                print(f"{restricted_text} ({j+1}/{num_altloc_subset_runs})")
 
                 
 
@@ -1734,14 +1773,20 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
                 
                 def run_solve():
-                    run_start_time=time()
+                    is_subset_run = j<num_altloc_subset_runs-1
                     minutes = easy_timeLimit if not difficult else difficult_timeLimit
+                    if is_subset_run:
+                        minutes= max(1,minutes/4)
                     # if pulp_solver==Solver.CPLX_CMD and advanced_basis:
                     #     if l==r==j==0 or os.path.getsize("Untangling_Problem-pulp.bas")<=1000:
                     #         extra_args["options"]=solver_options
                     #     else:
                     #         extra_args["options"]=advanced_basis_solver_options
-                    solver = solver_class(timeLimit=60*minutes,threads=THREADS,warmStart=warmStart,logPath=logPath,gapRel=gapRel,**extra_args)
+                    
+                    solver = solver_class(timeLimit=60*minutes,threads=THREADS,warmStart=warmStart,logPath=logPath,
+                                          gapRel=gapRel_subset_run if is_subset_run else gapRel,
+                    **extra_args)
+                    run_start_time=time()
                     lp_problem.solve(solver)
                     solve_time = time()-run_start_time
                     sleep(1)
@@ -1762,22 +1807,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 # if solve_time/60>=max_mins*0.95:
                 #     pass
 
-
-                # if pulp_solver == Solver.COIN:
-                #     # solver = PULP_CBC_CMD(threads=THREADS)
-                #     # lp_problem.solve(solver=solver)
-                #     maxNodes=None
-                #     #pulpTestAll()
-                #     #asdds
-                #     solver = PULP_CBC_CMD(logPath=,threads=THREADS,timeLimit=timeLimit,maxNodes=maxNodes)
-                # elif pulp_solver == Solver.COIN:
-                #     solver = CPLEX_PY(timeLimit=timeLimit,threads=THREADS)
-                # lp_problem.solve(solver)
-
                 
                 def get_status(verbose=False):
                     print("Status:", LpStatus[lp_problem.status])
-                    
+
 
                     if verbose:
                         for v in lp_problem.variables():
@@ -1788,7 +1821,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     total_distance = value(lp_problem.objective)
                     diff=total_distance/initial_badness-1
                     print(f"Total distance = {total_distance} ({100*(diff):.3f}%)")
-                    log(f"{100*(diff):.3f}%")
+                    log(f"{100*(diff):.3f}% ({total_distance})")
                     #plt.scatter()
                 get_status(verbose=False)
 
@@ -1828,31 +1861,31 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 site_assignment_arrays[-1]=site_assignments
                 distances[-1]= value(lp_problem.objective)
 
-            # Determine which atom has been assigned where.
-            for site in site_var_dict:
-                site_assignments[site]={}
-                for from_altloc in site_var_dict[site]:
-                    if lp_problem.sol_status==LpStatusInfeasible:
-                        assert False
-                        site_assignments[site][from_altloc]=from_altloc 
-                        break 
-                    poschange_str= ""
-                    if site in site_altposvar_dict and from_altloc in site_altposvar_dict[site]:
-                        for poschange_index, altposvar in site_altposvar_dict[site][from_altloc].items():
-                            if poschange_index!=0 and altposvar.value()>0.5:
-                                assert poschange_str == ""
-                                poschange_str = f" new_position={site_altpos_dict[site][from_altloc][poschange_index].get_coord()}" 
-                    to_altloc_found = False
-                    for to_altloc in site_var_dict[site][from_altloc]:
-                        if site_var_dict[site][from_altloc][to_altloc].value()>0.5:  # For some reason CPLEX outptuts values like 1.0000000000094025 sometimes.
-                            assert not to_altloc_found
-                            to_altloc_found=True
-                            site_assignments[site][from_altloc]=to_altloc+poschange_str
+                # Determine which atom has been assigned where.
+                for site in site_var_dict:
+                    site_assignments[site]={}
+                    for from_altloc in site_var_dict[site]:
+                        if lp_problem.sol_status==LpStatusInfeasible:
+                            assert False
+                            site_assignments[site][from_altloc]=from_altloc 
+                            break 
+                        poschange_str= ""
+                        if site in site_altposvar_dict and from_altloc in site_altposvar_dict[site]:
+                            for poschange_index, altposvar in site_altposvar_dict[site][from_altloc].items():
+                                if poschange_index!=0 and altposvar.value()>0.5:
+                                    assert poschange_str == ""
+                                    poschange_str = f" new_position={site_altpos_dict[site][from_altloc][poschange_index].get_coord()}" 
+                        to_altloc_found = False
+                        for to_altloc in site_var_dict[site][from_altloc]:
+                            if site_var_dict[site][from_altloc][to_altloc].value()>0.5:  # For some reason CPLEX outptuts values like 1.0000000000094025 sometimes.
+                                assert not to_altloc_found
+                                to_altloc_found=True
+                                site_assignments[site][from_altloc]=to_altloc+poschange_str
 
-                                        
-                    assert to_altloc_found, (site, from_altloc)
-            
-            update_swaps_file(distances,site_assignment_arrays)  #,record_notable_improvements_threshold=0.03)
+                                            
+                        assert to_altloc_found, (site, from_altloc)
+                
+                update_swaps_file(distances,site_assignment_arrays)  #,record_notable_improvements_threshold=0.03)
             
         ### lth solution found ####
             

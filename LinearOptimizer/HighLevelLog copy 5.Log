@@ -1,0 +1,40 @@
+4PSS_6conf-0 altloc optimizer log
+Loop 1/1
+Round 1/75
+100.0
+Solver time: 0 m 39 s, Total: 0 m 55 s
+-0.556%
+Round 2/75
+12.0
+Solver time: 8 m 20 s, Total: 9 m 36 s
+-1.429%
+Round 3/75
+10.0
+Solver time: 4 m 46 s, Total: 14 m 43 s
+-1.434%
+Round 4/75
+8.0
+Solver time: 3 m 24 s, Total: 18 m 30 s
+-1.447%
+Round 5/75
+8.0
+Solver time: 0 m 31 s, Total: 19 m 23 s
+-1.447%
+Round 6/75
+7.8
+Solver time: 5 m 5 s, Total: 24 m 51 s
+-1.480%
+Round 7/75
+7.6
+Solver time: 7 m 1 s, Total: 32 m 15 s
+-1.870%
+Round 8/75
+7.3999999999999995
+Solver time: 17 m 39 s, Total: 50 m 18 s
+-1.870%
+Round 9/75
+7.199999999999999
+Solver time: 15 m 36 s, Total: 66 m 18 s
+-1.871%
+Round 10/75
+6.999999999999999

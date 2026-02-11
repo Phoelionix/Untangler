@@ -1,0 +1,132 @@
+4PSS_6conf-0 altloc optimizer log
+Loop 1/1
+Round 1/25
+100.0
+Solver time: 1 m 3 s
+-0.396%
+Solver time: 0 m 49 s
+-0.622%
+Round 2/25
+30.0
+Solver time: 0 m 32 s
+-0.947%
+Solver time: 0 m 44 s
+-0.977%
+Round 3/25
+20.0
+Solver time: 0 m 33 s
+-1.006%
+Solver time: 0 m 42 s
+-1.327%
+Round 4/25
+15.0
+Solver time: 0 m 36 s
+-1.332%
+Solver time: 0 m 45 s
+-1.335%
+Round 5/25
+12.0
+Solver time: 0 m 32 s
+-1.372%
+Solver time: 1 m 43 s
+-1.488%
+Round 6/25
+10.0
+Solver time: 0 m 37 s
+-1.489%
+Solver time: 0 m 43 s
+-1.492%
+Round 7/25
+8.0
+Solver time: 0 m 41 s
+-1.539%
+Solver time: 0 m 59 s
+-1.705%
+Round 8/25
+6.0
+Solver time: 0 m 42 s
+-1.709%
+Solver time: 2 m 15 s
+-1.945%
+Round 9/25
+5.0
+Solver time: 0 m 37 s
+-1.946%
+Solver time: 0 m 37 s
+-2.485%
+Solver time: 0 m 36 s
+-2.485%
+Solver time: 0 m 39 s
+-2.485%
+Solver time: 0 m 37 s
+-2.485%
+Solver time: 1 m 21 s
+-2.485%
+Round 10/25
+4.5
+Solver time: 0 m 58 s
+-2.495%
+Solver time: 0 m 39 s
+-2.497%
+Solver time: 0 m 33 s
+-2.497%
+Solver time: 0 m 40 s
+-2.497%
+Solver time: 0 m 39 s
+-2.504%
+Solver time: 3 m 18 s
+-6.248%
+Round 11/25
+4.0
+Solver time: 0 m 42 s
+-6.970%
+Solver time: 0 m 41 s
+-7.003%
+Solver time: 0 m 39 s
+-7.003%
+Solver time: 0 m 40 s
+-7.003%
+Solver time: 1 m 6 s
+-7.003%
+Solver time: 10 m 24 s
+-7.211%
+Round 12/25
+3.5
+Solver time: 0 m 43 s
+-7.229%
+Solver time: 0 m 42 s
+-7.232%
+Solver time: 1 m 1 s
+-7.913%
+Solver time: 0 m 38 s
+-7.978%
+Solver time: 0 m 48 s
+-10.283%
+Solver time: 13 m 56 s
+-10.287%
+Round 13/25
+3.0
+Solver time: 0 m 42 s
+-10.302%
+Solver time: 2 m 43 s
+-10.399%
+Solver time: 0 m 57 s
+-10.407%
+Solver time: 0 m 45 s
+-10.411%
+Solver time: 0 m 38 s
+-10.411%
+Solver time: 90 m 39 s
+-10.411%
+Round 14/25
+2.5
+Solver time: 15 m 33 s
+-10.416%
+Solver time: 0 m 49 s
+-10.552%
+Solver time: 1 m 19 s
+-10.552%
+Solver time: 0 m 50 s
+-10.553%
+Solver time: 0 m 51 s
+-10.553%

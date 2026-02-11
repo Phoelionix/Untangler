@@ -1,0 +1,167 @@
+REMARK   3
+REMARK   3 REFINEMENT.
+REMARK   3   PROGRAM     : PHENIX (2.0_5793: ???)
+REMARK   3   AUTHORS     : Adams,Afonine,Bunkoczi,Burnley,Chen,Dar,Davis,
+REMARK   3               : Draizen,Echols,Gildea,Gros,Grosse-Kunstleve,Headd,
+REMARK   3               : Hintze,Hung,Ioerger,Liebschner,McCoy,McKee,Moriarty,
+REMARK   3               : Oeffner,Poon,Read,Richardson,Richardson,Sacchettini,
+REMARK   3               : Sauter,Sobolev,Storoni,Terwilliger,Williams,Zwart
+REMARK   3
+REMARK   3  X-RAY DATA.
+REMARK   3  
+REMARK   3  REFINEMENT TARGET : ML
+REMARK   3  
+REMARK   3  DATA USED IN REFINEMENT.
+REMARK   3   RESOLUTION RANGE HIGH (ANGSTROMS) : 0.85    
+REMARK   3   RESOLUTION RANGE LOW  (ANGSTROMS) : 40.78   
+REMARK   3   MIN(FOBS/SIGMA_FOBS)              : 1.34  
+REMARK   3   COMPLETENESS FOR RANGE        (%) : 98.03 
+REMARK   3   NUMBER OF REFLECTIONS             : 130085    
+REMARK   3   NUMBER OF REFLECTIONS (NON-ANOMALOUS) : 130085    
+REMARK   3  
+REMARK   3  FIT TO DATA USED IN REFINEMENT.
+REMARK   3   R VALUE     (WORKING + TEST SET) : 0.0829
+REMARK   3   R VALUE            (WORKING SET) : 0.0827
+REMARK   3   FREE R VALUE                     : 0.0984
+REMARK   3   FREE R VALUE TEST SET SIZE   (%) : 1.54  
+REMARK   3   FREE R VALUE TEST SET COUNT      : 1998      
+REMARK   3  
+REMARK   3  FIT TO DATA USED IN REFINEMENT (IN BINS).
+REMARK   3   BIN  RESOLUTION RANGE  COMPL.    NWORK NFREE   RWORK  RFREE  CCWORK CCFREE
+REMARK   3     1   40.78 -    2.05    1.00     9799   151  0.0910 0.1122   0.982  0.975
+REMARK   3     2    2.05 -    1.62    1.00     9474   148  0.0816 0.0765   0.984  0.984
+REMARK   3     3    1.62 -    1.42    0.99     9325   146  0.0699 0.0953   0.987  0.974
+REMARK   3     4    1.42 -    1.29    0.99     9251   144  0.0660 0.0726   0.988  0.985
+REMARK   3     5    1.29 -    1.20    0.98     9105   142  0.0603 0.0751   0.990  0.980
+REMARK   3     6    1.20 -    1.13    0.97     9029   141  0.0530 0.0753   0.992  0.985
+REMARK   3     7    1.13 -    1.07    0.97     9032   141  0.0550 0.0640   0.992  0.987
+REMARK   3     8    1.07 -    1.02    0.97     9021   141  0.0632 0.0900   0.989  0.980
+REMARK   3     9    1.02 -    0.98    0.98     9094   143  0.0805 0.1095   0.985  0.975
+REMARK   3    10    0.98 -    0.95    0.98     9062   141  0.0902 0.1156   0.978  0.969
+REMARK   3    11    0.95 -    0.92    0.98     9063   141  0.1079 0.1259   0.967  0.963
+REMARK   3    12    0.92 -    0.89    0.98     9067   141  0.1422 0.1842   0.945  0.913
+REMARK   3    13    0.89 -    0.87    0.98     9061   142  0.1868 0.2179   0.914  0.907
+REMARK   3    14    0.87 -    0.85    0.95     8704   136  0.2443 0.2461   0.872  0.885
+REMARK   3  
+REMARK   3  BULK SOLVENT MODELLING.
+REMARK   3   METHOD USED        : FLAT BULK SOLVENT MODEL
+REMARK   3   SOLVENT RADIUS     : 1.10    
+REMARK   3   SHRINKAGE RADIUS   : 0.90    
+REMARK   3   GRID STEP          : 0.60    
+REMARK   3  
+REMARK   3  ERROR ESTIMATES.
+REMARK   3   COORDINATE ERROR (MAXIMUM-LIKELIHOOD BASED)     : 0.07    
+REMARK   3   PHASE ERROR (DEGREES, MAXIMUM-LIKELIHOOD BASED) : 8.93    
+REMARK   3  
+REMARK   3  STRUCTURE FACTORS CALCULATION ALGORITHM : FFT
+REMARK   3  
+REMARK   3  B VALUES.
+REMARK   3   FROM WILSON PLOT           (A**2) : 7.68    
+REMARK   3   Individual atomic B
+REMARK   3                  min    max   mean <Bi,j>   iso aniso
+REMARK   3     Overall:    1.76  43.72   7.73   1.67 10405     0
+REMARK   3     Protein:    1.76  24.21   6.23   1.65  7620     0
+REMARK   3     Water:      2.22  43.72  13.01    N/A  2293     0
+REMARK   3     Other:      2.18  35.55   6.43    N/A   492     0
+REMARK   3     Chain  A:   1.76  35.55   6.24    N/A  8112     0
+REMARK   3     Chain  S:   2.22  43.72  13.01    N/A  2293     0
+REMARK   3     Histogram:
+REMARK   3         Values      Number of atoms
+REMARK   3       1.76 - 5.95       4771
+REMARK   3       5.95 - 10.15      3723
+REMARK   3      10.15 - 14.34       894
+REMARK   3      14.34 - 18.54       585
+REMARK   3      18.54 - 22.74       293
+REMARK   3      22.74 - 26.93        83
+REMARK   3      26.93 - 31.13        37
+REMARK   3      31.13 - 35.33        13
+REMARK   3      35.33 - 39.52         5
+REMARK   3      39.52 - 43.72         1
+REMARK   3  REMARK   3  
+REMARK   3  GEOMETRY RESTRAINTS LIBRARY: GEOSTD + MONOMER LIBRARY + CDL V1.2
+REMARK   3  DEVIATIONS FROM IDEAL VALUES - RMSD, RMSZ FOR BONDS AND ANGLES.
+REMARK   3    BOND      :  0.008   0.062   8340  Z= 0.366
+REMARK   3    ANGLE     :  1.129   9.477  11412  Z= 0.574
+REMARK   3    CHIRALITY :  0.086   0.375   1188
+REMARK   3    PLANARITY :  0.010   0.104   1446
+REMARK   3    DIHEDRAL  : 16.405  89.263   3318
+REMARK   3    MIN NONBONDED DISTANCE : 1.853
+REMARK   3  REMARK   3  
+REMARK   3  MOLPROBITY STATISTICS.
+REMARK   3    ALL-ATOM CLASHSCORE : 6.08
+REMARK   3    RAMACHANDRAN PLOT:
+REMARK   3      OUTLIERS :  0.00 %
+REMARK   3      ALLOWED  :  3.25 %
+REMARK   3      FAVORED  : 96.75 %
+REMARK   3    ROTAMER:
+REMARK   3      OUTLIERS :  1.60 %
+REMARK   3      ALLOWED  :  4.57 %
+REMARK   3      FAVORED  : 93.83 %
+REMARK   3    CBETA DEVIATIONS :  0.56 %
+REMARK   3    PEPTIDE PLANE:
+REMARK   3      CIS-PROLINE     : 0.00 %
+REMARK   3      CIS-GENERAL     : 0.68 %
+REMARK   3      TWISTED PROLINE : 0.00 %
+REMARK   3      TWISTED GENERAL : 0.00 %
+REMARK   3  
+REMARK   3  RAMA-Z VALUES WITH (UNCERTAINTIES):
+REMARK   3  INTERPRETATION: POOR |RAMA-Z| > 3; SUSPICIOUS 2 < |RAMA-Z| < 3; GOOD |RAMA-Z| < 2.
+REMARK   3  SCORES BELOW ARE SCALED INDEPENDENTLY, SO THEY AREN NOT RELATED IN A SIMPLE WAY.
+REMARK   3    WHOLE: -1.72 (0.25), RESIDUES: 924
+REMARK   3    HELIX: -1.43 (0.26), RESIDUES: 234
+REMARK   3    SHEET: -0.74 (0.28), RESIDUES: 300
+REMARK   3    LOOP : -1.07 (0.29), RESIDUES: 390
+REMARK   3  REMARK   3  
+REMARK   3  
+REMARK   3  DETAILS OF BONDING TYPE RMSD
+REMARK   3    COVALENT GEOMETRY    : BOND        0.00756 ( 8340)
+REMARK   3    COVALENT GEOMETRY    : ANGLE       1.12864 (11412)
+REMARK   3
+REMARK 290                                                                      
+REMARK 290 CRYSTALLOGRAPHIC SYMMETRY                                            
+REMARK 290 SYMMETRY OPERATORS FOR SPACE GROUP: P 21 21 21                       
+REMARK 290                                                                      
+REMARK 290      SYMOP   SYMMETRY                                                
+REMARK 290     NNNMMM   OPERATOR                                                
+REMARK 290       1555   X,Y,Z                                                   
+REMARK 290       2555   -X+1/2,-Y,Z+1/2                                         
+REMARK 290       3555   -X,Y+1/2,-Z+1/2                                         
+REMARK 290       4555   X+1/2,-Y+1/2,-Z                                         
+REMARK 290                                                                      
+REMARK 290     WHERE NNN -> OPERATOR NUMBER                                     
+REMARK 290           MMM -> TRANSLATION VECTOR                                  
+REMARK 290                                                                      
+REMARK 290 CRYSTALLOGRAPHIC SYMMETRY TRANSFORMATIONS                            
+REMARK 290 THE FOLLOWING TRANSFORMATIONS OPERATE ON THE ATOM/HETATM             
+REMARK 290 RECORDS IN THIS ENTRY TO PRODUCE CRYSTALLOGRAPHICALLY                
+REMARK 290 RELATED MOLECULES.                                                   
+REMARK 290   SMTRY1   1  1.000000  0.000000  0.000000        0.00000            
+REMARK 290   SMTRY2   1  0.000000  1.000000  0.000000        0.00000            
+REMARK 290   SMTRY3   1  0.000000  0.000000  1.000000        0.00000            
+REMARK 290   SMTRY1   2 -1.000000  0.000000  0.000000       16.98000            
+REMARK 290   SMTRY2   2  0.000000 -1.000000  0.000000        0.00000            
+REMARK 290   SMTRY3   2  0.000000  0.000000  1.000000       49.12700            
+REMARK 290   SMTRY1   3 -1.000000  0.000000  0.000000        0.00000            
+REMARK 290   SMTRY2   3  0.000000  1.000000  0.000000       22.41150            
+REMARK 290   SMTRY3   3  0.000000  0.000000 -1.000000       49.12700            
+REMARK 290   SMTRY1   4  1.000000  0.000000  0.000000       16.98000            
+REMARK 290   SMTRY2   4  0.000000 -1.000000  0.000000       22.41150            
+REMARK 290   SMTRY3   4  0.000000  0.000000 -1.000000        0.00000            
+REMARK 290                                                                      
+REMARK 290 REMARK: NULL                                                         
+CRYST1   33.960   44.823   98.254  90.00  90.00  90.00 P 21 21 21
+SCALE1      0.029446  0.000000  0.000000        0.00000
+SCALE2      0.000000  0.022310  0.000000        0.00000
+SCALE3      0.000000  0.000000  0.010178        0.00000
+ATOM  13722  N  ASER A 148      43.073  31.638  13.853 0.167  6.07           N
+ATOM  13723  CA ASER A 148      43.948  31.362  14.991 0.167  4.72           C
+ATOM  13724  C  ASER A 148      43.221  31.130  16.308 0.167  5.31           C
+ATOM  13725  O  ASER A 148      43.874  30.761  17.296 0.167  5.78           O
+ATOM  13726  CB ASER A 148      44.987  32.484  15.151 0.167  7.79           C
+ATOM  13727  OG ASER A 148      44.393  33.775  15.282 0.167  7.07           O
+ATOM  13728  H  ASER A 148      43.010  32.473  13.653 0.167  8.06           H
+ATOM  13729  HA ASER A 148      44.440  30.549  14.792 0.167  7.43           H
+ATOM  13730  HB2ASER A 148      45.559  32.485  14.367 0.167  9.22           H
+ATOM  13731  HB3ASER A 148      45.518  32.306  15.942 0.167  9.07           H
+ATOM  13732  HG ASER A 148      44.526  34.223  14.585 0.167  8.28           H
+HETATM16512  O  AHOH z 973      46.010  30.414  12.425  0.17 10.12           O

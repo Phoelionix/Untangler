@@ -24,6 +24,7 @@ CLIP_NEG_LJ=True # try False
 IGNORE_HYDROGEN_NONBOND=False # Does not apply to TwoAtomPenalty
 VDW_BUFFER=0 
 CLASH_OVERLAP_THRESHOLD=0.45 #0.8+0.4 # 0.4 0.6
+#CLASH_OVERLAP_THRESHOLD=0.4
 
 
 IGNORE_SYMMETRY_CLASHES=False
@@ -35,7 +36,7 @@ def is_atom(atom:Atom,resnum,name,altloc):
             return True
         return False
 def atoms_in_LO_variable_string(variable:str,atoms:list[Atom]): # e.g. "30.C_B|31.CA_B" or "Nonbond_30.CA_A|31.N_A"
-    if not variable.split(".")[0].isnumeric():
+    if not variable.split(".")[0].isnumeric(): # i.e. if of form GeometryName_[...] 
         variable = variable[variable.find("_")+1:]
     atom_strings = variable.split("|")
     
@@ -246,6 +247,7 @@ class ConstraintsHandler:
             self.altlocs_vdw_dict={}
             super().__init__(atom_ids,outlier_ok,None,weight,None)
             self.symmetries=symmetries
+        '''
         def add_ordered(self,altlocs,vdw,is_symm):
             assert len(altlocs)==2
             assert tuple(altlocs) not in self.altlocs_vdw_dict
@@ -255,16 +257,26 @@ class ConstraintsHandler:
                 self.altlocs_vdw_dict[key]=[None,None] # (same-asu contacts, crystal-packing contacts) 
             sep_idx = 1 if is_symm else 0
             self.altlocs_vdw_dict[key][sep_idx]=vdw
+        '''
+        def add_disordered(self,vdw,is_symm):
+            idx = 1 if is_symm else 0
+            if None not in self.altlocs_vdw_dict:
+                self.altlocs_vdw_dict[None]=[None,None]
+            self.altlocs_vdw_dict[None][idx]=vdw
         def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
             sorted_atoms = self.get_sorted_atoms(atoms)
             if sorted_atoms is None:
                 return None
             a,b = sorted_atoms
             altlocs=(a.get_altloc(),b.get_altloc())  # NOTE order matters!!
-            if (altlocs not in self.altlocs_vdw_dict):
-                return -1, -1, 0, 0
+            vdw_key=altlocs
+            if (vdw_key not in self.altlocs_vdw_dict):
+                if None in self.altlocs_vdw_dict:
+                    vdw_key=None
+                else:
+                    return -1, -np.inf, 0, 0
             
-            r0,r0_sym = self.altlocs_vdw_dict[altlocs]
+            r0,r0_sym = self.altlocs_vdw_dict[vdw_key]
             r, r_sym_min = ConstraintsHandler.NonbondConstraint.symm_min_separation(a,b,self.symmetries)
             assert any([r is not None for r in (r0,r0_sym)])
             dev_same=dev_symm=0
@@ -272,6 +284,15 @@ class ConstraintsHandler:
                 dev_same = max(0,r0-r)
             if r0_sym is not None:
                 dev_symm = max(0,r0_sym-r_sym_min)
+
+
+            if dev_symm < CLASH_OVERLAP_THRESHOLD:
+                dev_symm=0
+            if dev_same < CLASH_OVERLAP_THRESHOLD:
+                dev_same=0
+            if dev_same==dev_symm==0:
+                return -1, -np.inf, 0, 0
+
             dev=dev_same+dev_symm
             if dev_same>=dev_symm:
                 worst_r0,worst_actual=r0,r
@@ -306,8 +327,8 @@ class ConstraintsHandler:
             a,b = sorted_atoms
             altlocs=(a.get_altloc(),b.get_altloc())  # NOTE order matters!!
             if (altlocs not in self.altlocs_clash_dict):
-                return -1, -1, 0, 0 #  TODO return None once LinearOptimizer.Solver behaves fine with it
-            return -1, -1, 0, self.altlocs_clash_dict[altlocs]*self.weight
+                return -1, -np.inf, 0, 0 #  TODO return None once LinearOptimizer.Solver behaves fine with it
+            return -1, -np.inf, 0, self.altlocs_clash_dict[altlocs]*self.weight
 
 
     class NonbondConstraint(Constraint):
@@ -338,6 +359,7 @@ class ConstraintsHandler:
             self.altlocs_vdw_dict[None][idx]=vdw
         @staticmethod
         def symm_min_separation(a:Atom,b:Atom,symmetries):
+            # between 2 atom conformers (2 ordered atoms). This is NOT the minimum separation possible of all conformers for the disordered atom pair.
             coord_dict={"a":[],"b":[]}
             assert (np.array([2,2,2])==UntangleFunctions.get_sym_xfmed_point(np.array([2,2,2]),symmetries[0])).all()
             symmetries = symmetries[1:] 
@@ -417,7 +439,7 @@ class ConstraintsHandler:
                 if None in self.altlocs_vdw_dict:
                     vdw_key=None
                 else:
-                    return -1, -1, 0, 0
+                    return -1, -np.inf, 0, 0
             
             r0,r0_sym = self.altlocs_vdw_dict[vdw_key]
             r, r_sym_min = ConstraintsHandler.NonbondConstraint.symm_min_separation(a,b,self.symmetries)
@@ -492,10 +514,7 @@ class ConstraintsHandler:
         first_site = constraint.site_tags[0]
         for held_constraint in self.atom_constraints[first_site]:
             if held_constraint == constraint:
-                if type(constraint) is ConstraintsHandler.NonbondConstraint:
-                    constraint.add_disordered(vdw_sum,is_symm)
-                else:
-                    constraint.add_ordered(altlocs,vdw_sum,is_symm)
+                constraint.add_disordered(vdw_sum,is_symm)
                 found+=1
         assert found == 1
     def scale_constraint_weight(self,pdb_ids:list[str],constraint_type:Type,weight_factor:float):
@@ -745,7 +764,7 @@ class ConstraintsHandler:
                     # last_num_found_LJ=NB_pairs_added
                     # last_num_found_clashes=clashes_added
                     #print(f"Flagging cross-conformation nonbonds for{' protein' if not waters_outer_loop else ''} conformer {i}/{len(phenix_vdw_distances_table)}")
-                    print(f"Processing cross-conformation {interaction_str} {i}/{len(table)}")
+                    print(f"Processing possible cross-conformation {interaction_str} {i}/{len(table)}")
 
                 if IGNORE_HYDROGEN_NONBOND and (confA.element()=="H" or confB.element=="H") and not all_restraints_mode:
                     return
@@ -772,11 +791,18 @@ class ConstraintsHandler:
                     return
 
                     
+                # Check if this constraint comes into play between any pair of atoms across conformations
                 sep_idx = 1 if is_symm else 0
-                min_separation = ConstraintsHandler.NonbondConstraint.symm_min_separation(
-                    atomA,
-                    atomB,
-                    symmetries)[sep_idx]
+                min_separation=np.inf
+                for atomA_ordered, atomB_ordered in zip(
+                    ordered_atom_lookup.better_dict[confA.resnum()][confA.atom_name()].values(),
+                    ordered_atom_lookup.better_dict[confB.resnum()][confB.atom_name()].values()
+                ):
+                    ordered_min_separation = ConstraintsHandler.NonbondConstraint.symm_min_separation(
+                        atomA_ordered,
+                        atomB_ordered,
+                        symmetries)[sep_idx]
+                    min_separation=min(ordered_min_separation,min_separation)
                 
                 
                 #if atoms_in_LO_variable_string("Nonbond_30.C_B|31.CA_B",(atomA,atomB)):
@@ -806,6 +832,8 @@ class ConstraintsHandler:
                 # VDW overlap (clashes)
                 altlocs = (confA.altloc(),confB.altloc())
                 if table_kind==ConstraintsHandler.ClashConstraint:
+                    if confA.resnum()==confB.resnum():
+                        return  # FIXME. Aromatic sidechains
                     vdw_gap = phenix_vdw_sum
                     # if HOLTON_CLASHES:
                     #     #vdw_gap=3 # blanket 3 angstrom

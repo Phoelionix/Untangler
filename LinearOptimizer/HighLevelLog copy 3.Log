@@ -1,0 +1,102 @@
+4PSS_6conf-0 altloc optimizer log
+Loop 1/1
+Round 1/25
+100.0
+Solver time: 0 m 55 s, Total: 1 m 7 s
+-0.104%
+Solver time: 0 m 51 s, Total: 2 m 16 s
+-0.556%
+Round 2/25
+30.0
+Solver time: 0 m 33 s, Total: 3 m 8 s
+-0.556%
+Solver time: 0 m 52 s, Total: 4 m 15 s
+-0.910%
+Round 3/25
+20.0
+Solver time: 0 m 35 s, Total: 5 m 7 s
+-0.910%
+Solver time: 0 m 45 s, Total: 6 m 7 s
+-1.327%
+Round 4/25
+15.0
+Solver time: 0 m 34 s, Total: 7 m 1 s
+-1.333%
+Solver time: 0 m 48 s, Total: 8 m 4 s
+-1.336%
+Round 5/25
+12.0
+Solver time: 0 m 36 s, Total: 8 m 57 s
+-1.372%
+Solver time: 1 m 39 s, Total: 10 m 51 s
+-1.379%
+Round 6/25
+10.0
+Solver time: 0 m 54 s, Total: 12 m 6 s
+-1.382%
+Solver time: 1 m 45 s, Total: 14 m 6 s
+-1.382%
+Round 7/25
+8.0
+Solver time: 0 m 41 s, Total: 15 m 4 s
+-1.384%
+Solver time: 1 m 48 s, Total: 17 m 8 s
+-1.705%
+Round 8/25
+6.0
+Solver time: 0 m 39 s, Total: 18 m 4 s
+-1.741%
+Solver time: 1 m 20 s, Total: 19 m 40 s
+-1.743%
+Round 9/25
+5.0
+Solver time: 0 m 45 s, Total: 20 m 45 s
+-1.745%
+Solver time: 2 m 18 s, Total: 25 m 47 s
+-2.558%
+Round 10/25
+4.5
+Solver time: 0 m 36 s, Total: 26 m 44 s
+-2.563%
+Solver time: 0 m 40 s, Total: 27 m 41 s
+-2.564%
+Solver time: 2 m 24 s, Total: 30 m 23 s
+-6.468%
+Round 11/25
+4.0
+Solver time: 0 m 42 s, Total: 31 m 22 s
+-7.209%
+Solver time: 0 m 41 s, Total: 32 m 21 s
+-7.217%
+Solver time: 5 m 47 s, Total: 38 m 26 s
+-7.217%
+Round 12/25
+3.5
+Solver time: 0 m 48 s, Total: 39 m 31 s
+-7.220%
+Solver time: 0 m 43 s, Total: 40 m 29 s
+-7.964%
+Solver time: 7 m 19 s, Total: 48 m 4 s
+-10.255%
+Round 13/25
+3.0
+Solver time: 0 m 52 s, Total: 49 m 14 s
+-10.258%
+Solver time: 0 m 42 s, Total: 50 m 14 s
+-10.258%
+Solver time: 9 m 36 s, Total: 60 m 6 s
+-10.258%
+Round 14/25
+2.5
+Solver time: 0 m 53 s, Total: 61 m 19 s
+-10.299%
+Solver time: 0 m 53 s, Total: 62 m 30 s
+-10.299%
+Solver time: 9 m 58 s, Total: 72 m 44 s
+-10.506%
+Round 15/25
+2.0
+Solver time: 1 m 21 s, Total: 74 m 25 s
+-10.506%
+Solver time: 1 m 2 s, Total: 75 m 43 s
+-10.787%
