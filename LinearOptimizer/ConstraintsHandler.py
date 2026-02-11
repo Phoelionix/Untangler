@@ -301,12 +301,20 @@ class ConstraintsHandler:
             #TODO consider making it a sum of scoring_function(dev,...) + scoring_function(dev_sym,...)
 
             sigma=1
-            multiplicity_correction = 0.5 if len(set(altlocs))==1 else 1
-            return worst_r0, worst_actual, 0, scoring_function(dev,sigma,r0,self.num_bound_e) * self.weight * multiplicity_correction # note a z-score doesnt make sense here.
+
+            # if atoms_in_LO_variable_string("Clash_14.O_D|15.CA_D",atoms):
+            #     print(dev_symm,dev_same,r0,r,r0_sym,r_sym_min)
+            #     print(scoring_function(dev,sigma,worst_r0,self.num_bound_e) * self.weight * multiplicity_correction )
+            #     asddsds
+            # if atoms_in_LO_variable_string("Clash_14.O_D|15.CA_C",atoms):
+            #     print(dev_symm,dev_same,r0,r,r0_sym,r_sym_min)
+            #     print(scoring_function(dev,sigma,worst_r0,self.num_bound_e) * self.weight * multiplicity_correction )
+
+            return worst_r0, worst_actual, 0, scoring_function(dev,sigma,worst_r0,self.num_bound_e) * self.weight# note a z-score doesnt make sense here.
 
         def badness(r, vdw_gap):
             #if r > (vdw_gap-CLASH_OVERLAP_THRESHOLD):
-            if r > (vdw_gap-0.4):
+            if r > (vdw_gap-CLASH_OVERLAP_THRESHOLD):
                 return 0
             return 3*((vdw_gap - r)/0.4)**2  # TODO how Holton calculates it?
         
@@ -475,8 +483,7 @@ class ConstraintsHandler:
             sigma=1
             z_score = dev = np.sqrt(energy) # Not a distance!
             #return z_score, scoring_function(dev,sigma,r0,self.num_bound_e) * self.weight
-            multiplicity_correction = 0.5 if len(set(altlocs))==1 else 1
-            return worst_r0,worst_actual, np.sqrt(energy), energy * self.weight *multiplicity_correction
+            return worst_r0,worst_actual, np.sqrt(energy), energy * self.weight
         
 
     def __init__(self,constraints:list[Constraint]=[]):
