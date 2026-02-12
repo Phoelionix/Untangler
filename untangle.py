@@ -29,7 +29,7 @@ from Untwist import untwist
 
 
   # Note argument forbid_CECD12_changes in LinearOptimizer.solve()
-DISABLE_WATER_ALTLOC_OPTIM=True
+DISABLE_WATER_ALTLOC_OPTIM=False
 TURN_OFF_BULK_SOLVENT=False
 CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=False
 PHENIX_ORDERED_SOLVENT=False
@@ -89,6 +89,7 @@ class Untangler():
     num_loops_not_untwist=0 
     final_untwist_loop=999 # if equal to num_loops_not_untwist, will do untwist in that loop only
     debug_skip_initial_holton_data_generation =debug_skip_initial_refine or (debug_skip_to_loop!=0) # Initial score file. Will always create if expected path to score file doesn't exist.
+    debug_skip_initial_holton_data_generation =True
     #debug_skip_initial_holton_data_generation =False
     phenix_ordered_solvent_on_initial=False
     refmac_refine_water_occupancies_on_initial=False
@@ -829,6 +830,8 @@ class Untangler():
         self.prepare_pdb_and_read_altlocs(old_working_model,working_model,
                                           ring_name_grouping=UntangleFunctions.RING_NAME_GROUPING #NOTE
                                           )
+        reduce_H_model = UntangleFunctions.reduce_H(working_model)
+        shutil.move(reduce_H_model,working_model)
 
         def get_tensions(restrained_model,unrestrained_model):
             if not (skip_unrestrained and os.path.exists(geo_file_name(unrestrained_model))): # XXX risky..
@@ -1332,36 +1335,9 @@ class Untangler():
     def regular_batch_refine(self,model_paths:list[str],altloc_subsets_list=None, refine_H=False,alternate_strategy=False, refine_H_before_end=False,**kwargs):
 
         
-        #######
-        # if initial_H_geom_refine:  # Try to prevent unnecessary H clashes
-        #     new_model_handles=[]
-        #     param_set:list[tuple[SimpleNamespace,list[str]]] = []
-        #     assert self.refinement==self.PHENIX
-
-        #     for i, model in enumerate(model_paths):
-        #         altloc_subset = altloc_subsets_list[i] if (altloc_subsets_list is not None) else None
-        #         out_handle=f"focusH{self.loop}-{i+1}"
-        #         new_model_handles.append(out_handle)
-        #         refine_params = self.get_refine_params_phenix(
-        #             out_handle,
-        #             model_path=model,
-        #             num_macro_cycles=1,
-        #             wc=10,
-        #             ordered_solvent=False,
-        #             refine_occupancies=False,
-        #             max_sigma_movement_of_selected=1,
-        #             altloc_subset=altloc_subset,
-        #             refine_hydrogens=True,
-        #             hold_protein_positions=True,
-        #             hold_water_positions=True,
-        #             )
-        #         param_set.append(refine_params)
-        #     out_dir = self.batch_refine(f"focusH{self.loop}",param_set,**kwargs)
-        #     model_paths = [os.path.join(out_dir,handle) for handle in new_model_handles]
-
-        #######
         param_set:list[tuple[SimpleNamespace,list[str]]] = []
         all_phenix_kwargs=[]
+        assert len(model_paths)>0
         for i, model in enumerate(model_paths):
             altloc_subset = altloc_subsets_list[i] if (altloc_subsets_list is not None) else None 
             out_tag=f"loopEnd{self.loop}-{i+1}"
@@ -1934,7 +1910,7 @@ def main():
         refine_for_positions_geo_weight=0,
         starting_num_best_swaps_considered=1,
         max_num_best_swaps_considered=1,
-        altloc_subset_size=6,
+        altloc_subset_size=10,
         unrestrained_damp=0,
         #refine_for_positions_geo_weight=0.03,
         num_refine_for_positions_macro_cycles_phenix=1,
@@ -1943,10 +1919,11 @@ def main():
         weight_factors = {
             ConstraintsHandler.BondConstraint: 0.1,
             ConstraintsHandler.AngleConstraint: 80,
-            #ConstraintsHandler.NonbondConstraint: 0,
-            ConstraintsHandler.NonbondConstraint: 0.1,
+            #ConstraintsHandler.NonbondConstraint: 0.1,
+            ConstraintsHandler.NonbondConstraint: 0,
             #ConstraintsHandler.ClashConstraint: 1e8,
-            ConstraintsHandler.ClashConstraint: 1e7,#1e2,
+            #ConstraintsHandler.ClashConstraint: 1e7,#1e2,
+            ConstraintsHandler.ClashConstraint: 1e7,
             ConstraintsHandler.TwoAtomPenalty: 0,
         },
         solution_reference=solution_reference,

@@ -39,8 +39,8 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
     
     params = mmtbx.model.manager.get_default_pdb_interpretation_params()
     params.pdb_interpretation.allow_polymer_cross_special_position=True
-    params.pdb_interpretation.clash_guard.nonbonded_distance_threshold = 15
-    params.pdb_interpretation.nonbonded_distance_cutoff= 15
+    params.pdb_interpretation.clash_guard.nonbonded_distance_threshold = 10
+    params.pdb_interpretation.nonbonded_distance_cutoff= 10
     params.pdb_interpretation.restraints_library.cdl = use_cdl
     params.pdb_interpretation.const_shrink_donor_acceptor=holton_csda
     #pdb_inp = iotbx.pdb.input(lines=raw_records.split("\n"), source_info=None)
@@ -159,22 +159,90 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
         
     def read_clash_table(keyA,keyB): #  https://doi.org/10.1002/pro.3330
         vdw_dict=dict(
-            H=1.22,
-            H_aromatic=1.05,
-            H_polar=1.05,
+            H=1.22, H_aromatic=1.05, H_polar=1.05,
             C=1.7,
             C_aromatic=1.75,
             N=1.55,
-            O=1.40,
+            O=1.40, HOH_O=1.40,
             P=1.80,
             S=1.80,
             #Se=1.90,
         )
+        #TODO HOH
         # TODO aromatic, polar
-        eleA = keyA.split('"')[1].strip()[0] 
-        eleB = keyB.split('"')[1].strip()[0]
+        # key of form: 'pdb=" C  VAL A   1 "'
+
+        
+        def to_energy_type(key):
+            entry=key.split('"')[1]
+            name,resname = entry[0:4].strip(),entry[4:7]
+
+            aromatic_H_dict=dict(
+                HIS=("HD1","HE1","HE2","HD2"),
+                TYR=("HD1","HE1","HE2","HD2"),
+                PHE=("HD1","HE1","HE2","HD2","HZ"),
+                TRP=("HD1","HE1","HH2","HZ2","HZ3","HE3"),
+                NAP=("H8A","H2A","H2N","H4N","H5N","H6N"),
+                FOL=("HN1","H7","H15","H12","H13","H15","H16"),
+            )
+            aromatic_C_dict=dict(
+                HIS=("CG","CD2","CE1"),
+                TYR=("CG","CD1","CD2","CE1","CE2","CZ"),
+                PHE=("CG","CD1","CD2","CE1","CE2","CZ"),
+                TRP=("CD1","CG","CD2","CE2","CZ2","CH2","CZ3","CE3"),
+                NAP=("C2A","C4A","C5A","C6A","C8A","C2N","C3N","C4N","C5N","C6N"),
+                FOL=("C2","C4","C4A","C8A","C6","C7","C11","C12","C13","C14","C15","C16"),
+            )
+            polar_H_dict=dict(
+                ARG=("HE","HH11","HH12","HH21","HH22"),
+                LYS=("HZ1","HZ2","HZ3"),
+                SER=("HG",),
+                GLN=("HE21","HE22"),
+                TRP=("HE1"),
+                CSD=("HD2"),
+                HIS=("HD1","HE2"),
+                TYR=("HH"),
+                ASN=("HD21","HD22"),
+                NAP=("H71N","H72N","HO2N","HO3A","H61A","H62A"),
+                FOL=("HN21","HN22","HN1","HN0","HN","HOE2",),
+                THR=("HG1",),
+                CYS=("HG",),
+            )
+            if resname in polar_H_dict and  name in polar_H_dict[resname]\
+                or name in ["H","HN","H1","H2","H3"]:
+                return "H_polar"
+            if resname in aromatic_H_dict and name in aromatic_H_dict[resname]:
+                return "H_aromatic"
+            if resname in aromatic_C_dict and name in aromatic_C_dict[resname]:
+                return "C_aromatic"
+
+            return f"{resname}_{name}" if f"{resname}_{name}" in vdw_dict else name[0]
+        def is_acceptor(key):
+            # Oxygen, or nitrogen not bonded to H
+            entry=key.split('"')[1]
+            name,resname = entry[0:4].strip(),entry[4:7]
+            if name[0]=="O":
+                return True
+            if resname == "NAP" and name in ("N3A","N9A","N7A","N1A","N1N"):
+                return True
+            if resname == "FOL" and name in ("N3","N5","N8"):
+                return True
+
+
+
+        resnameA,resnameB = keyA.split('"')[1][4:7],keyB.split('"')[1][4:7]
+        if resnameA==resnameB=="HOH":
+            return None
+
+
+        def possible_hydrogen_bond(keyA,keyB):
+            return "H_polar" in (to_energy_type(keyA),to_energy_type(keyB))\
+                and  (is_acceptor(keyA) or is_acceptor(keyB))
+        
+        if possible_hydrogen_bond(keyA,keyB):    
+            return None
         try: 
-            return vdw_dict[eleA]+vdw_dict[eleB]
+            return vdw_dict[to_energy_type(keyA)]+vdw_dict[to_energy_type(keyB)]
         except:
             return None
 

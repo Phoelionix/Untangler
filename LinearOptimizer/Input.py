@@ -181,14 +181,14 @@ class LP_Input:
     #MODE= "LOW_TOL"
     #MODE= "V_LOW_TOL"
     #MODE= "V_LOW_TOL2"
-    MODE="TEST"
+    MODE="V_LOW_TOL2"
     max_sigmas,min_sigmas_where_anything_goes,min_tension_where_anything_goes={},{},{}
     if MODE=="NO_RESTRICTIONS":
         pass
     elif MODE=="TEST":
         max_sigmas={
-            ConstraintsHandler.BondConstraint:8,
-            ConstraintsHandler.AngleConstraint:8,
+            ConstraintsHandler.BondConstraint:6,
+            ConstraintsHandler.AngleConstraint:3,
         }    
     elif MODE=="NONBOND_RESTRICTIONS":
         max_sigmas={

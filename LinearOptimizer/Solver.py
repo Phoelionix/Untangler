@@ -69,12 +69,10 @@ KEEP_PREVIOUS_FLEXI=True
 NUM_RELEASE_ROUNDS=0
 
 # Specify None to consider all altlocs.
-ALTLOC_RUN_SUBSET_SIZES=[3,3,3,4,5,None] # None 
-ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT=[3,4,4,5,5,None]
+ALTLOC_RUN_SUBSET_SIZES=[3,3,3,3,4,4,4,5,5,None] # None 
+ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT=[3,3,3,4,5,None]
 
-NUM_ALTLOC_SUBSET_RUNS=5 # None
-NUM_ALTLOC_SUBSET_RUNS_AFTER_DIFFICULT=5 # None
-DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS=9999999
+DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS=99999
 
 
 
@@ -92,9 +90,6 @@ tolerate_score_mode=BETTER_THAN_WORST
 MEMORYLIMITGB=35
 
 
-# TODO Just make rhs = lhs
-assert len(ALTLOC_RUN_SUBSET_SIZES)>=NUM_ALTLOC_SUBSET_RUNS
-assert len(ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT)>=NUM_ALTLOC_SUBSET_RUNS_AFTER_DIFFICULT
 
 
 def add_sos(lp_problem:LpProblem,sos_name,sos_rule):
@@ -104,7 +99,7 @@ def add_sos2(lp_problem:LpProblem,sos2_name,sos2_rule):
 
 
 def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
-          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=25,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=50,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
           inert_water_sites=False,
           #gapRel=0.001,
           #gapRel=0,
@@ -230,8 +225,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     #         improvement_factors_to_tolerate=np.array([100,3,2,1.5,1.25,1.1,1,0.95,0.9,0.85,0.8,0.75,0.7,0.65]) 
     #     else:
     #         improvement_factors_to_tolerate=np.array([100,6,3,2,1.5,1.25,1.175,1.1,1.05,1]) 
-    mainchain_improvement_factor_requirement_mult_bond=1
-    mainchain_improvement_factor_requirement_mult_angle=0.01
+    mainchain_improvement_factor_requirement_mult_bond=0.5
+    mainchain_improvement_factor_requirement_mult_angle=0.01 #0.01
     sidechain_improvement_factor_requirement_mult_bond=1
     sidechain_improvement_factor_requirement_mult_angle=1
     if True:
@@ -1185,7 +1180,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         vals = vals_selection
 
         for constraint, var in vals:
-            connections_str+=f"{var.name} {constraint.ideal} {constraint.actual:.2e} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n"
+            connections_str+=f"{var.name} {constraint.ideal:.2e} {constraint.actual:.2e} {constraint.z_score:.2e} {constraint.ts_distance:.2e}\n"
         with open(out_file,'w') as f:
             f.write(connections_str)
     write_current_connections(f"{log_out_dir}/OriginalConnections.txt")
@@ -1419,7 +1414,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
         
         altlocs_to_restrict=[]
-        DEBUG_ALWAYS_HAVE_ALTLOCS=["B"] # TODO always have worst conformation.
+        #DEBUG_ALWAYS_HAVE_ALTLOCS=["B"] # TODO always have worst conformation.
+        DEBUG_ALWAYS_HAVE_ALTLOCS=[] 
         assert altloc_subset_size< len(all_altlocs)
         while len(altlocs_to_restrict)<len(all_altlocs)-altloc_subset_size:
             if len(altloc_pool)==0:
@@ -1555,10 +1551,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             #solver_options.append("set simplex pgradient 4") # BAD
             #solver_options.append("set preprocessing dependency 3") # https://www.ibm.com/docs/en/icos/22.1.1?topic=parameters-dependency-switch
             #symmetry_breaking_aggressiveness=5
-            emphasize_feasibility=False
+            emphasize_feasibility=True
             #aggressive_GUB_cuts=True
             #aggressive_probe=True
             max_cutting_planes_at_root=0
+            turn_off_cuts=True
             # TO TEST
             #branch_up=True
             #solver_options.append(f"set mip strategy subalgorithm {PRIMAL_SIMPLEX}") # https://www.ibm.com/docs/en/icos/22.1.1?topic=parameters-mip-subproblem-algorithm
@@ -1727,7 +1724,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         for r in range(num_rounds):
 
             altloc_subset_sizes=[None]
-            if not difficult and (NUM_ALTLOC_SUBSET_RUNS is not None):
+            if not difficult and (ALTLOC_RUN_SUBSET_SIZES is not None):
                 altloc_subset_sizes=ALTLOC_RUN_SUBSET_SIZES
             elif difficult and (ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT is not None):
                 altloc_subset_sizes=ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT
@@ -1783,6 +1780,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     #     else:
                     #         extra_args["options"]=advanced_basis_solver_options
                     
+                    # TODO try reusing solver object and just modify member variables. Might be that pulp naturally supports loading file information from previous CPLEX run, as CPLEX environment naturally does. 
                     solver = solver_class(timeLimit=60*minutes,threads=THREADS,warmStart=warmStart,logPath=logPath,
                                           gapRel=gapRel_subset_run if is_subset_run else gapRel,
                     **extra_args)
@@ -1912,7 +1910,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             active_constraints=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if var.value()>0.5]
             original_constraints=[(constraint,var) for constraint,var in disordered_connection_var_dict.values() if constraint.original()]
 
-            if active_constraints[0][0].connection_type==ConstraintsHandler.BondConstraint:
+            connection_type = active_constraints[0][0].connection_type if len(active_constraints)>0 else original_constraints[0][0].connection_type
+            if connection_type==ConstraintsHandler.BondConstraint:
                 bonds_replaced.extend(og_constraint[0] \
                                     for og_constraint in original_constraints if og_constraint not in active_constraints)
             if PLOTTING:
@@ -1922,7 +1921,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             if no_change:
                 continue
 
-            if active_constraints[0][0].connection_type in [ConstraintsHandler.ClashConstraint,ConstraintsHandler.NonbondConstraint,ConstraintsHandler.TwoAtomPenalty]:
+            if connection_type in [ConstraintsHandler.ClashConstraint,ConstraintsHandler.NonbondConstraint,ConstraintsHandler.TwoAtomPenalty]:
                 original_constraints = [(constraint,var) for constraint,var in original_constraints if constraint.ts_distance!=0]
                 active_constraints = [(constraint,var) for constraint,var in active_constraints if constraint.ts_distance!=0]
 

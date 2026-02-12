@@ -264,6 +264,7 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
         O.writelines(start_lines+end_lines)
 
 
+'''
 # Currently unused
 def nonexistent_parents_from_children(pdb_path, nonexistent_parent_from_child_priority_dict={},out_path=None):
 
@@ -342,7 +343,6 @@ def nonexistent_parents_from_children(pdb_path, nonexistent_parent_from_child_pr
                         
                         
                         atom_dict[resnum][altloc_to_use][atom_name]=replace_altloc(og_child_line,parent_altloc)
-       
     for line in lines:
         P = PDB_Atom_Entry(line)
         out_lines=[]
@@ -353,3 +353,4 @@ def nonexistent_parents_from_children(pdb_path, nonexistent_parent_from_child_pr
     with open(out_path,'w') as O:
         O.writelines(out_lines)
 
+'''

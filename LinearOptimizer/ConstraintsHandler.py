@@ -23,7 +23,7 @@ NO_INDIV_WEIGHTS=False  # (Edit: Also, could be good for avoiding undue weight p
 CLIP_NEG_LJ=True # try False
 IGNORE_HYDROGEN_NONBOND=False # Does not apply to TwoAtomPenalty
 VDW_BUFFER=0 
-CLASH_OVERLAP_THRESHOLD=0.45 #0.8+0.4 # 0.4 0.6
+CLASH_OVERLAP_THRESHOLD=0.4 #0.8+0.4 # 0.4 0.6
 #CLASH_OVERLAP_THRESHOLD=0.4
 
 
@@ -310,9 +310,11 @@ class ConstraintsHandler:
             #     print(dev_symm,dev_same,r0,r,r0_sym,r_sym_min)
             #     print(scoring_function(dev,sigma,worst_r0,self.num_bound_e) * self.weight * multiplicity_correction )
 
-            return worst_r0, worst_actual, 0, scoring_function(dev,sigma,worst_r0,self.num_bound_e) * self.weight# note a z-score doesnt make sense here.
+            #cost=scoring_function(dev,sigma,worst_r0,self.num_bound_e) * self.weight
+            cost=self.weight
+            return worst_r0, worst_actual, 0, cost# note a z-score doesnt make sense here.
 
-        def badness(r, vdw_gap):
+        def badness_DEPRECATED(r, vdw_gap):
             #if r > (vdw_gap-CLASH_OVERLAP_THRESHOLD):
             if r > (vdw_gap-CLASH_OVERLAP_THRESHOLD):
                 return 0
@@ -599,6 +601,7 @@ class ConstraintsHandler:
 
         self.constraints: list[ConstraintsHandler.Constraint]=[]
         bonds_added:list[DisorderedTag]=[]
+        bonds_added_dict:dict[DisorderedTag,list[DisorderedTag]]={}
         AngleEnds_added:list[DisorderedTag]=[]
         end_point_angle_scale_factor=1
         local_nb_scale_factor=1
@@ -607,8 +610,6 @@ class ConstraintsHandler:
             for i, line in enumerate(lines):
                 ideal= _= sigma=  weight = None
                 if line.startswith("bond"):
-                    if ConstraintsHandler.BondConstraint in constraints_to_skip:
-                        continue
                     constraint = lines[i:i+4]
                     pdb1=constraint[0].strip().split("\"")[1]
                     pdb2=constraint[1].strip().split("\"")[1]
@@ -625,6 +626,13 @@ class ConstraintsHandler:
 
                     sites =  ConstraintsHandler.Constraint.site_tags_from_pdb_ids((pdb1,pdb2))
                     bonds_added.append(frozenset(tuple(sites)))
+                    for s in sites:
+                        if s not in bonds_added_dict:
+                            bonds_added_dict[s]=[]
+                    bonds_added_dict[sites[0]].append(sites[1])
+                    bonds_added_dict[sites[1]].append(sites[0])
+                    if ConstraintsHandler.BondConstraint in constraints_to_skip:
+                        continue
                     self.add(ConstraintsHandler.BondConstraint(pdb_ids,outlier_ok("BOND",pdb_ids),ideal,weight,sigma),residual)
                 if line.startswith("angle"):
                     if ConstraintsHandler.AngleConstraint in constraints_to_skip:
@@ -658,7 +666,24 @@ class ConstraintsHandler:
         print("WARNING: assuming elements all single character")
 
 
-
+        def within_n_bonds(n,disordered_tag_A:DisorderedTag,disordered_tag_B:DisorderedTag,already_checked=None,debug_print=False):
+            if type(disordered_tag_A) is OrderedTag:
+                disordered_tag_A=disordered_tag_A.disordered_tag()
+            if type(disordered_tag_B) is OrderedTag:
+                disordered_tag_B=disordered_tag_B.disordered_tag()
+                
+            if disordered_tag_A not in bonds_added_dict or disordered_tag_B not in bonds_added_dict:
+                return False
+            if disordered_tag_B in bonds_added_dict[disordered_tag_A]:
+                if debug_print: print(f"Found,{disordered_tag_A},{disordered_tag_B}")
+                return True
+            if n>1:
+                for tag in [t for t in bonds_added_dict[disordered_tag_A] if (already_checked is None or t != already_checked)]:
+                    if within_n_bonds(n-1,tag,disordered_tag_B,already_checked=disordered_tag_A,debug_print=debug_print):
+                        if debug_print: print(f"{disordered_tag_A} {disordered_tag_B} within {n} bonds")
+                        return True
+            if debug_print: print(f"Not found,{disordered_tag_A},{disordered_tag_B}")
+            return False
 
 
         phenix_vdw_distances_table:dict[tuple[OrderedTag,OrderedTag,bool],float]={}
@@ -717,10 +742,15 @@ class ConstraintsHandler:
         water_water_nonbond=water_water_nonbond
         protein_protein_nonbonds=True
         cross_conformation_clashes = True
+        ignore_HH_contacts=False
         clashes_added=0
         NB_pairs_added=0
         if water_water_nonbond: 
             assert general_water_nonbond
+
+        if all_restraints_mode:
+            ignore_HH_contacts=False
+
         if not skip_nonbonds and (general_water_nonbond or protein_protein_nonbonds): 
             waters_outer_loop=water_water_nonbond
             # atoms = ordered_atom_lookup.select_atoms_by(protein=True, waters=waters_outer_loop,exclude_H=IGNORE_HYDROGEN_NONBOND)
@@ -777,7 +807,7 @@ class ConstraintsHandler:
                     return
 
                 
-                if (((confA.element()=="H") and (confB.element() == "H") and not all_restraints_mode) # Do not consider H-H clashes (expect to be more harmful than helpful due to H positions being poor.)
+                if (((confA.element()=="H") and (confB.element() == "H") and ignore_HH_contacts) # Do not consider H-H clashes (expect to be more harmful than helpful due to H positions being poor.)
                     or (frozenset((confA.disordered_tag(),confB.disordered_tag())) in bonds_added) # Nonbonded only!
                     or (frozenset((confA.disordered_tag(),confB.disordered_tag())) in AngleEnds_added)): #and other_atom.name in ["C","N","CA","CB","O"])
                     return
@@ -796,22 +826,40 @@ class ConstraintsHandler:
                 if not protein_protein_nonbonds\
                 and not UntangleFunctions.res_is_water(atomB.get_parent()):
                     return
+                
+                
 
                     
                 # Check if this constraint comes into play between any pair of atoms across conformations
                 sep_idx = 1 if is_symm else 0
                 min_separation=np.inf
-                for atomA_ordered, atomB_ordered in zip(
-                    ordered_atom_lookup.better_dict[confA.resnum()][confA.atom_name()].values(),
-                    ordered_atom_lookup.better_dict[confB.resnum()][confB.atom_name()].values()
-                ):
-                    ordered_min_separation = ConstraintsHandler.NonbondConstraint.symm_min_separation(
-                        atomA_ordered,
-                        atomB_ordered,
-                        symmetries)[sep_idx]
-                    min_separation=min(ordered_min_separation,min_separation)
-                
-                
+                for atomA_ordered in ordered_atom_lookup.better_dict[confA.resnum()][confA.atom_name()].values():
+                    for atomB_ordered in ordered_atom_lookup.better_dict[confB.resnum()][confB.atom_name()].values():
+
+                        ordered_min_separation = ConstraintsHandler.NonbondConstraint.symm_min_separation(
+                            atomA_ordered,
+                            atomB_ordered,
+                            symmetries)[sep_idx]
+                        min_separation=min(ordered_min_separation,min_separation)
+                    
+                        # if atoms_in_LO_variable_string("Clash_160.HG1_E|1573.O_B",(atomA,atomB)):
+                        #     print(atomA_ordered.get_altloc(),atomB_ordered.get_altloc())
+                        #     print(confA,confB)
+                        #     print(confA.resnum(),confA.atom_name())
+                        #     print(confB.resnum(),confB.atom_name())
+                        #     print(ordered_atom_lookup.better_dict[confA.resnum()][confA.atom_name()])
+                        #     print(ordered_atom_lookup.better_dict[confB.resnum()][confB.atom_name()])
+                        #     print(ordered_min_separation)
+                        #     print(min_separation)
+                        # if atoms_in_LO_variable_string("Clash_160.HG1_B|1573.O_B",(atomA_ordered,atomB_ordered)):
+                        #     print("=====")
+                        #     print(ordered_min_separation)
+                        #     print(min_separation)
+                        #     print(atomA_ordered.get_coord())
+                        #     print(atomB_ordered.get_coord())
+                        #     asdads
+
+
                 #if atoms_in_LO_variable_string("Nonbond_30.C_B|31.CA_B",(atomA,atomB)):
                 # if atoms_in_LO_variable_string("Nonbond_1.C_A|2.CA_A",(atomA,atomB)):
                 #     print(min_separation)
@@ -833,23 +881,50 @@ class ConstraintsHandler:
                 #     print(phenix_vdw_sum-VDW_BUFFER)
         
 
+                
 
                     
                 conf_pair=(confA,confB)
                 # VDW overlap (clashes)
                 altlocs = (confA.altloc(),confB.altloc())
                 if table_kind==ConstraintsHandler.ClashConstraint:
-                    if confA.resnum()==confB.resnum():
-                        return  # FIXME. Aromatic sidechains
+                    # Must be more than three covalent bonds
+                    # mch=["CB","CA","C","O"]
+                    # if confA.resnum()==confB.resnum()\
+                    # and any(conf.atom_name() not in mch for conf in (confA,confB)):
+                    #     if ordered_atom_lookup.res_names[confA.resnum()] in ["PHE","TYR"]:
+                    #         return
+                    #     if ordered_atom_lookup.res_names[confA.resnum()] == ["NAP"]\
+                    #     and any(conf.atom_name() not in 
+                    #     ["O2B","P2B","O1X","O2X","O3X","N6A","O3B","C5B","O5B","PA","O1A","O2A","O3","PN","O5D","C5D","C7N","N7N","O7N","O2D","O3D"]
+                    #     for conf in (confA,confB)):
+                    #         return
+                    #     if ordered_atom_lookup.res_names[confA.resnum()] == ["FOL"]\
+                    #     and any(conf.atom_name() in 
+                    #     ["C11","C12","C13","C14","C15","C16"]
+                    #     for conf in (confA,confB)):
+                    #         return
+                    
+                    # if all(conf.atom_name() in mch for conf in (confA,confB)) and abs(confA.resnum()-confB.resnum())<=1:
+                    #     return
+
+                    # Don't consider if within 3 covalent bonds
+                    
+                    if within_n_bonds(3,confA,confB):
+                        return
+
                     vdw_gap = phenix_vdw_sum
                     # if HOLTON_CLASHES:
                     #     #vdw_gap=3 # blanket 3 angstrom
                     #     #vdw_gap=max(3,vdw_gap) # Make both phenix and the holton score happy
                     #     pass
                     
-                    H2O_clash_weight=1/50
-                    H_clash_weight=1/10
-                    HH_clash_weight=1/50
+                    #H2O_clash_weight=1/50
+                    # H_clash_weight=1/10
+                    # HH_clash_weight=1/50
+                    H2O_clash_weight=0.95
+                    H_clash_weight=0.9
+                    HH_clash_weight=0.8
                     if all(conf.element()=="H" for conf in (confA,confB)):
                         nb_weight*=H_clash_weight
                     elif any(conf.element()=="H" for conf in (confA,confB)):

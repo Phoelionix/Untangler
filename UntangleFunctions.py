@@ -882,6 +882,14 @@ class PDB_Atom_Entry:
         return self.atom_entry[:16]+new_altloc+self.atom_entry[17:30]+coord_str+self.atom_entry[54:]
         
 
+def reduce_H(pdb_file):
+    out_file=pdb_file[:-4]+"_Hadded.pdb"
+    args=["phenix.reduce", pdb_file]
+    print (f"|+ Running: {' '.join(args)}")
+    with open(out_file,"w+") as f:
+        subprocess.call(args,stdout=f,stderr=subprocess.DEVNULL)
+
+    return out_file
         
 
 # %%
