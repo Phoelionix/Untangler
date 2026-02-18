@@ -28,11 +28,11 @@ from Untwist import untwist
 
 
 
-  # Note argument forbid_CECD12_changes in LinearOptimizer.solve()
 DISABLE_WATER_ALTLOC_OPTIM=False
 TURN_OFF_BULK_SOLVENT=False
 CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=False
 PHENIX_ORDERED_SOLVENT=False
+PHENIX_SAME_OCC_ORDERED_SOLVENT=False
 TENSIONS=False  # Enables behaviours of permitting otherwise forbidden geomection options involving high-tension sites, and, if option enabled, to scale cost by tensions
 PHENIX_FREEZE_WATER=False
 PHENIX_DISABLE_CDL=False # Disables the conformation-dependent library for phenix.refine. 
@@ -45,7 +45,7 @@ DISABLE_ALTLOC_SUBSET_REFINE=True
 
 EVEN_SPLIT_OCCUPANCIES=True
 
-TIMEOUT_MINS_FACTOR=2
+TIMEOUT_MINS_FACTOR=8
 
 # TODO:
 # down weight swaps that were previously made but need to be made again (i.e. cases where it's not tangled and the density is pushing it a different way.)
@@ -64,14 +64,14 @@ class Untangler():
     debug_skip_initial_refine=True
     debug_skip_first_unrestrained_refine=True
     debug_skip_first_untwist_refine=False
-    debug_skip_first_swaps=False
+    debug_skip_first_swaps=True
     debug_skip_first_batch_refine=False # skip to assessing best model from the batch of refinements
     debug_skip_first_focus_swaps=False # many swaps strategy only 
     debug_skip_unrestrained_refine=False
     debug_always_accept_proposed_model=True
     debug_skip_holton_data_generation=False
     auto_group_waters=False
-    never_do_unrestrained=False # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
+    never_do_unrestrained=UntangleFunctions.NO_UNRESTRAINED # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
     always_allow_O_swaps=False
     always_forbid_O_swaps=False
     debug_main_chain_swaps_only=False  ##
@@ -80,8 +80,9 @@ class Untangler():
     default_scoring_function = staticmethod(ConstraintsHandler.chi_z_sqr) # Like Holton score (non-outlier terms)
     #default_scoring_function = staticmethod(ConstraintsHandler.chi) # Like how phenix scores
     #default_scoring_function = staticmethod(ConstraintsHandler.log_chi)
-    debug_skip_to_loop=0
-    #untwist_loop=99
+    debug_skip_to_loop=15
+    debug_force_subsets=None # ["BDEF"] # None
+    #debug_force_subsets=["BDEF"] # None
     num_loops_not_refine_H=0
     #untwist_moves_enabled=True
     untwist_moves_enabled=False
@@ -517,6 +518,7 @@ class Untangler():
                                             MAIN_CHAIN_ONLY=MAIN_CHAIN_ONLY,SIDE_CHAIN_ONLY=SIDE_CHAIN_ONLY,NO_CB_CHANGES=NO_CB_CHANGES,
                                             max_bond_changes=self.max_bond_changes,
                                             NO_ISOLATED_O_BOND_CHANGES=self.no_isolated_O_bond_swaps(),
+                                            reference_pdb_file=model_to_swap,
                                             #water_sites=False,
                                             )
         else:
@@ -569,6 +571,7 @@ class Untangler():
                                                         MAIN_CHAIN_ONLY=MAIN_CHAIN_ONLY,SIDE_CHAIN_ONLY=SIDE_CHAIN_ONLY,NO_CB_CHANGES=NO_CB_CHANGES,
                                                         max_bond_changes=self.max_bond_changes,
                                                         NO_ISOLATED_O_BOND_CHANGES=self.no_isolated_O_bond_swaps(),
+                                                        reference_pdb_file=model_to_swap,
                                                         )
                 water_swapper = Swapper()
                 water_swapper.add_candidates(waters_swapped_path)
@@ -807,14 +810,6 @@ class Untangler():
                 self.track(working_model,label=f"Unrestrained")
             #self.track(working_model,label=f"Unrestrained")
 
-            # if self.loop>=self.loops_without_untwist:
-            #     working_model = self.untwist(working_model,skip=skip_unrestrained)
-
-            # if self.loop==self.untwist_loop:
-            #     working_model = self.untwist(working_model,skip=skip_unrestrained)
-            #     print("Resetting score")
-            #     self.current_score = Untangler.Score.inf_bad_score()
-
             if skip_unrestrained and not os.path.exists(working_model):
                 working_model = self.current_model
 
@@ -830,8 +825,8 @@ class Untangler():
         self.prepare_pdb_and_read_altlocs(old_working_model,working_model,
                                           ring_name_grouping=UntangleFunctions.RING_NAME_GROUPING #NOTE
                                           )
-        reduce_H_model = UntangleFunctions.reduce_H(working_model)
-        shutil.move(reduce_H_model,working_model)
+        #reduce_H_model = UntangleFunctions.reduce_H(working_model)
+        #shutil.move(reduce_H_model,working_model)
 
         def get_tensions(restrained_model,unrestrained_model):
             if not (skip_unrestrained and os.path.exists(geo_file_name(unrestrained_model))): # XXX risky..
@@ -884,8 +879,8 @@ class Untangler():
                 kwargs_list.extend([{} for _ in altloc_subsets])
             else: # Focused swaps 
                 #focused_subset_size =7 
-                #focused_subset_size =self.altloc_subset_size 
-                focused_subset_size =4
+                focused_subset_size =self.altloc_subset_size 
+                #focused_subset_size =4
                 num_focused_combinations=3
                 focused_subsets = self.get_altloc_subsets(focused_subset_size,num_focused_combinations)
                 for subset in focused_subsets:
@@ -910,7 +905,8 @@ class Untangler():
                     if is_swaps_file(f):
                         shutil.move(os.path.join(self.output_dir,f),os.path.join(self.output_dir,f+"#"))
 
-
+            if self.debug_force_subsets is not None:
+                altloc_subsets=self.debug_force_subsets
             skip_batch_refine = (self.debug_skip_first_batch_refine and self.loop==self.first_loop) or self.debug_skip_refine 
 
             # if self.loop==6:
@@ -1717,7 +1713,7 @@ class Untangler():
         ]
         if P.altloc_subset is not None:
             args+= ["-a",P.altloc_subset]
-        if P.ordered_solvent:
+        if P.ordered_solvent and PHENIX_SAME_OCC_ORDERED_SOLVENT:
             water_occ=1/len(self.protein_altlocs)
             if P.altloc_subset is not None:
                 water_occ=1/len(P.altloc_subset)
@@ -1902,20 +1898,18 @@ def main():
         solution_reference=None
     if len(sys.argv)==4:
         solution_reference=sys.argv[3]
-    Untangler(
-        # max_num_best_swaps_considered=5,
-        default_wc=1,
-        endloop_wc=1, num_end_loop_refine_cycles=6,
-        #endloop_wc=3, num_end_loop_refine_cycles=1,
-        refine_for_positions_geo_weight=0,
-        starting_num_best_swaps_considered=1,
-        max_num_best_swaps_considered=1,
-        altloc_subset_size=10,
-        unrestrained_damp=0,
-        #refine_for_positions_geo_weight=0.03,
-        num_refine_for_positions_macro_cycles_phenix=1,
-        #max_bond_changes=2,
-        max_bond_changes=None,
+    if UntangleFunctions.NO_INDIV_WEIGHTS:
+        weight_factors = {
+            ConstraintsHandler.BondConstraint: 1,
+            ConstraintsHandler.AngleConstraint: 1,
+            ConstraintsHandler.NonbondConstraint: 0,
+            #ConstraintsHandler.NonbondConstraint: 0.1,
+            #ConstraintsHandler.ClashConstraint: 1e4,
+            ConstraintsHandler.ClashConstraint: 50,
+            #ConstraintsHandler.ClashConstraint: 0,
+            ConstraintsHandler.TwoAtomPenalty: 0,
+        }
+    else:
         weight_factors = {
             ConstraintsHandler.BondConstraint: 0.1,
             ConstraintsHandler.AngleConstraint: 80,
@@ -1925,7 +1919,26 @@ def main():
             #ConstraintsHandler.ClashConstraint: 1e7,#1e2,
             ConstraintsHandler.ClashConstraint: 1e7,
             ConstraintsHandler.TwoAtomPenalty: 0,
-        },
+        }
+    end_loop_cycles=6
+    if PHENIX_ORDERED_SOLVENT:
+        end_loop_cycles=10
+    Untangler(
+        # max_num_best_swaps_considered=5,
+        default_wc=1,
+        endloop_wc=1, num_end_loop_refine_cycles=end_loop_cycles,
+        #endloop_wc=3, num_end_loop_refine_cycles=1,
+        refine_for_positions_geo_weight=0,
+        starting_num_best_swaps_considered=1,
+        max_num_best_swaps_considered=1,
+        altloc_subset_size=12,
+        unrestrained_damp=0,
+        #refine_for_positions_geo_weight=0.03,
+        num_refine_for_positions_macro_cycles_phenix=1,
+        #max_bond_changes=2,
+        max_bond_changes=None,
+        weight_factors=weight_factors,
+
         solution_reference=solution_reference,
         ).run(
         starting_model,

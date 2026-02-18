@@ -181,15 +181,28 @@ class LP_Input:
     #MODE= "LOW_TOL"
     #MODE= "V_LOW_TOL"
     #MODE= "V_LOW_TOL2"
-    MODE="V_LOW_TOL2"
+    MODE="TEST"
     max_sigmas,min_sigmas_where_anything_goes,min_tension_where_anything_goes={},{},{}
     if MODE=="NO_RESTRICTIONS":
         pass
     elif MODE=="TEST":
-        max_sigmas={
-            ConstraintsHandler.BondConstraint:6,
-            ConstraintsHandler.AngleConstraint:3,
-        }    
+        # max_sigmas={
+        #     ConstraintsHandler.BondConstraint:6,
+        #     ConstraintsHandler.AngleConstraint:4,
+        #     #ConstraintsHandler.ClashConstraint:-99,
+        # }  
+        if UntangleFunctions.NO_UNRESTRAINED:
+            max_sigmas={
+                ConstraintsHandler.BondConstraint:5,
+                ConstraintsHandler.AngleConstraint:3,
+                ConstraintsHandler.ClashConstraint:-99,
+            }       
+        else:
+            max_sigmas={
+                ConstraintsHandler.BondConstraint:3,
+                ConstraintsHandler.AngleConstraint:2,
+                ConstraintsHandler.ClashConstraint:-99,
+            }    
     elif MODE=="NONBOND_RESTRICTIONS":
         max_sigmas={
             ConstraintsHandler.NonbondConstraint:3,
@@ -382,7 +395,7 @@ class LP_Input:
             self.connection_type=connection_type
             self.ts_distance=ts_distance  # NOTE As in the travelling salesman problem sense
             self.position_option_indices=position_option_indices
-            self.hydrogen_tag = LP_Input.make_hydrogen_tag(hydrogen_names)
+            self.hydrogen_tag = LP_Input.make_hydrogen_tag(hydrogen_names) # TODO change to hydrogen names. Change get_disordered_connection_id() to call on construct_disordered_connection_id
             self.poschange_tag=""
             self.hydrogen_name_set=set([])
             self.ideal=ideal
@@ -416,6 +429,7 @@ class LP_Input:
             return f"{kind}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
 
         # TODO TEMPORARY XXX
+        # TODO Change get_disordered_connection_id() to call on construct_disordered_connection_id()
         @staticmethod
         def construct_disordered_connection_id(connection_type,disordered_tags:list[DisorderedTag],hydrogen_names=None):
             kind = ConstraintsHandler.Constraint.kind(connection_type)
@@ -484,7 +498,9 @@ class LP_Input:
         assert pdb_file_path[-4:]==".pdb",pdb_file_path
         return os.path.join(UntangleFunctions.separated_conformer_pdb_dir(), os.path.basename(pdb_file_path)[:-4]+tag+".pdb")
     @staticmethod
-    def prepare_geom_files(base_model_path,all_altloc_subsets:list[str],num_threads=10,water_swaps=False,allowed_resnums=None,allowed_resnames=None,waters=True):
+    def prepare_geom_files(base_model_path,all_altloc_subsets:list[str],num_threads=None,water_swaps=False,allowed_resnums=None,allowed_resnames=None,waters=True):
+        if num_threads is None:
+            num_threads = UntangleFunctions.NUM_THREADS
         if all_altloc_subsets is None:
             all_altloc_subsets=[None]
         if all_altloc_subsets==[None]:

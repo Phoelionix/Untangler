@@ -16,7 +16,11 @@ import itertools
 
 NUM_THREADS=24
 
-RING_NAME_GROUPING=False
+
+NO_UNRESTRAINED=False
+NO_INDIV_WEIGHTS=True
+
+RING_NAME_GROUPING=False # Note argument forbid_CECD12_changes in LinearOptimizer.solve()
 TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY=True # Because generating data is incredibly slow with multiple altlocs. 
 ALWAYS_PRINT_CURRENT_CLASHES=False
 
