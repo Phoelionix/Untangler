@@ -6,7 +6,7 @@ from LinearOptimizer.Input import LP_Input
 from LinearOptimizer.OrderedAtomLookup import OrderedAtomLookup
 from Bio.PDB import PDBParser,Structure,PDBIO
 from UntangleFunctions import parse_symmetries_from_pdb, PDB_Atom_Entry
-
+import numpy as np
 
 
 
@@ -17,8 +17,9 @@ from UntangleFunctions import parse_symmetries_from_pdb, PDB_Atom_Entry
 
 def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[DisorderedTag],out_path=None,
                    sep_chain_format=False,protein_altloc_from_chain_fix=False,missing_water_altloc_fix=True,
-                   preserve_parent_altlocs=True,split_waters=False, nonexistent_parent_from_child_priority_dict={},
-                   nonexistent_parents_replace_child=True,force_lone_altloc_label=None):
+                   preserve_parent_altlocs=True,split_waters=False, never_alter_lone_waters=False, nonexistent_parent_from_child_priority_dict={},
+                   nonexistent_parents_replace_child=True,force_lone_altloc_label=None,
+                   shake_new=0.1):
     # Splits conformers of atoms (atoms_to_split) according to child_parent_altlocs_dict
 
 
@@ -45,13 +46,21 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
         occ=f"{occ:.3f}"
         occ = ' '*(6-len(occ))+occ
         return line[:54] + occ + line[60:]
+    def add_shake(line,shake):
+        P = PDB_Atom_Entry(line)
+        dev=[]
+        while len(dev)<3:
+            v=np.random.normal(scale=shake)
+            if v < 5*shake:
+                dev.append(v)
+        return P.new_line(new_coord=P.coord+np.array(dev))
         
     #solvent_altlocs = []
     with open(pdb_path) as I:
         max_resnum=0
         max_serial_num=0
         start_lines = []
-        solvent_lines=[]
+        nosplit_solvent_lines=[]
         end_lines = []
         atom_dict:dict[int,dict[str,dict[str,str]]] = {}  
         atom_name_dict:dict[int,list[str]]={}
@@ -96,7 +105,7 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
             space = line[20]
             chain = line[21]
             if resname in solvent_res_names and not split_waters:
-                solvent_lines.append(line)  # Modified further below
+                nosplit_solvent_lines.append(line)  # Modified further below
                 continue
 
             if altloc == ' ':
@@ -145,10 +154,15 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
     for resnum, res_atom_dict in atom_dict.items():
         atom_names=atom_name_dict[resnum]
         # Convert lone altlocs
-        if force_lone_altloc_label is not None:
-            for atom_name in atom_names:
-                altlocs = [altloc for altloc in res_atom_dict if atom_name in res_atom_dict[altloc]]
-                if len(altlocs)==1 and altlocs[0]!=force_lone_altloc_label:
+        for atom_name in atom_names:
+            altlocs = [altloc for altloc in res_atom_dict if atom_name in res_atom_dict[altloc]]
+            if len(altlocs)==1:
+                resname = atom_dict[resnum][altlocs[0]][atom_name][17:20]
+                if never_alter_lone_waters and resname=="HOH":
+                    nosplit_solvent_lines.append(atom_dict[resnum][altlocs[0]][atom_name])
+                    del atom_dict[resnum][altlocs[0]][atom_name]
+
+                if force_lone_altloc_label is not None and altlocs[0]!=force_lone_altloc_label:
                     if force_lone_altloc_label not in atom_dict[resnum]:
                         atom_dict[resnum][force_lone_altloc_label]={}
                     atom_dict[resnum][force_lone_altloc_label][atom_name]=replace_altloc(atom_dict[resnum][altlocs[0]][atom_name],altlocs[0])
@@ -216,6 +230,8 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
                         modified_line = replace_occupancy(modified_line,occupancy/(num_relevant_altlocs-1+preserve_parent_altlocs))
                         if d > 0:
                             new_altloc = child_altlocs[d-1]
+                            if shake_new is not None:
+                                modified_line=add_shake(modified_line,shake_new)
                             if new_altloc in atom_dict[resnum] and atom_name in atom_dict[resnum][new_altloc]:
                                 # Already exists!
                                 continue
@@ -239,25 +255,17 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
 
     # Make sure waters don't share residue numbers with protein
     min_solvent_resnum=99999999
-    for line in solvent_lines:
+    for line in nosplit_solvent_lines:
         solvent_resnum=int(line[22:26])
         min_solvent_resnum = min(solvent_resnum,min_solvent_resnum)
         shift = max_resnum-min_solvent_resnum + 1
-    for line in solvent_lines:
+    for line in nosplit_solvent_lines:
         solvent_resnum=int(line[22:26])
         modified_line = line
         modified_line = replace_res_num(modified_line,shift+solvent_resnum)
         modified_line=replace_serial_num(modified_line,max_serial_num)
         max_serial_num+=1
-        if split_waters:
-            # start_lines.append(modified_line)
-            # splt = replace_altloc(modified_line,split_altloc(modified_line))
-            # splt = replace_serial_num(splt,max_serial_num)
-            # max_serial_num+=1
-            # start_lines.append(splt)
-            assert False
-        else:
-            start_lines.append(modified_line)
+        start_lines.append(modified_line)
 
 
     with open(out_path,'w') as O:

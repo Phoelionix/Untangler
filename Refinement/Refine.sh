@@ -34,6 +34,7 @@ generate_r_free='false'
 turn_off_bulk_solvent='false'
 disable_movement_restraint='false'
 refine_occupancies='false'
+refine_water_occupancies='false'
 ordered_solvent='false'
 disable_ADP='false'
 ADP_only='false'
@@ -43,6 +44,8 @@ disable_nqh_flips='false'
 altlocs_to_refine=''
 user_param_file=''
 filter_ordered_solvent='false'
+clear_out_solvent_mode='false'
+real_space_refine='false'
 
 max_sigma_movement_restraint=0.1
 
@@ -56,7 +59,7 @@ fixed_water_occupancy='false' # Fix water occupancies at value of ordered_solven
 reTry_on_fail='false' # You should not have any need to use this.
 
 
-while getopts ":a:f:o:u:c:e:n:s:q:whprgtzACDHNOPRSTZ" flag; do
+while getopts ":a:f:o:u:c:e:n:s:q:whprgtzACDHLNOPRSTWXZ" flag; do
  case $flag in
     a) altlocs_to_refine=$OPTARG
     ;;
@@ -100,6 +103,8 @@ while getopts ":a:f:o:u:c:e:n:s:q:whprgtzACDHNOPRSTZ" flag; do
     ;;
     H) refine_hydrogens='true'
     ;;
+    L) clear_out_solvent_mode='true'
+    ;;
     N) disable_nqh_flips='true'
     ;;
     O) refine_occupancies='true'
@@ -111,6 +116,10 @@ while getopts ":a:f:o:u:c:e:n:s:q:whprgtzACDHNOPRSTZ" flag; do
     S) ordered_solvent='true'
     ;;
     T) reTry_on_fail='true'
+    ;;
+    W) refine_water_occupancies='true'
+    ;;
+    X) real_space_refine='true'
     ;;
     Z) water_and_H_only='true'
     ;;
@@ -128,7 +137,7 @@ if ! $out_handle_override; then
   fi
 fi 
 
-echo $xyz_path $hkl_path $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R $generate_r_free $refine_no_hold $turn_off_bulk_solvent $disable_movement_restraint $refine_hydrogens $refine_occupancies 
+#echo $xyz_path $hkl_path $out_handle $wu $wc $macro_cycles $shake $calc_wE $hold_water $optimize_R $generate_r_free $refine_no_hold $turn_off_bulk_solvent $disable_movement_restraint $refine_hydrogens $refine_occupancies 
 
 
 expected_path=$xyz_path
@@ -266,6 +275,13 @@ if $refine_occupancies; then
   mv $tmpfile $paramFile
 fi
 
+if $refine_water_occupancies; then 
+  sed  "s/tls occupancies/tls *occupancies/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+  sed  "s/remove_selection = All/remove_selection = not water/g" $paramFile  > $tmpfile
+  mv $tmpfile $paramFile
+fi
+
 if $generate_r_free; then
   sed  "s/generate = False/generate = True/g" $paramFile  > $tmpfile 
   mv $tmpfile $paramFile
@@ -285,6 +301,10 @@ if $refine_hydrogens; then
   # mv $tmpfile $paramFile
 fi
 
+if $real_space_refine; then 
+  sed "s/individual_sites_real_space/*individual_sites_real_space/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+fi
 
 if $ordered_solvent; then 
   sed "s/ordered_solvent = False/ordered_solvent = True/g" $paramFile  > $tmpfile 
@@ -351,6 +371,16 @@ if $filter_ordered_solvent; then
   sed "s/ordered_solvent = False/ordered_solvent = True/g" $paramFile  > $tmpfile 
   mv $tmpfile $paramFile
 fi
+if $clear_out_solvent_mode; then
+  sed 's/mode = \*second_half filter_only every_macro_cycle every_macro_cycle_after_first/mode = second_half *filter_only every_macro_cycle every_macro_cycle_after_first/g' $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+  sed "s/ordered_solvent = False/ordered_solvent = True/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+  sed "s/dist_min = 1.8/dist_min = 1.8/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+  sed "s/dist_min_altloc = 0.03/dist_min_altloc = 1.8/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+fi
 
 
 # Broad sweep attempt to stop phenix segfaulting when run in parallel
@@ -385,10 +415,16 @@ fi
 i=0
 while true; do
   #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints.eff
-  #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-4PSS_2conf6conf.eff # TEMPORARY
+  #user_param_file=/home/speno/Untangler/ConformationTree/output/conformation_tree_restraints-4PSS_2conf6conf.eff # TEMPORARY
   #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-4PSS_2conf6conf_noWater.eff 
   #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-cov63_2conf6conf.eff
   #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-cov63_2conf6conf_noWater.eff
+  user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints_noNB-4PSS_6conf18conf.eff
+
+  if [ "$wc" -eq "0" ]; then 
+    user_param_file=""
+  fi
+
 
   failed=false
   phenix.refine main.random_seed=$random_seed $paramFile $user_param_file  2>$error_file 1> $log_file
@@ -406,6 +442,7 @@ while true; do
   fi
   if $failed; then
     mv $error_file $error_file#
+    echo $error_file#
     i=$((i+1))
     echo
     if (( i >= num_attempts )); then 
@@ -435,7 +472,7 @@ fi
 
 out_path=$(realpath ../../../output/${out_handle}.pdb  )
 
-cp $final_structure $out_path 
+cp $final_structure $out_path; cp ${out_handle}_${serial}.mtz  $(realpath ../../../output/${out_handle}.mtz  )
 
 cd ../.. 
 

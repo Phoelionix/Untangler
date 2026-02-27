@@ -14,15 +14,19 @@ import numpy as np
 import shutil
 import itertools
 
-NUM_THREADS=24
+NUM_THREADS=20
 
 
 NO_UNRESTRAINED=False
 NO_INDIV_WEIGHTS=True
 
 RING_NAME_GROUPING=False # Note argument forbid_CECD12_changes in LinearOptimizer.solve()
-TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY=True # Because generating data is incredibly slow with multiple altlocs. 
+TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY=True # Because generating data is incredibly slow with multiple altlocs.  # TODO replace with generating for each altloc in parallel then taking average.
 ALWAYS_PRINT_CURRENT_CLASHES=False
+
+#TEMP_TEST_CHILD_PARENT={}
+TEMP_TEST_CHILD_PARENT={c:"A" for c in "GH"} | {c:"B" for c in "IJ"} | {c:"C" for c in "KL"} | {c:"D" for c in "MN"} | {c:"E" for c in "OP"} | {c:"F" for c in "QR"}
+
 
 ATOMS = ('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr'
        +' Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe').split()
@@ -648,7 +652,7 @@ def relabel_ring(pdb_path):
     return ring_relabel_dict
     
 
-def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False,ring_name_grouping=False,altlocs_allowed=None,even_split_occupancies=False,allow_no_altloc=False):
+def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False,ring_name_grouping=False,altlocs_allowed=None,even_split_occupancies=False,allow_no_altloc=False,treat_solvent_identically=False):
         # Gets into format we expect. !!!!!!Assumes single chain!!!!!
         # Relabels ring atoms CE1/CE2, CD1/CD2 so that all with same label are closest         
         def replace_occupancy(line,occ):
@@ -694,6 +698,8 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
             atom_dict:dict[str,dict[str,dict[str,str]]] = {}  
             last_chain=None
             solvent_res_names=WATER_RESNAMES
+            if treat_solvent_identically:
+                solvent_res_names=[]
             solvent_chain_id = "z"
             warned_collapse=False
             gap_shift=0
@@ -820,7 +826,8 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
             modified_line = replace_serial_num(line,n)
             start_lines.append(modified_line)
         
-        os.makedirs(os.path.dirname(out_path),exist_ok=True)
+        if os.path.dirname(out_path)!='':
+            os.makedirs(os.path.dirname(out_path),exist_ok=True)
         with open(out_path,'w') as O:
             O.writelines(start_lines+end_lines)
 
@@ -872,6 +879,7 @@ class PDB_Atom_Entry:
             self.atom_name=self.atom_name_unstripped.strip()
             self.altloc=atom_entry[16] # i.e. `from_altloc`
             self.res_num =atom_entry[22:26].strip()
+            self.coord=np.array([float(atom_entry[i:j]) for (i,j) in ((30,38),(38,46),(46,54))])
     def is_water(self):
         return self.res_name in WATER_RESNAMES
     # def new_altloc(self,new_altloc:str):
@@ -894,6 +902,7 @@ def reduce_H(pdb_file):
         subprocess.call(args,stdout=f,stderr=subprocess.DEVNULL)
 
     return out_file
-        
+
+
 
 # %%

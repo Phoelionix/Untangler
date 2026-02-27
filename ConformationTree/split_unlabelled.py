@@ -41,7 +41,8 @@ def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False,nonex
 
 
 if __name__ == "__main__":
-    model_path="/home/speno/Untangler/data/4PSS.pdb"
+    #model_path="/home/speno/Untangler/data/4PSS.pdb"
+    model_path="/home/speno/Untangler/data/4PST.pdb"
     #model_path="/home/speno/Untangler/data/cov63/cov63_2confR.pdb"
     #child_parent_altlocs_dict={"C":"A"}
     # child_parent_altlocs_dict={"C":"A","D":"A","E":"A","F":"A","c":"B","d":"B","e":"B","f":"B"}
@@ -51,8 +52,11 @@ if __name__ == "__main__":
     #nonexistent_parent_from_child_priority_dict={"A":"CD","B":"DC"}
     # 4conf<N>conf
     child_parent_altlocs_dict={"A":" ","B":" ","C":" ","D": " "}
-    #nonexistent_parent_from_child_priority_dict={"A":"CDB","B":"DCA","C":"ABD","D":"BAC" }
     nonexistent_parent_from_child_priority_dict={" ":"ABCD"}
+    #nonexistent_parent_from_child_priority_dict={"A":"CDB","B":"DCA","C":"ABD","D":"BAC" }
+    # child_parent_altlocs_dict={"A":" ","B":" ","C":" ","D": " ", "E":" ","F": " ","G": " ","H": " "}
+    # nonexistent_parent_from_child_priority_dict={" ":"ABCDEFGH"}
+    
     run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False,nonexistent_parent_from_child_priority_dict=nonexistent_parent_from_child_priority_dict)
 
 # %%

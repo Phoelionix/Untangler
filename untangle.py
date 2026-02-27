@@ -1,7 +1,8 @@
 #%%
 from typing import Any
 from LinearOptimizer import Solver
-from LinearOptimizer.Input import OrderedAtomLookup, ConstraintsHandler
+from LinearOptimizer.Input import ConstraintsHandler
+from LinearOptimizer.OrderedAtomLookup import clear_solvent_around_sidechains
 from LinearOptimizer.Swapper import Swapper
 from LinearOptimizer.Tag import DisorderedTag
 import UntangleFunctions
@@ -27,11 +28,13 @@ from Measures.evaluate_tangle import evaluate_tangle
 from Untwist import untwist
 
 
+CLEAR_SOLVENT_AROUND_SIDECHAINS_BEFORE_UNRESTRAINED=False
+CLEAR_SOLVENT_AROUND_SIDECHAINS_BEFORE_SWAP=False
 
 DISABLE_WATER_ALTLOC_OPTIM=False
 TURN_OFF_BULK_SOLVENT=False
 CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=False
-PHENIX_ORDERED_SOLVENT=False
+PHENIX_ORDERED_SOLVENT=True
 PHENIX_SAME_OCC_ORDERED_SOLVENT=False
 TENSIONS=False  # Enables behaviours of permitting otherwise forbidden geomection options involving high-tension sites, and, if option enabled, to scale cost by tensions
 PHENIX_FREEZE_WATER=False
@@ -45,7 +48,7 @@ DISABLE_ALTLOC_SUBSET_REFINE=True
 
 EVEN_SPLIT_OCCUPANCIES=True
 
-TIMEOUT_MINS_FACTOR=8
+TIMEOUT_MINS_FACTOR=30
 
 # TODO:
 # down weight swaps that were previously made but need to be made again (i.e. cases where it's not tangled and the density is pushing it a different way.)
@@ -64,7 +67,7 @@ class Untangler():
     debug_skip_initial_refine=True
     debug_skip_first_unrestrained_refine=True
     debug_skip_first_untwist_refine=False
-    debug_skip_first_swaps=True
+    debug_skip_first_swaps=False
     debug_skip_first_batch_refine=False # skip to assessing best model from the batch of refinements
     debug_skip_first_focus_swaps=False # many swaps strategy only 
     debug_skip_unrestrained_refine=False
@@ -80,7 +83,7 @@ class Untangler():
     default_scoring_function = staticmethod(ConstraintsHandler.chi_z_sqr) # Like Holton score (non-outlier terms)
     #default_scoring_function = staticmethod(ConstraintsHandler.chi) # Like how phenix scores
     #default_scoring_function = staticmethod(ConstraintsHandler.log_chi)
-    debug_skip_to_loop=15
+    debug_skip_to_loop=0
     debug_force_subsets=None # ["BDEF"] # None
     #debug_force_subsets=["BDEF"] # None
     num_loops_not_refine_H=0
@@ -90,7 +93,7 @@ class Untangler():
     num_loops_not_untwist=0 
     final_untwist_loop=999 # if equal to num_loops_not_untwist, will do untwist in that loop only
     debug_skip_initial_holton_data_generation =debug_skip_initial_refine or (debug_skip_to_loop!=0) # Initial score file. Will always create if expected path to score file doesn't exist.
-    debug_skip_initial_holton_data_generation =True
+    #debug_skip_initial_holton_data_generation =True
     #debug_skip_initial_holton_data_generation =False
     phenix_ordered_solvent_on_initial=False
     refmac_refine_water_occupancies_on_initial=False
@@ -125,7 +128,7 @@ class Untangler():
 
     # TODO keep refining while Rfree decreasing.
     def __init__(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=8,  #8,
-                 default_wc=1,endloop_wc=1,wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=20, # 20,
+                 default_wc=1,endloop_wc=1,wc_anneal_start=None,wc_anneal_loops=0, starting_num_best_swaps_considered=20, # 20,
                  max_num_best_swaps_considered=100,num_refine_for_positions_macro_cycles_phenix=3,
                  num_loops_water_held=0,weight_factors=None,
                  max_bond_changes=None,altloc_subset_size=3,refine_for_positions_geo_weight=0.1,
@@ -153,7 +156,7 @@ class Untangler():
             shutil.rmtree(UntangleFunctions.separated_conformer_pdb_dir())
         os.makedirs(UntangleFunctions.separated_conformer_pdb_dir(),exist_ok=True)
     def set_hyper_params(self,acceptance_temperature=1,max_wE_frac_increase=0, num_end_loop_refine_cycles=2,  # 8,
-                 default_wc=1,endloop_wc=1,wc_anneal_start=1,wc_anneal_loops=0, starting_num_best_swaps_considered=5, # 20,
+                 default_wc=1,endloop_wc=1,wc_anneal_start=None,wc_anneal_loops=0, starting_num_best_swaps_considered=5, # 20,
                  max_num_best_swaps_considered=100,num_refine_for_positions_macro_cycles_phenix=3,
                  num_loops_water_held=0,
                  max_bond_changes=None,altloc_subset_size=3,refine_for_positions_geo_weight=0.1,
@@ -169,13 +172,16 @@ class Untangler():
         self.num_loops_water_held=num_loops_water_held
         self.default_wc=endloop_wc
         self.endloop_wc=endloop_wc
-        self.wc_anneal_start = wc_anneal_start
+        self.wc_anneal_start=wc_anneal_start
         self.wc_anneal_loops=wc_anneal_loops
         self.max_bond_changes=max_bond_changes
         self.altloc_subset_size=altloc_subset_size
         self.refine_for_positions_geo_weight=refine_for_positions_geo_weight
         self.unrestrained_damp=unrestrained_damp
         self.solution_reference=solution_reference
+
+        if wc_anneal_start is None:
+            self.wc_anneal_start = 1 if self.wc_anneal_loops>0 else self.endloop_wc
 
     def delete_zero_occupancy_waters(self,pdb_path,out_path):
         assert os.path.abspath(pdb_path) != os.path.abspath(out_path)
@@ -338,6 +344,9 @@ class Untangler():
     def get_altloc_subsets(self,altloc_subset_size,num_combinations):
         altloc_subsets = [None]
         if len(self.protein_altlocs)>altloc_subset_size:
+            if UntangleFunctions.TEMP_TEST_CHILD_PARENT!={}:
+                # TODO child altlocs must only be present if their parent altlocs are present.
+                raise NotImplementedError()
             altloc_subsets = []
             altlocs_tmp = [altloc for altloc in self.protein_altlocs]
             random.shuffle(altlocs_tmp)
@@ -346,6 +355,7 @@ class Untangler():
                 altloc_subsets.append(altlocs_tmp[:altloc_subset_size])
                 del altlocs_tmp[:altloc_subset_size]
         return altloc_subsets
+
 
     #TODO resample if sample same subsets as last cycle
     def many_swapped(self,swapper,tensions,model_to_swap:str,restrained_refine_pdb_file_path:str,allot_protein_independent_of_waters:bool,altloc_subset_size=3,num_combinations=30,cycles=3,conformer_stats=False,
@@ -802,8 +812,22 @@ class Untangler():
             # Do we skip unrestrained refinement this loop?
             skip_unrestrained = self.debug_skip_refine or self.debug_skip_unrestrained_refine or (self.loop==self.first_loop and self.debug_skip_first_unrestrained_refine)
 
-            if (self.loop+1)%10==0 and not skip_unrestrained: # XXX
+            LONG_REFINE_PERIOD=9
+            if (self.loop+1)%LONG_REFINE_PERIOD==0 and not skip_unrestrained: # XXX
                 self.working_model = self.nice_long_refine(working_model)
+
+            if CLEAR_SOLVENT_AROUND_SIDECHAINS_BEFORE_UNRESTRAINED:
+                working_model=clear_solvent_around_sidechains(
+                    working_model,
+                    debug_skip=skip_unrestrained
+                    #debug_skip=self.loop==0
+                )
+                #divvy=True;num_macro=3
+                divvy=False;num_macro=6
+                working_model=self.regular_refine(working_model,run_kind="clearSolv",
+                                                  debug_skip=skip_unrestrained,refine_water_occupancies=False,
+                                                  num_loops_override=num_macro,ordered_solvent=False,
+                                                  divvy=divvy,hold_water_override=True)
 
             working_model = self.refine_for_positions(working_model,debug_skip=skip_unrestrained) 
             if self.solution_reference is not None and not skip_unrestrained: 
@@ -815,8 +839,8 @@ class Untangler():
 
         # if self.solution_reference is not None:
         #     self.track(working_model,label=f"preSwap")
+        
 
-                
         num_best_solutions=min(self.loop+self.n_best_swap_start,self.n_best_swap_max) # increase num solutions we search over time...
         
         assert working_model[-4:]==".pdb"
@@ -824,7 +848,10 @@ class Untangler():
         working_model = old_working_model[:-4]+"_fmtd.pdb"
         self.prepare_pdb_and_read_altlocs(old_working_model,working_model,
                                           ring_name_grouping=UntangleFunctions.RING_NAME_GROUPING #NOTE
+            
                                           )
+        if CLEAR_SOLVENT_AROUND_SIDECHAINS_BEFORE_SWAP:
+            working_model=clear_solvent_around_sidechains(working_model)
         #reduce_H_model = UntangleFunctions.reduce_H(working_model)
         #shutil.move(reduce_H_model,working_model)
 
@@ -1191,11 +1218,15 @@ class Untangler():
 
     def initial_refine(self,model_path,**kwargs)->str:
         # Try to get atoms as close to their true positions as possible
+        
+        #### Normal
         initial_shake=0.5
         params=list(zip([1,0.5,0.2,0.1],[1,0,0,0],[6,4,5,5],[initial_shake,0,0,0]))
+        ### quick
+        initial_shake=0.02
+        params=list(zip([1],[1],[1],[initial_shake]))
+
         for i, (wc, wu, n_cycles, phenix_shake) in enumerate(params):
-        #for wc, wu, n_cycles in zip([1,0.5],[1,0],[8,4]):
-        #for wc, wu, n_cycles in zip([1],[1],[self.num_end_loop_refine_cycles]):
             tag="" if (i == len(params)-1) else f"-{i}"
             if self.refinement==self.PHENIX:
                 refine_params = self.get_refine_params_phenix(
@@ -1328,7 +1359,8 @@ class Untangler():
     
         
     #TODO regular_batch_refine and regular_refine should get refine params from same source 
-    def regular_batch_refine(self,model_paths:list[str],altloc_subsets_list=None, refine_H=False,alternate_strategy=False, refine_H_before_end=False,**kwargs):
+    def regular_batch_refine(self,model_paths:list[str],altloc_subsets_list=None, refine_H=False,
+        refine_water_occupancies=False,alternate_strategy=False, refine_H_before_end=False,**kwargs):
 
         
         param_set:list[tuple[SimpleNamespace,list[str]]] = []
@@ -1337,7 +1369,7 @@ class Untangler():
         for i, model in enumerate(model_paths):
             altloc_subset = altloc_subsets_list[i] if (altloc_subsets_list is not None) else None 
             out_tag=f"loopEnd{self.loop}-{i+1}"
-            wc=self.endloop_wc if self.wc_anneal_loops==0 else min(self.endloop_wc,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(self.endloop_wc-self.wc_anneal_start))
+            wc=self.wc_anneal_start if self.wc_anneal_loops==0 else min(self.endloop_wc,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(self.endloop_wc-self.wc_anneal_start))
             num_macro_cycles=self.num_end_loop_refine_cycles
             if alternate_strategy:
                 wc = 3
@@ -1354,6 +1386,7 @@ class Untangler():
                     max_sigma_movement_of_selected=0.1,
                     altloc_subset=altloc_subset,
                     refine_hydrogens=refine_H or refine_H_before_end,
+                    refine_water_occupancies=refine_water_occupancies,
                 )
                 refine_params = self.get_refine_params_phenix(
                         **phenix_kwargs
@@ -1364,7 +1397,7 @@ class Untangler():
                     out_tag,
                     model_path=model,
                     unrestrained=False,
-                    refine_water_occupancies=True,
+                    refine_water_occupancies=refine_water_occupancies,
                     min_trials=1,
                     max_trials=10,
                     # dampA=0.1,
@@ -1452,15 +1485,16 @@ class Untangler():
 
 
     def regular_refine(self,model_path,altloc_subset=None,num_loops_override=None,refine_H=False,
-                       disable_nqh_flips=False,runtag=None,ordered_solvent=None,hold_water_override=None,
-                       wc_override=None,hold_protein_override=None, **kwargs)->str:
-        print("Performing post-reallotment restrained refinement ")
+                       disable_nqh_flips=False,runtag=None,run_kind="loopEnd",ordered_solvent=None,hold_water_override=None,
+                       wc_override=None,hold_protein_override=None,refine_water_occupancies=False, **kwargs)->str:
+        print("Performing restrained refinement")
         tag = "" if runtag is None else f"-{runtag}"
         if self.refinement==self.PHENIX:
+            # TODO use endloop_wc only if loopEnd, otherwise use default_wc
             wc = self.wc_anneal_start if self.wc_anneal_loops==0 else min(self.endloop_wc,self.wc_anneal_start+(self.loop/self.wc_anneal_loops)*(self.endloop_wc-self.wc_anneal_start))
             wc = wc if wc_override is None else wc_override 
             refine_params = self.get_refine_params_phenix(
-                f"loopEnd{self.loop}{tag}",
+                f"{run_kind}{self.loop}{tag}",
                 model_path=model_path,
                 num_macro_cycles=self.num_end_loop_refine_cycles if num_loops_override is None else num_loops_override,
                 wc= wc,
@@ -1475,6 +1509,7 @@ class Untangler():
                 max_sigma_movement_of_selected=0.1,
                 altloc_subset=altloc_subset,
                 refine_hydrogens=refine_H,
+                refine_water_occupancies=refine_water_occupancies,
                 #max_sigma_movement_of_selected=0.07,
 
             )
@@ -1484,10 +1519,10 @@ class Untangler():
             self.prepare_pdb_and_read_altlocs(old_model_path,model_path,sep_chain_format=True)
 
             refine_params=self.get_refine_params_refmac(
-                f"loopEnd{self.loop}",
+                f"{run_kind}{self.loop}",
                 model_path=model_path,
                 unrestrained=False,
-                refine_water_occupancies=True,
+                refine_water_occupancies=refine_water_occupancies,
                 min_trials=1,
                 max_trials=30,
                 # dampA=0.1,
@@ -1512,14 +1547,14 @@ class Untangler():
     def get_out_path(self,out_tag,add_loop_num=True):
         return f"{Untangler.output_dir}{self.model_handle}_{out_tag}{self.loop if add_loop_num else ''}.pdb"
     
-    def refine(self,refine_params:SimpleNamespace,debug_skip=False,divvy=False,**kwargs):
+    def refine(self,refine_params:SimpleNamespace,debug_skip=False,divvy=False,divvy_has_decreasing_wc=False,**kwargs):
         
         repeats=1
         P=refine_params
         
+        original_wc=P.wc
         if FORCE_DIVVY_REFINE_INTO_SINGLE_LOOPS_PHENIX and P.algorithm=="PHENIX":
             divvy=True
-            original_wc=P.wc
 
         if divvy:
             # e.g. if number of macro cycles is 5, do 5 single macro cycle single loop refinement runs
@@ -1548,7 +1583,7 @@ class Untangler():
                 P.model_path = moved_path
                 if not debug_skip:
                     shutil.move(P.out_path,moved_path)
-            if divvy:
+            if divvy_has_decreasing_wc and divvy:
                 # Decreasing wc each cycle. # TODO make match however phenix calculates
                 P.wc=original_wc*(repeats - n) 
             self.run_refinement(refine_params,debug_skip=debug_skip,**kwargs)
@@ -1651,7 +1686,7 @@ class Untangler():
                           refine_occupancies=False,turn_off_bulk_solvent=TURN_OFF_BULK_SOLVENT,ordered_solvent=False,
                           no_restrain_movement=False,max_sigma_movement_of_selected=0.1,refine_hydrogens=False, # restraining movement refers to the reference_coordinate_restraints option
                           altloc_subset=None,disable_NQH_flips=False,restrain_protein_movement=False,
-                          water_and_H_only=False):
+                          water_and_H_only=False,refine_water_occupancies=False):
         if altloc_subset is not None:
             altloc_subset = ''.join(altloc_subset)  
         assert altloc_subset is None, altloc_subset
@@ -1720,9 +1755,9 @@ class Untangler():
             args+=['-f',f"{water_occ}"]
         # TODO make a dict...
         for bool_param, flag in ([P.hold_water_positions,"-h"],[P.refine_hydrogens,"-H"],[P.optimize_R,"-r"],
-                                 [P.hold_protein_positions,"-p"],[P.refine_occupancies,"-O"],[P.turn_off_bulk_solvent,"-t"],
-                                 [P.ordered_solvent,"-S"],[P.no_restrain_movement,"-R"],[P.disable_CDL,"-C"],
-                                 [P.disable_NQH_flips,"-N"],[P.restrain_protein_movement,"-P"], 
+                                 [P.hold_protein_positions,"-p"],[P.refine_occupancies,"-O"],[P.refine_water_occupancies,"-W"],
+                                 [P.turn_off_bulk_solvent,"-t"],[P.ordered_solvent,"-S"],[P.no_restrain_movement,"-R"],
+                                 [P.restrain_protein_movement,"-P"],[P.disable_CDL,"-C"],[P.disable_NQH_flips,"-N"],
                                  [P.water_and_H_only, "-Z"]):
             if bool_param:
                 args.append(flag)
@@ -1903,11 +1938,14 @@ def main():
             ConstraintsHandler.BondConstraint: 1,
             ConstraintsHandler.AngleConstraint: 1,
             ConstraintsHandler.NonbondConstraint: 0,
+            #ConstraintsHandler.NonbondConstraint: 0.001,
             #ConstraintsHandler.NonbondConstraint: 0.1,
             #ConstraintsHandler.ClashConstraint: 1e4,
             ConstraintsHandler.ClashConstraint: 50,
             #ConstraintsHandler.ClashConstraint: 0,
             ConstraintsHandler.TwoAtomPenalty: 0,
+            ConstraintsHandler.Dihedral: 0,
+            ConstraintsHandler.Planarity: 0,
         }
     else:
         weight_factors = {
@@ -1919,19 +1957,21 @@ def main():
             #ConstraintsHandler.ClashConstraint: 1e7,#1e2,
             ConstraintsHandler.ClashConstraint: 1e7,
             ConstraintsHandler.TwoAtomPenalty: 0,
+            ConstraintsHandler.Dihedral: 0,
+            ConstraintsHandler.Planarity: 0,
         }
     end_loop_cycles=6
     if PHENIX_ORDERED_SOLVENT:
         end_loop_cycles=10
     Untangler(
         # max_num_best_swaps_considered=5,
-        default_wc=1,
-        endloop_wc=1, num_end_loop_refine_cycles=end_loop_cycles,
+        #default_wc=2,endloop_wc=2,refine_for_positions_geo_weight=0.4,
+        default_wc=0.5,endloop_wc=0.5,refine_for_positions_geo_weight=0, 
+        num_end_loop_refine_cycles=end_loop_cycles,
         #endloop_wc=3, num_end_loop_refine_cycles=1,
-        refine_for_positions_geo_weight=0,
         starting_num_best_swaps_considered=1,
         max_num_best_swaps_considered=1,
-        altloc_subset_size=12,
+        altloc_subset_size=99,
         unrestrained_damp=0,
         #refine_for_positions_geo_weight=0.03,
         num_refine_for_positions_macro_cycles_phenix=1,
@@ -1944,7 +1984,7 @@ def main():
         starting_model,
         xray_data,
         desired_score=18.4, # score to stop at
-        max_num_runs=20,
+        max_num_runs=40,
     )
 if __name__=="__main__":
     main()

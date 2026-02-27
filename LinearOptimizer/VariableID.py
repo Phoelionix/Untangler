@@ -6,6 +6,8 @@ class VariableKind(Enum):
     Nonbond="Nonbond"
     Clash="Clash"
     Angle = "Angle"
+    Dihedral = "Dihedral"
+    Planarity = "Planarity"
     Penalty = "Penalty"
 
 class VariableID:

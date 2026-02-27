@@ -147,6 +147,8 @@ class ConstraintsHandler:
             return {
                 ConstraintsHandler.BondConstraint:VariableKind.Bond.value,
                 ConstraintsHandler.AngleConstraint:VariableKind.Angle.value,
+                ConstraintsHandler.Dihedral:VariableKind.Dihedral.value,
+                ConstraintsHandler.Planarity:VariableKind.Planarity.value,
                 ConstraintsHandler.NonbondConstraint:VariableKind.Nonbond.value,
                 ConstraintsHandler.ClashConstraint:VariableKind.Clash.value,
                 ConstraintsHandler.TwoAtomPenalty:VariableKind.Penalty.value,
@@ -180,7 +182,7 @@ class ConstraintsHandler:
         @staticmethod
         def separation(a:Atom,b:Atom):
             return np.sqrt(np.sum((a.get_coord()-b.get_coord())**2))
-        def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float,float]:
+        def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float,float,float]:
             sorted_atoms = self.get_sorted_atoms(atoms)
             if sorted_atoms is None:
                 return None
@@ -190,11 +192,12 @@ class ConstraintsHandler:
             z_score=abs(dev/self.sigma) # XXX
 
 
-            # To handle bonds present in only some conformations, cap the cost of large separations
-            z_score_cap=20
-            if z_score>z_score_cap and dev > 0:
-                z_score=z_score_cap
-                dev=self.sigma*z_score * (dev/abs(dev))
+            # To handle hydrogen bonds present in only some conformations, cap the cost of large separations
+            if abs(self.residues()[0]-self.residues()[1])>1:
+                z_score_cap=20
+                if z_score>z_score_cap and dev > 0:
+                    z_score=z_score_cap
+                    dev=self.sigma*z_score * (dev/abs(dev))
 
             return self.ideal, sep, z_score, scoring_function(dev,self.sigma,self.ideal,self.num_bound_e) * self.weight
             # badness = (self.ideal-self.separation(a,b))**2/self.ideal
@@ -220,7 +223,7 @@ class ConstraintsHandler:
             v2_u = unit_vector(v2)
             return np.arccos(np.dot(v1_u, v2_u))*180/np.pi
             #return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
-        def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
+        def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float,float,float]:
             sorted_atoms = self.get_sorted_atoms(atoms)
             if sorted_atoms is None:
                 return None
@@ -238,7 +241,26 @@ class ConstraintsHandler:
         
             # badness = (self.ideal-self.angle(a,b,c))**2/self.ideal
             # return 0, badness
-        
+    class Dihedral(Constraint): 
+        def __init__(self,atom_ids,outlier_ok,harmonic,ideal,weight,sigma):
+            self.harmonic = harmonic # periodicity
+            super().__init__(atom_ids,outlier_ok,ideal,weight,sigma)
+        def specific_weight_mod(self,atom_names):
+            return 1
+    class Chirality(Constraint):
+        # TODO is it possible to specify this restraint in phenix for conformation tree?
+        def __init__(self):
+            raise NotImplementedError()
+        def specific_weight_mod(self,atom_names):
+            return 1
+
+    class Planarity(Constraint):
+        def __init__(self,atom_ids,outlier_ok,weight,sigma):
+            super().__init__(atom_ids,outlier_ok,None,weight,sigma)
+        def specific_weight_mod(self,atom_names):
+            return 1
+
+    
     class ClashConstraint(Constraint):
         def specific_weight_mod(self,atom_names):
             return 1
@@ -262,7 +284,7 @@ class ConstraintsHandler:
             if None not in self.altlocs_vdw_dict:
                 self.altlocs_vdw_dict[None]=[None,None]
             self.altlocs_vdw_dict[None][idx]=vdw
-        def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
+        def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float,float,float]:
             sorted_atoms = self.get_sorted_atoms(atoms)
             if sorted_atoms is None:
                 return None
@@ -331,7 +353,7 @@ class ConstraintsHandler:
             assert len(altlocs)==2
             assert tuple(altlocs) not in self.altlocs_clash_dict
             self.altlocs_clash_dict[tuple(altlocs)]=badness
-        def get_cost(self,atoms:list[Atom],scoring_function):
+        def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float,float,float]:
             sorted_atoms = self.get_sorted_atoms(atoms)
             if sorted_atoms is None:
                 return None
@@ -441,7 +463,7 @@ class ConstraintsHandler:
         #         return 0
         #     return lj_energy-E_min
         #     #return abs(max(neg_badness_limit,ConstraintsHandler.NonbondConstraint.lennard_jones(r,r0,E_min)))
-        def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float]:
+        def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float,float,float]:
             sorted_atoms = self.get_sorted_atoms(atoms)
             if sorted_atoms is None:
                 return None
@@ -622,15 +644,12 @@ class ConstraintsHandler:
                     pdb1=constraint[0].strip().split("\"")[1]
                     pdb2=constraint[1].strip().split("\"")[1]
                     ideal,  _,  _, sigma,  weight, residual = [float(v) for v in constraint[3].strip().split()]
-                    altloc = pdb1.strip()[3]
-                    # if altloc!=ordered_atom_lookup.altlocs[0]: # just look at one altloc to get constraint. 
-                    #     continue
-                    #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
+
                     pdb_ids = (pdb1,pdb2)
-                    name1 = pdb1[0:4].strip()
-                    name2 = pdb2[0:4].strip()
-                    resnum1 = int(pdb1.strip().split()[-1])
-                    resnum2 = int(pdb2.strip().split()[-1])
+                    # name1 = pdb1[0:4].strip()
+                    # name2 = pdb2[0:4].strip()
+                    # resnum1 = int(pdb1.strip().split()[-1])
+                    # resnum2 = int(pdb2.strip().split()[-1])
 
                     sites =  ConstraintsHandler.Constraint.site_tags_from_pdb_ids((pdb1,pdb2))
                     bonds_added.append(frozenset(tuple(sites)))
@@ -642,7 +661,7 @@ class ConstraintsHandler:
                     if ConstraintsHandler.BondConstraint in constraints_to_skip:
                         continue
                     self.add(ConstraintsHandler.BondConstraint(pdb_ids,outlier_ok("BOND",pdb_ids),ideal,weight,sigma),residual)
-                if line.startswith("angle"):
+                elif line.startswith("angle"):
                     if ConstraintsHandler.AngleConstraint in constraints_to_skip:
                         continue
                     constraint = lines[i:i+5]
@@ -650,22 +669,45 @@ class ConstraintsHandler:
                     pdb2=constraint[1].strip().split("\"")[1]
                     pdb3=constraint[2].strip().split("\"")[1]
                     ideal,  _,  _, sigma,  weight, residual = [float(v) for v in constraint[4].strip().split()]
-                    altloc = pdb1.strip()[3]
-                    # if altloc!=ordered_atom_lookup.altlocs[0]:
-                    #     continue
-                    #print(pdb1,"|","|",pdb2,"|",ideal,"|",weight)
+                    
                     pdb_ids = (pdb1,pdb2,pdb3)
 
-                    name1 = pdb1[0:4].strip()
-                    name2 = pdb2[0:4].strip()
-                    name3 = pdb3[0:4].strip()
                     angle_end_sites= ConstraintsHandler.Constraint.site_tags_from_pdb_ids((pdb1,pdb3))
                     #AngleEnds_added.append( ((name1,resnum1),(name3,resnum3)) )
                     AngleEnds_added.append(frozenset(tuple(angle_end_sites)))
                     # TODO try reducing any angles that involve a "tip/end-point/dead-end" atom like O
-                    if name1 == "O" or name2 == "O" or name3=="O":
+                    name1 = pdb1[0:4].strip(); name2 = pdb2[0:4].strip(); name3 = pdb3[0:4].strip()
+                    if "O" in (name1,name2,name3):
                         weight*=end_point_angle_scale_factor
                     self.add(ConstraintsHandler.AngleConstraint(pdb_ids,outlier_ok("ANGLE",pdb_ids),ideal,weight,sigma),residual)
+                elif line.startswith("dihedral"):
+                    if ConstraintsHandler.Dihedral in constraints_to_skip:
+                        continue
+                    constraint = lines[i:i+6]
+
+                    pdb_ids = tuple(constraint[k].strip().split("\"")[1] for k in range(4))
+
+                    ideal,  _,  _, harmonic, sigma,  weight, residual = [float(v) for v in constraint[5].strip().split()]
+                    self.add(ConstraintsHandler.Dihedral(pdb_ids,outlier_ok("DIHEDRAL",pdb_ids),harmonic,ideal,weight,sigma),residual)
+                    
+                
+                elif line.startswith("plane"):
+                    if ConstraintsHandler.Planarity in constraints_to_skip:
+                        continue
+                    
+                    num_lines=0
+                    for line in lines[i+1:]:
+                        num_lines+=1
+                        if 'pdb=' not in line:
+                            break
+                    constraint = lines[i:i+num_lines]
+
+                    pdb_ids = tuple(line.strip().split("\"")[1] for line in constraint)
+                    
+                    values_string = constraint[0].strip().split("\"")[2]
+                    _,  sigma,  weight, _, residual = [float(v) for v in values_string.strip().split()]
+                    self.add(ConstraintsHandler.Planarity(pdb_ids,outlier_ok("DIHEDRAL",pdb_ids),weight,sigma),residual)
+                       
                 
        
         # Add nonbonds that are flagged as issues for current structure AND when waters are swapped

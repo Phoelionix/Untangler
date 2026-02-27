@@ -877,7 +877,7 @@ geometry_restraints.edits {
     occupancy_max = 1.0
     occupancy = 0.33
     filter_at_start = True
-    ignore_final_filtering_step = False
+    ignore_final_filtering_step = True
     correct_drifted_waters = True
   }
   peak_search {

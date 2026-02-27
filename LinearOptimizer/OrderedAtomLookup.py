@@ -6,10 +6,10 @@ from LinearOptimizer.Tag import *
 from LinearOptimizer.VariableID import *
 import os
 from typing import Union
-
+import numpy as np
 
 class OrderedAtomLookup: #TODO pandas?
-    def __init__(self,atoms:Union[list[DisorderedAtom],str],protein=True,waters=False,altloc_subset=None,allowed_resnums=None,allowed_resnames=None,excluded_resnames=None,alternate_atoms:list[DisorderedAtom]=[]): # TODO type hint for sequence?
+    def __init__(self,atoms:Union[list[DisorderedAtom],str],waters, protein=True,altloc_subset=None,allowed_resnums=None,allowed_resnames=None,excluded_resnames=None,alternate_atoms:list[DisorderedAtom]=[]): # TODO type hint for sequence?
         # atoms can be a path to a pdb file to get atoms from 
 
         if type(atoms)==str:
@@ -90,7 +90,7 @@ class OrderedAtomLookup: #TODO pandas?
                     self.water_residue_nums.append(res_num)
             else: 
                 if is_water:
-                    assert res_num in self.water_residue_nums, f"Waters cannot reuse residue sequence numbers used in protein (res {res_num})"
+                    assert res_num in self.water_residue_nums, f"Waters cannot reuse residue sequence numbers used in protein (res {res_num}) , {DisorderedTag.from_atom(disorderedAtom)}"
 
             for orderedAtom in disorderedAtom:
                 altloc = orderedAtom.get_altloc()
@@ -132,9 +132,33 @@ class OrderedAtomLookup: #TODO pandas?
             assert  ordered_tag.altloc() in self.better_dict[ordered_tag.resnum()][ordered_tag.atom_name()], ordered_tag 
         return self.better_dict[ordered_tag.resnum()][ordered_tag.atom_name()][ordered_tag.altloc()] # NOTE If error here during constraint loading, might be that waters weren't loaded in OrderedAtomLookup.
 
+
+    def remove_water_around_sidechains(self,radius=1.8):
+        def separation(a:Atom,b:Atom):
+            return np.sqrt(np.sum((a.get_coord()-b.get_coord())**2))
+        exclude=["C","N","O","CA","CB"]
+        #exclude=["C","N","CA"]
+
+        sidechain_atoms=self.select_atoms_by(waters=False,protein=True,exclude_atom_names=exclude)
+        
+        original_num_waters=len(self.select_atoms_by(waters=True,protein=False))
+        waters_removed=0
+        print(f"Removing water within {radius} A of sidechain atoms\nIgnoring {', '.join(exclude)}")
+        for i, other_atom in enumerate(sidechain_atoms):
+            if i%500==0:
+                print(f"{i}/{len(sidechain_atoms)}. Removed {waters_removed}/{original_num_waters} waters")
+            for water in self.select_atoms_by(waters=True,protein=False):
+                if separation(water,other_atom) < radius:
+                    self.delete(water)
+                    waters_removed+=1
+    def delete(self,ordered_atom:Atom):
+        del self.better_dict[self.atom_res_seq_num(ordered_atom)][ordered_atom.get_name()][ordered_atom.get_altloc()]
+        self.ordered_atoms.remove(ordered_atom)
+
     def output_as_pdb_file(self, reference_pdb_file,out_path):
         # Only outputs based on self.better_dict at present!!
-        with open(reference_pdb_file) as R, open(out_path,'w') as O:
+        out_lines=[]
+        with open(reference_pdb_file) as R:
             start_strs_considered = ["ATOM","HETATM"]
             for line in R:
                 if line == "TER\n":
@@ -143,13 +167,15 @@ class OrderedAtomLookup: #TODO pandas?
                     if line.startswith(s):
                         break
                 else: # Not an atom entry
-                    O.write(line)
+                    out_lines.append(line)
                     continue
                 name = line[12:16].strip()
                 altloc = line[16]
                 resnum = int(line[22:26])
                 if resnum in self.better_dict and name in self.better_dict[resnum] and altloc in self.better_dict[resnum][name]:
-                    O.write(line)
+                    out_lines.append(line)
+        with open(out_path,'w') as O:
+            O.writelines(out_lines)
             
             
 
@@ -235,3 +261,15 @@ class OrderedAtomLookup: #TODO pandas?
         
 
         return atom_selection
+    
+
+def clear_solvent_around_sidechains(pdb,radius=1.8,prepare_first=False,debug_skip=False):
+    assert pdb[-4:]==".pdb"
+    out_path=pdb[:-4]+f"_delHOH{radius}.pdb"
+    if not debug_skip:
+        UntangleFunctions.prepare_pdb(pdb,out_path)
+        ordered_atom_lookup=OrderedAtomLookup(out_path,waters=True)
+
+        ordered_atom_lookup.remove_water_around_sidechains(radius=radius)
+        ordered_atom_lookup.output_as_pdb_file(out_path,out_path)
+    return out_path

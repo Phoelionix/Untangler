@@ -33,7 +33,7 @@ from ConformationTree.split_pdb import split_specific
 
 
 
-def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False):
+def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False,include_nonbonds=True):
     out_dir = os.path.join(UntangleFunctions.UNTANGLER_WORKING_DIRECTORY,"ConformationTree","output")
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
@@ -45,14 +45,6 @@ def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False):
     atoms = ordered_atom_lookup.select_atoms_by(exclude_atom_names=["N","CA","C","O","H","H1","HN","H2","H3","HA"])
     child_atom_tags = list(set([DisorderedTag.from_atom(a) for a in atoms]))
 
-
-    split_model_path=os.path.join(out_dir,UntangleFunctions.model_handle(model_path)+"_split.pdb")
-    split_specific(model_path,child_parent_altlocs_dict,child_atom_tags,out_path=split_model_path,preserve_parent_altlocs=preserve_parent_altlocs)
-
-    all_ordered_tags = [OrderedTag.from_atom(a) for a in OrderedAtomLookup(model_path, waters=False,excluded_resnames=excluded_resnames).ordered_atoms]
-
-    # TODO issue with nitrogen H/H1 atoms that don't belong to expected altlocs
-
     def get_out_path(model_handle,out_tag):
         output_dir = os.path.join(UNTANGLER_WORKING_DIRECTORY,"output","")
         return f"{output_dir}{model_handle}_{out_tag}.pdb"
@@ -61,8 +53,21 @@ def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False):
     prepare_pdb(model_path,fmted_model,
                 ring_name_grouping=False)
 
-    text=create_all_child_restraints(fmted_model,child_parent_altlocs_dict,child_atom_tags,all_ordered_tags)
-    out_path=os.path.join(out_dir,f"split_conformations_restraints-{UntangleFunctions.model_handle(model_path)}.eff")
+    split_model_path=os.path.join(out_dir,UntangleFunctions.model_handle(model_path)+"_split.pdb")
+    
+    split_specific(fmted_model,child_parent_altlocs_dict,child_atom_tags,out_path=split_model_path,preserve_parent_altlocs=preserve_parent_altlocs)
+
+    all_ordered_tags = [OrderedTag.from_atom(a) for a in OrderedAtomLookup(model_path, waters=False,excluded_resnames=excluded_resnames).ordered_atoms]
+
+    # TODO issue with nitrogen H/H1 atoms that don't belong to expected altlocs
+
+ 
+
+    extra_tag=""
+    if not include_nonbonds:
+        extra_tag+="_noNB"
+    text=create_all_child_restraints(fmted_model,child_parent_altlocs_dict,child_atom_tags,all_ordered_tags,include_nonbonds=include_nonbonds)
+    out_path=os.path.join(out_dir,f"split_conformations_restraints{extra_tag}-{UntangleFunctions.model_handle(model_path)}.eff")
     with open(out_path,"w") as f:
         f.write(text)
         print(f"Written restraints for phenix to {out_path}")
@@ -80,8 +85,11 @@ if __name__ == "__main__":
 
     #model_path="/home/speno/Untangler/output/4PSS_2conf4conf_Accepted9_HOH_added-4PSS.pdb"
     #model_path="/home/speno/Untangler/ConformationTree/output/cov63_2confR_fmtd_split.pdb"
-    model_path="/home/speno/Untangler/ConformationTree/output/4PSS_4split.pdb"
-    child_parent_altlocs_dict={c:"A" for c in "EFGH"} | {c:"B" for c in "IJKL"} | {c:"C" for c in "MNOP"} | {c:"D" for c in "QRST"}
-    run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=True)
+    #model_path="/home/speno/Untangler/ConformationTree/output/4PSS_4split.pdb"
+    model_path="/home/speno/Untangler/data/4PSS_6conf_bestRfree.pdb"
+    #child_parent_altlocs_dict={c:"A" for c in "EFGH"} | {c:"B" for c in "IJKL"} | {c:"C" for c in "MNOP"} | {c:"D" for c in "QRST"}
+    child_parent_altlocs_dict={c:"A" for c in "GH"} | {c:"B" for c in "IJ"} | {c:"C" for c in "KL"} | {c:"D" for c in "MN"} | {c:"E" for c in "OP"} | {c:"F" for c in "QR"}
+    run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=True,
+        include_nonbonds=False)
 
 # %%
