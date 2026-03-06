@@ -97,7 +97,8 @@ DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS=99999
 
 
 #ALTLOC_RUN_SUBSET_SIZES=[3,3,3,3,3,4,4,4,4,4,4] # None 
-ALTLOC_RUN_SUBSET_SIZES=[6,6,7,8,10] # None 
+#ALTLOC_RUN_SUBSET_SIZES=[6,6,7,8,10] # None 
+ALTLOC_RUN_SUBSET_SIZES=[3,4,5,5,6,7] # None 
 #ALTLOC_RUN_SUBSET_SIZES=[2,2,2,2,3,3,3,4,4,4] # None 
 MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS=3
 MIN_ALTLOCS_TO_FIX_RANDOM=3
@@ -263,7 +264,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             improvement_factors_to_tolerate=np.array([100,2,1]) 
         elif len(all_altlocs)<=4:
             #improvement_factors_to_tolerate=np.array([100,12,10,4,3,2,1.5,1.2,1.1,1,0.95]) 
-            improvement_factors_to_tolerate=np.array([2,1]) 
+            improvement_factors_to_tolerate=np.array([4,2,1]) 
         else:
             #improvement_factors_to_tolerate=np.array([100,12,10,8,6,5,4.5,4,3.5,3,2.5,2.25,2,1.75,1.5,1.35,1.2,1.1,1,0.95,0.90]) 
             #improvement_factors_to_tolerate=np.array([100,12,6,4,3,2,1.5,1,0.95,0.90,0.85]) 
@@ -758,13 +759,21 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             #             )
             #else:
 
-            var_active = pl.LpVariable(f"{constraint_type.value}_{tag}",  #TODO cat=pl.LpBinary
-                                lowBound=0,upBound=1,cat=pl.LpBinary)
+            if not geomection.echo_is_link:
+                var_active = pl.LpVariable(f"{constraint_type.value}_{tag}",  #TODO cat=pl.LpBinary
+                                    lowBound=0,upBound=1,cat=pl.LpBinary)
+                
+                
+                var_active.setInitialValue(0) 
+                if geomection.original():
+                    var_active.setInitialValue(1)
+            else: # Copy variable of the geomection the link is bundled to.
+                parent_altlocs_key = get_altlocs_key(
+                        [ch.echoed_altloc for ch in geomection.atom_chunks],
+                        geomection.position_option_indices,
+                    )
+                var_active = geomection_var_dict[parent_altlocs_key][1]
             
-            
-            var_active.setInitialValue(0) 
-            if geomection.original():
-                var_active.setInitialValue(1)
             constraint_var_dict[VariableID(tag,constraint_type.value)]=(geomection,var_active)
             #group_vars.append(var_active)
             altlocs_key=get_altlocs_key(geomection.from_altlocs,
@@ -992,13 +1001,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 del allowed
 
 
-            if geomection.echo_is_link:
-                parent_altlocs_key = get_altlocs_key(
-                        [ch.echoed_altloc for ch in geomection.atom_chunks],
-                        geomection.position_option_indices,
-                    )
-                parent_var = geomection_var_dict[parent_altlocs_key][1]
-                lp_problem+=(var_active==parent_var,f"isLink_{var_active.name}")
+            # if geomection.echo_is_link:
+            #     parent_altlocs_key = get_altlocs_key(
+            #             [ch.echoed_altloc for ch in geomection.atom_chunks],
+            #             geomection.position_option_indices,
+            #         )
+            #     parent_var = geomection_var_dict[parent_altlocs_key][1]
+            #     lp_problem+=(var_active==parent_var,f"isLink_{var_active.name}")
         
         #geomection_var_dict = allowed_geomection_var_dict
         ## CONSTRAINT 2 "Num ordered geometries (i.e. 'connections') per disordered geometry must be unchanged"
@@ -1083,6 +1092,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             for constraint,var in disordered_geomection_var_dict.values():
                 if constraint.connection_type not in smallest_unit_geomection_types:
                     continue
+                if constraint.echo_is_link:
+                    continue
                     ##### # If involves echoed sites, then need to have mutual exclusions.
                     ##### if not constraint.crosses_conformation_split():
                     #####     continue
@@ -1110,6 +1121,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
     # Tie echo geomections (which involve echoes of parent conformation atoms) with the active geomection of the parent conformation
     #  TODO Might not be necessary
+    '''
     for itr, (dID, disordered_geomection_var_dict) in enumerate(mega_geomection_var_dict.items()):
         def echo_condition_name(child_var,parent_var,echo_indices):
             return f"echoGroup_{child_var.name}~{parent_var.name};{','.join([str(i) for i in echo_indices])}"
@@ -1157,7 +1169,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 child_var <= anchor_var,
                 echo_condition_name(child_var,anchor_var,echo_indices)
             )
-
+    '''
+    
     max_bond_changes_tuple=None
     exclude_alt_positions_from_max_changes=True
     if max_bond_changes is not None or MAIN_CHAIN_ONLY:
@@ -2484,15 +2497,20 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
                 remove_cement()
                 if len(altlocs_in_problem)>= MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS:
+                    start_timer()
                     clear_cement_constraints()
                     generate_cement_constraints(ignored_altlocs = [a for a in all_altlocs if a not in altlocs_in_problem])
                     apply_cement()
+                    end_timer("cement")
 
                 remove_random_fixed()
                 if len(altlocs_in_problem)>=MIN_ALTLOCS_TO_FIX_RANDOM:
+                    start_timer()
                     pepper_fixed_sites()
                     pepper_fixed_geomections(0.2,Z_min=0,Z_max=2)
                     pepper_fixed_geomections(0.1,Z_min=2,Z_max=3)
+                    end_timer("Pepper fixed")
+
                                 
                 def run_solve():
                     nonlocal dynamic_subset_size_mod
