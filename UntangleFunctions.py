@@ -13,6 +13,7 @@ from time import sleep
 import numpy as np
 import shutil
 import itertools
+from time import time
 
 NUM_THREADS=20
 
@@ -904,5 +905,18 @@ def reduce_H(pdb_file):
     return out_file
 
 
+_GLOBAL_START_TIME_POINT:float=None
+def start_timer():
+    global _GLOBAL_START_TIME_POINT
+    _GLOBAL_START_TIME_POINT=time()
+def end_timer(operation_name:str,clear_timer=True):
+    global _GLOBAL_START_TIME_POINT
+    if _GLOBAL_START_TIME_POINT is None:
+        print(f"Error, timer not set when calling end_timer (operation name: {operation_name})")
+        return
+    time_taken = time()-_GLOBAL_START_TIME_POINT
+    print(f"Time for {operation_name}: {int(time_taken/60)} m {int(time_taken%60)} s")
+    if clear_timer:
+        _GLOBAL_START_TIME_POINT=None
 
 # %%

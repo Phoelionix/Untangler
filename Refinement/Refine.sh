@@ -421,7 +421,7 @@ while true; do
   #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-cov63_2conf6conf_noWater.eff
   user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints_noNB-4PSS_6conf18conf.eff
 
-  if [ "$wc" -eq "0" ]; then 
+  if (( $wc == 0 )); then 
     user_param_file=""
   fi
 

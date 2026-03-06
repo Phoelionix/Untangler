@@ -390,12 +390,13 @@ class LP_Input:
     class Geomection(): # TODO really need to have a disordered connection class to have some of these properties (e.g. max site tension, outlier_ok)
 
         def __init__(self, atom_chunks:list[AtomChunk],ts_distance,position_option_indices:list[int],connection_type,
-                     hydrogen_names,ideal,z_score,actual,max_site_tension,outlier_ok,echo_is_of_original=None):
+                     hydrogen_names,ideal,z_score,actual,max_site_tension,outlier_ok,
+                     echo_is_of_original=None,echo_is_link=None):
             assert hydrogen_names==None or len(hydrogen_names)==len(atom_chunks)
-            self.atom_chunks = atom_chunks
-            self.from_altlocs=[a.get_altloc() for a in atom_chunks]
-            self.res_nums=[a.get_resnum() for a in atom_chunks]
-            self.atom_names=[a.name for a in atom_chunks]
+            self.atom_chunks = tuple(atom_chunks)
+            self.from_altlocs=tuple([a.get_altloc() for a in atom_chunks])
+            self.res_nums=tuple([a.get_resnum() for a in atom_chunks])
+            self.atom_names=tuple([a.name for a in atom_chunks])
             self.connection_type=connection_type
             self.ts_distance=ts_distance  # NOTE As in the travelling salesman problem sense
             self.position_option_indices=position_option_indices
@@ -409,6 +410,7 @@ class LP_Input:
             self.max_site_tension=max_site_tension
             self.outlier_ok=outlier_ok
             self.echo_is_of_original=echo_is_of_original
+            self.echo_is_link=echo_is_link
             ###
             #TODO move this to LinearOptimizer.Solver.py!!! 
             self.forbidden= (connection_type in LP_Input.max_sigmas) and (self.z_score > LP_Input.max_sigmas[self.connection_type]) 
@@ -421,6 +423,8 @@ class LP_Input:
                 self.poschange_tag = '_'+'.'.join([str(i) for i in self.position_option_indices])
         def involves_position_changes(self):
             return any([i != 0 for i in self.position_option_indices])
+        def crosses_conformation_split(self):
+            return any(ch.echoed_altloc is not None for ch in self.atom_chunks)
         def single_altloc(self):
             return len({ch.altloc for ch in self.atom_chunks})==1
         # Whether geomection is active in preswap structure
@@ -440,11 +444,12 @@ class LP_Input:
             hydrogen_tag = LP_Input.make_hydrogen_tag(hydrogen_names)
             return f"{kind}{hydrogen_tag}_{'_'.join([str(dtag) for dtag in disordered_tags])}"
 
-        def create_echo(self,new_atom_chunks:List[AtomChunk],is_original_geomection):
-            assert [ch.get_disordered_tag() for ch in new_atom_chunks] == [ch.get_disordered_tag() for ch in self.atom_chunks] 
+        def create_echo(self,new_atom_chunks:list[AtomChunk],is_original_geomection,is_link):
+            assert [ch.get_disordered_tag() for ch in new_atom_chunks] == [ch.get_disordered_tag() for ch in self.atom_chunks], (new_atom_chunks,self.atom_chunks)
             echo = LP_Input.Geomection(new_atom_chunks,self.ts_distance,self.position_option_indices,self.connection_type,
                                        None,self.ideal,self.z_score,self.actual,self.max_site_tension,self.outlier_ok,
-                                       echo_is_of_original=is_original_geomection)
+                                       echo_is_of_original=is_original_geomection,
+                                       echo_is_link=is_link)
             echo.hydrogen_name_set=self.hydrogen_name_set
             echo.hydrogen_tag=self.hydrogen_tag
             echo.poschange_tag=self.poschange_tag
@@ -1195,40 +1200,50 @@ class LP_Input:
             all_child_site_tags = [ch.get_disordered_tag() for ch in atom_chunks.values() if ch.get_altloc()==child_altloc]
 
             for disordered_conn in disordered_connections.values():
+                #### REUSED CODE BLOCK START ####
                 child_tags = [ch.get_disordered_tag() for ch in disordered_conn[0].atom_chunks if (ch.get_disordered_tag() in all_child_site_tags)]
                 if len(child_tags)==0:
+                    continue
                     if disordered_conn[0].connection_type == ConstraintsHandler.BondConstraint: 
-                        # TODO continue if not involved in echoed angle 
-                        pass 
-                    else:
-                        continue
-                non_child_tags = [ch.get_disordered_tag() for ch in disordered_conn[0].atom_chunks if (ch.get_disordered_tag() not in child_tags)]
-                if len(non_child_tags)==0:
-                    continue   
-
-                num_echoed_conns_to_add+=1
-
-        num_echoed_conns_added=0
-        for child_altloc, parent_altlocs in child_parent_altloc_dict.items():
-            all_child_site_tags = [ch.get_disordered_tag() for ch in atom_chunks.values() if ch.get_altloc()==child_altloc]
-            for disordered_conn in disordered_connections.values():
-                child_tags = [ch.get_disordered_tag() for ch in disordered_conn[0].atom_chunks if (ch.get_disordered_tag() in all_child_site_tags)]
-                if len(child_tags)==0:
-                    if disordered_conn[0].connection_type == ConstraintsHandler.BondConstraint: 
-                        # TODO continue if not involved in echoed angle 
                         pass 
                     else:
                         continue
                 non_child_tags = [ch.get_disordered_tag() for ch in disordered_conn[0].atom_chunks if (ch.get_disordered_tag() not in child_tags)]
                 if len(non_child_tags)==0:
                     continue    
-                
-                if num_echoed_conns_added%500==0:
-                    print(f"Adding echoed geomection set {num_echoed_conns_added}/{num_echoed_conns_to_add}")
 
                 if not all(child_altloc in self.ordered_atom_lookup.better_dict[tag.resnum()][tag.atom_name()] for tag in child_tags):
                     # NOTE this may need to be made more robust for complicated conf. trees.
                     continue
+                #### REUSED CODE BLOCK END ####
+                
+                num_echoed_conns_to_add+=1
+
+        num_echoed_conns_added=0
+        for child_altloc, parent_altlocs in child_parent_altloc_dict.items():
+            all_child_site_tags = [ch.get_disordered_tag() for ch in atom_chunks.values() if ch.get_altloc()==child_altloc]
+            for disordered_conn in disordered_connections.values():
+
+                #### REUSED CODE BLOCK START ####
+                child_tags = [ch.get_disordered_tag() for ch in disordered_conn[0].atom_chunks if (ch.get_disordered_tag() in all_child_site_tags)]
+                if len(child_tags)==0:
+                    continue
+                    if disordered_conn[0].connection_type == ConstraintsHandler.BondConstraint: 
+                        pass 
+                    else:
+                        continue
+                non_child_tags = [ch.get_disordered_tag() for ch in disordered_conn[0].atom_chunks if (ch.get_disordered_tag() not in child_tags)]
+                if len(non_child_tags)==0:
+                    continue    
+
+                if not all(child_altloc in self.ordered_atom_lookup.better_dict[tag.resnum()][tag.atom_name()] for tag in child_tags):
+                    # NOTE this may need to be made more robust for complicated conf. trees.
+                    continue
+                #### REUSED CODE BLOCK END ####
+
+                if num_echoed_conns_added%500==0:
+                    print(f"Adding echoed geomection set {num_echoed_conns_added}/{num_echoed_conns_to_add}")
+
 
                 disordered_conn_echo:list[LP_Input.Geomection]=[]   
 
@@ -1236,12 +1251,12 @@ class LP_Input:
 
                 original_geomection_was_added=False
                 for conn in disordered_conn:
-                    if child_altloc not in conn.from_altlocs:
-                        if disordered_conn[0].connection_type == ConstraintsHandler.BondConstraint: 
-                            # TODO continue if not involved in echoed angle 
-                            pass 
-                        else:
-                            continue
+                    # if child_altloc not in conn.from_altlocs:
+                    #     if disordered_conn[0].connection_type == ConstraintsHandler.BondConstraint: 
+                    #         # TODO continue if not involved in echoed angle 
+                    #         pass 
+                    #     else:
+                    #         continue
                     echoed_parent_chunks = [ch for ch in conn.atom_chunks if ch.altloc in parent_altlocs and ch.get_disordered_tag() in non_child_tags]
                     if len(echoed_parent_chunks)==0:
                         continue
@@ -1251,32 +1266,33 @@ class LP_Input:
                     is_original_geomection=True
                     for ch in conn.atom_chunks:
                         if ch in echoed_parent_chunks:
-                            # Create an ordered conformer object that is an "echo" of the parent conformer.
                             ordered_tag = ch.get_disordered_tag().ordered_tag(child_altloc)
                             if ordered_tag not in chunk_echoes:
+                                # Create an ordered conformer object that is an "echo" of the parent conformer.
                                 chunk_echoes[ordered_tag]=ch.create_echo(child_altloc)
                             new_atom_chunks.append(chunk_echoes[ordered_tag])
                             was_added=True
                             if child_parent_altloc_dict[child_altloc]!=ch.altloc:
                                 is_original_geomection=False
-                        else: # NOTE these do NOT just have altloc=child_altloc! But at least one added to new_atom_chunks must be.
+                        else: # NOTE these atom chunk sites do NOT just have altloc=child_altloc! Nor is it necessary for any to be.
                             new_atom_chunks.append(ch)
                             if ch.get_altloc() != child_altloc:
                                 is_original_geomection=False
                             
                     assert was_added,conn.get_disordered_connection_id()  # ,ch.get_ordered_tag()
 
-                    disordered_conn_echo.append(conn.create_echo(new_atom_chunks,is_original_geomection)) 
+                    disordered_conn_echo.append(conn.create_echo(new_atom_chunks,is_original_geomection,is_link=False)) 
                     if is_original_geomection:
                         original_geomection_was_added=True
                 assert original_geomection_was_added or (disordered_conn[0].connection_type in [ConstraintsHandler.NonbondConstraint,ConstraintsHandler.ClashConstraint])
-
-
                     
-                # NOTE If nonbond constraint or clash constraint, possible that no geomection involving the parent from_altloc exists.
+                # NOTE If nonbond constraint or clash constraint, possible that no geomection involving a (or any) parent from_altloc exists. 
                 try:
                     assert len(disordered_conn_echo)>0 or (disordered_conn[0].connection_type in [ConstraintsHandler.NonbondConstraint,ConstraintsHandler.ClashConstraint]), (disordered_conn[0].connection_type,child_tags,"|",non_child_tags,child_altloc,parent_altlocs)
+                # try:
+                #      assert len(disordered_conn_echo)>0
                 except Exception as e:
+                    print(disordered_conn[0].connection_type)
                     for conn in disordered_conn:
                         print("from altlocs",conn.from_altlocs)
                         print("Echoed parent chunks", [ch for ch in conn.atom_chunks if ch.altloc in parent_altlocs and ch.get_disordered_tag() in non_child_tags])
@@ -1289,6 +1305,76 @@ class LP_Input:
                         disordered_connection_echoes[dID]=[]    
                     disordered_connection_echoes[dID].extend(disordered_conn_echo)
                     num_echoed_conns_added+=1 # XXX This wont match up with num_echoed_conns_to_add!
+        
+        # Links between splits
+        # NOTE this is assuming same number of child conformations per parent conformation, and all involving same atoms...
+        print("Adding echo bonds between splits in conformations as links")
+        links_added=0
+        all_split_site_tags = [ch.get_disordered_tag() for ch in atom_chunks.values() if ch.get_altloc() in child_parent_altloc_dict] 
+        for disordered_conn in disordered_connections.values():
+            if disordered_conn[0].connection_type != ConstraintsHandler.BondConstraint:
+                continue
+
+
+            if any((ch.get_disordered_tag() in all_split_site_tags) for ch in disordered_conn[0].atom_chunks):
+                # Not a geomection within unsplit conformations
+                continue
+
+            links:list[LP_Input.Geomection]=[]   
+        
+            dID=disordered_conn[0].get_disordered_connection_id()
+            
+            
+            # Create/get echo atom chunks for the child conformations
+            disordered_tags = [ch.get_disordered_tag() for ch in disordered_conn[0].atom_chunks]
+            assert len(disordered_tags)==2
+            child_chunk_dicts=[{},{}]
+            for i, tag in enumerate(disordered_tags):
+                for child_altloc in child_parent_altloc_dict:
+                    child_ordered_tag=tag.ordered_tag(child_altloc)
+                    if child_ordered_tag not in chunk_echoes:
+                        parent_altloc=child_parent_altloc_dict[child_altloc]
+                        assert len(parent_altloc)==1, f"Not implemented multiple parent altlocs ({parent_altloc})"
+                        new_child_chunk=atom_chunks[tag.ordered_tag(parent_altloc)].create_echo(child_altloc)
+                        chunk_echoes[child_ordered_tag] = new_child_chunk
+                    else:
+                        new_child_chunk=chunk_echoes[child_ordered_tag]
+                    child_chunk_dicts[i][child_altloc]=new_child_chunk
+            
+            parent_to_children_dict={}
+            for child_altloc,parent_altlocs in child_parent_altloc_dict.items():
+                assert len(parent_altlocs)==1, f"Not implemented multiple parent altlocs ({parent_altlocs})"
+                assert type(parent_altlocs) is str
+                parent_altloc = parent_altlocs
+                if parent_altloc not in parent_to_children_dict:
+                    parent_to_children_dict[parent_altloc]=[]
+                parent_to_children_dict[parent_altloc].append(child_altloc)
+
+            conn_dict:dict[str,dict[str,LP_Input.Geomection]]={parent_altloc:{} for parent_altloc in parent_to_children_dict}
+            for conn in disordered_conn:
+                
+                conn_dict[conn.atom_chunks[0].altloc][conn.atom_chunks[1].altloc]=conn
+
+
+            # Create N echo geomections, where N is the number of child conformations *per parent conformation* 
+            for parent_altloc1, children1 in parent_to_children_dict.items():
+                for parent_altloc2, children2 in parent_to_children_dict.items():
+                    is_original_geomection= (parent_altloc1==parent_altloc2)
+                    assert len(children1)==len(children2)
+                    # e.g. if parent A has children [G,H], and parent B has children [I,J], then create link from G to I and from H to J
+                    for child1, child2 in zip(children1,children2):
+
+                        new_atom_chunks=[child_chunk_dicts[0][child1],child_chunk_dicts[1][child2]]
+                        links.append(conn_dict[parent_altloc1][parent_altloc2].create_echo(new_atom_chunks,is_original_geomection,is_link=True))
+                
+
+
+            assert dID not in disordered_connection_echoes, dID
+            disordered_connection_echoes[dID]=links
+            links_added+=1
+        print(f"Added {links_added} sets of links")
+
+
                     
         return chunk_echoes,disordered_connection_echoes
                 

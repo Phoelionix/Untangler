@@ -34,7 +34,7 @@ CLEAR_SOLVENT_AROUND_SIDECHAINS_BEFORE_SWAP=False
 DISABLE_WATER_ALTLOC_OPTIM=False
 TURN_OFF_BULK_SOLVENT=False
 CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=False
-PHENIX_ORDERED_SOLVENT=True
+PHENIX_ORDERED_SOLVENT=False
 PHENIX_SAME_OCC_ORDERED_SOLVENT=False
 TENSIONS=False  # Enables behaviours of permitting otherwise forbidden geomection options involving high-tension sites, and, if option enabled, to scale cost by tensions
 PHENIX_FREEZE_WATER=False
@@ -1940,8 +1940,7 @@ def main():
             ConstraintsHandler.NonbondConstraint: 0,
             #ConstraintsHandler.NonbondConstraint: 0.001,
             #ConstraintsHandler.NonbondConstraint: 0.1,
-            #ConstraintsHandler.ClashConstraint: 1e4,
-            ConstraintsHandler.ClashConstraint: 50,
+            ConstraintsHandler.ClashConstraint: 50, #1e4
             #ConstraintsHandler.ClashConstraint: 0,
             ConstraintsHandler.TwoAtomPenalty: 0,
             ConstraintsHandler.Dihedral: 0,
