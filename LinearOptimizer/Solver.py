@@ -180,6 +180,18 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             lowest_site_num = chunk_site.get_site_num()
 
 
+    child_parent_altloc_dict=UntangleFunctions.TEMP_TEST_CHILD_PARENT
+    all_split_site_tags = list(set([ch.get_disordered_tag() for ch in chunk_sites if ch.get_altloc() in child_parent_altloc_dict and ch.echoed_altloc is None]))
+    parent_to_children_dict={}
+    for child_altloc,parent_altlocs in child_parent_altloc_dict.items():
+        assert len(parent_altlocs)==1, f"Not implemented multiple parent altlocs ({parent_altlocs})"
+        assert type(parent_altlocs) is str
+        parent_altloc = parent_altlocs
+        if parent_altloc not in parent_to_children_dict:
+            parent_to_children_dict[parent_altloc]=[]
+        parent_to_children_dict[parent_altloc].append(child_altloc)
+
+
     #nodes = [chunk.unique_id() for chunk in chunk_sites.values()]
 
     # def get_variables(unique_id)->dict:
@@ -264,7 +276,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             improvement_factors_to_tolerate=np.array([100,2,1]) 
         elif len(all_altlocs)<=4:
             #improvement_factors_to_tolerate=np.array([100,12,10,4,3,2,1.5,1.2,1.1,1,0.95]) 
-            improvement_factors_to_tolerate=np.array([4,2,1]) 
+            improvement_factors_to_tolerate=np.array([2,1]) 
         else:
             #improvement_factors_to_tolerate=np.array([100,12,10,8,6,5,4.5,4,3.5,3,2.5,2.25,2,1.75,1.5,1.35,1.2,1.1,1,0.95,0.90]) 
             #improvement_factors_to_tolerate=np.array([100,12,6,4,3,2,1.5,1,0.95,0.90,0.85]) 
@@ -295,8 +307,19 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
     # Set up atom swap variables
     forbid_flip_site_altloc_dict:dict[VariableID,list[str]] = {}
+
+        
+    bundled_altloc_rule = {altloc:[] for altloc in all_altlocs}
+    for parent_altloc1, children1 in parent_to_children_dict.items():
+        for parent_altloc2, children2 in parent_to_children_dict.items():
+            for child1, child2 in zip(children1,children2):
+                bundled_altloc_rule[child1].append(child2)
+            bundled_altloc_rule[parent_altloc1].append(parent_altloc2)
+    
+    site_restrict_from_to_dict={}
     for i, chunk in enumerate(chunk_sites):
         site = VariableID.Atom(chunk)
+        
 
         if not site_being_considered(site):
             continue
@@ -324,6 +347,14 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             site_var_dict[site] = {}
         site_var_dict[site][from_altloc]={}
 
+        if chunk.get_disordered_tag() not in all_split_site_tags:
+            site_restrict_from_to_dict[site]=bundled_altloc_rule
+        # if chunk.get_disordered_tag()==DisorderedTag(2,"C"):
+        #     assert chunk.get_disordered_tag() not in all_split_site_tags, (chunk.get_disordered_tag(), all_split_site_tags)
+        #     print(chunk.get_disordered_tag(),site_restrict_from_to_dict[site])
+        #     debug_C_site=site
+
+    
 
     # TODO make these variables binaries that correspond to every permutation (for more than 2 altlocs). E.g. 6 variables for 3 altlocs (could try 3)    
     dummy_one = pl.LpVariable("One",1,1,cat=const.LpBinary)
@@ -345,22 +376,33 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         site_altlocs = []
         for possible_altloc in site_var_dict[site]:
             site_altlocs.append(possible_altloc)
-
-
-        # NOTE
-        sticky_site=False # Whether to add a small cost for changing altloc
         EXPERIMENTAL_FEATURE_THING=False
         if site.is_water and EXPERIMENTAL_FEATURE_THING: 
             if set(site_altlocs)!=set(all_altlocs):
                 sticky_site=True
             allowed_to_altlocs=all_altlocs
         else:
-            allowed_to_altlocs=site_altlocs 
+            allowed_to_altlocs=site_altlocs
+
+        # NOTE
+        sticky_site=False # Whether to add a small cost for changing altloc
+
             
         if len(all_altlocs)>2: #TODO optimize
             for from_altloc in site_altlocs:
                 # Create variable for each possible swap to other altloc
                 for to_altloc in allowed_to_altlocs:
+                    # if site==debug_C_site:
+                    #     print("----")
+                    #     print(from_altloc,to_altloc,site_restrict_from_to_dict[site][from_altloc])
+                    #     print((site in site_restrict_from_to_dict
+                    #     and to_altloc not in site_restrict_from_to_dict[site][from_altloc]))
+                    #     print("----")
+                    if (site in site_restrict_from_to_dict
+                        and to_altloc not in site_restrict_from_to_dict[site][from_altloc]):
+                        # [ Bundled Altlocs] Skip to_altlocs that are not allowed 
+                        continue
+
                     var_atom_assignment =  pl.LpVariable(
                         f"@{site}_{from_altloc}.{to_altloc}",
                         lowBound=0,upBound=1,cat=pl.LpBinary #TODO pl.LpBinary
@@ -382,7 +424,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             for to_altloc in allowed_to_altlocs: 
                 to_altloc_vars:list[LpVariable] = []
                 for from_alt_loc_dict in site_var_dict[site].values():
-                    to_altloc_vars.append(from_alt_loc_dict[to_altloc])
+                    if to_altloc in from_alt_loc_dict: # [ Bundled Altlocs] only one altloc label of a bundle (i.e. parent and echo altlocs) is assigned.
+                        to_altloc_vars.append(from_alt_loc_dict[to_altloc])
+                    # else:
+                    #     assert site in site_restrict_from_to_dict
                 # from:to == 1:n
                 if set(site_altlocs)==set(all_altlocs):
                     lp_problem += (  
@@ -662,8 +707,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     else:
                         to_altloc_options=to_altloc_options & set(site_var_dict[site].keys()) 
 
-        # dicts indexed by code corresponding to from altlocs (e.g. "ACB" means connecting up site 1 altloc A, site 2 altloc C, site 3 altloc B)
-        geomection_var_dict:dict[str,tuple[LP_Input.Geomection,LpVariable]]={} # indexed by from_altloc
+
 
         #assert site_altlocs_same, (disordered_connection[0].connection_type, len(connection_dict),n**m,n,m)
 
@@ -746,6 +790,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             if position_option_indices is not None and not all(i==0 for i in position_option_indices):
                 altlocs_key+=''.join([str(i) for i in position_option_indices])
             return altlocs_key
+        
+        # dicts indexed by code corresponding to from altlocs (e.g. "ACB" means connecting up site 1 altloc A, site 2 altloc C, site 3 altloc B)
+        geomection_var_dict:dict[str,tuple[LP_Input.Geomection,LpVariable]]={} # indexed by from_altloc
         for geomection in disordered_connection:
             tag = get_tag(geomection)
             ########
@@ -788,7 +835,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         nonlocal num_allowed_connections
         nonlocal num_forbidden_connections
 
-        num_original_connections = len([conn for conn,_ in geomection_var_dict.values() if conn.original()])
 
         # TODO refactor, make geomection_var_dict same as allowed_geomection_var_dict. Deal with allowed and not allowed in separate loops.
 
@@ -845,14 +891,28 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             # Connections contains ordered atoms from any and likely multiplke altlocs that 
             # *are to be assigned to the same altlocs*
             assignment_options:dict[str,list[LpVariable]]={}
+            #involves_link=False
+            no_link_geoms:list[LP_Input.Geomection]=[]
+
+
             if len(geomection.atom_chunks)==2:
+                #involves_link=geomection.echo_is_link
                 for to_altloc in to_altloc_options:
                     assignment_options[to_altloc]=[]
+                    forbidden_to_altloc=False
                     for ch in geomection.atom_chunks:
                         from_altloc = ch.get_altloc()
                         site = VariableID.Atom(ch)
-                        assignment_options[to_altloc].append(site_var_dict[site][from_altloc][to_altloc])
-                    
+                        if (site in site_restrict_from_to_dict
+                            and to_altloc not in site_restrict_from_to_dict[site][from_altloc]):
+                            forbidden_to_altloc=True
+                            break
+                        else:
+                            assignment_options[to_altloc].append(site_var_dict[site][from_altloc][to_altloc])
+                    if forbidden_to_altloc:
+                        del assignment_options[to_altloc]
+                        continue
+
                     alt_position_vars_involved=[]
                     for site_position_index, ch in zip(geomection.position_option_indices, geomection.atom_chunks):
                         site = VariableID.Atom(ch)
@@ -916,7 +976,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                             #TODO shouldn't create the angle geomection in Input.py in the first place.
                             impossible_split_conformation_cross=True
                             break
-                        bond_vars.append(ALL_mega_geomection_var_dict[d_id][bond_altlocs_key][1])
+                        bond_geom, bond_var=ALL_mega_geomection_var_dict[d_id][bond_altlocs_key] 
+                        bond_vars.append(bond_var)
+                        # if bond_geom.echo_is_link:
+                        #     involves_link=True
                     except Exception as e:
                         print(e)
                         print(ordered_conn_from_altlocs)
@@ -930,7 +993,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                             flexible_allowed_constr_tranches.pop()
                     continue
                 assignment_options["ANY"]=bond_vars
-
                     
             # if variable is inactive, cannot have all atoms assigned to the same altloc.
             # Note that since every connection option is looped through, this also means 
@@ -939,6 +1001,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             
             if is_flexible or is_bad_original_constraint or allowed:
                 allowed_geomection_var_dict[altlocs_key]=(geomection, var_active)
+                # if not involves_link:
+                #     no_link_geoms.append(geomection)
                 if geomection not in small_fry:
                     assert geomection.ts_distance>=0, (geomection,geomection.ts_distance)
                     #if geomection.connection_type == ConstraintsHandler.ClashConstraint:
@@ -1014,18 +1078,29 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         use_constraint_2=(geomection.connection_type is ConstraintsHandler.BondConstraint  # This might be dodgy
             and not ALTERNATIVE_CONSTRAINT_2_FORMULATION )
         ##### TODO  assess if need this
-        enforce_angle_count_conservation=False
-        if ((geomection.connection_type is ConstraintsHandler.AngleConstraint) 
-            and enforce_angle_count_conservation):
-            use_constraint_2=True
+            #enforce_angle_count_conservatio=False
+        force_angle_count_conservation=False
+        if (disordered_connection[0].connection_type is ConstraintsHandler.AngleConstraint): 
+            # Seems like good to enforce when at a split because can have tiny cost and optimizer seems to just be happy to leave on? EDIT: This might have been due to a bug.
+            # TODO experiment with tuirning this off. Leaving on angle costs that can be turned off for free doesn't affect the solution. And removing these constraints might improve speed. 
+            enforce_angle_count_conservation=any(conn.crosses_conformation_split() for conn in disordered_connection) or force_angle_count_conservation
+            if enforce_angle_count_conservation:
+                use_constraint_2=True
         ####################
 
         if use_constraint_2:
             dID = disordered_connection[0].get_disordered_connection_id()
+            # num_original_no_link_geoms = len([conn for conn in no_link_geoms if conn.original()]) 
+            # lp_problem += (
+            #     lpSum([var_active for var_active in no_link_geoms])==num_original_no_link_geoms,  # less than number of FROM altlocs. i.e. number of conformations it's currently involved in. 
+            #     f"{dID}_{num_original_no_link_geoms}_nonsplitGeoms"
+            # )
+            num_original_connections = len([conn for conn,_ in geomection_var_dict.values() if conn.original()])
             lp_problem += (
                 lpSum([var_active for (_,var_active) in allowed_geomection_var_dict.values()])==num_original_connections,  # less than number of FROM altlocs. i.e. number of conformations it's currently involved in. 
                 f"{dID}_{num_original_connections}_connections"
             )
+
 
         # # Debugging
         # var_track_num_active = pl.LpVariable(f"Debug_{constraint_type.value}_{tag}_connections",  #TODO cat=pl.LpBinary
@@ -1090,16 +1165,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             #     continue
             
             for constraint,var in disordered_geomection_var_dict.values():
-                if constraint.connection_type not in smallest_unit_geomection_types:
+                if constraint.connection_type not in smallest_unit_geomection_types: #and not constraint.crosses_conformation_split()):
                     continue
                 if constraint.echo_is_link:
                     continue
-                    ##### # If involves echoed sites, then need to have mutual exclusions.
-                    ##### if not constraint.crosses_conformation_split():
-                    #####     continue
-                #if constraint.connection_type!=ConstraintsHandler.BondConstraint: # Might be better.
-                # if constraint.connection_type==ConstraintsHandler.AngleConstraint:
-                #     break
                 for other_constraint, other_var in disordered_geomection_var_dict.values():
                     if other_constraint==constraint:
                         continue

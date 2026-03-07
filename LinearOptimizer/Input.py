@@ -424,7 +424,7 @@ class LP_Input:
         def involves_position_changes(self):
             return any([i != 0 for i in self.position_option_indices])
         def crosses_conformation_split(self):
-            return any(ch.echoed_altloc is not None for ch in self.atom_chunks)
+            return any(ch.echoed_altloc is not None for ch in self.atom_chunks) and any(ch.echoed_altloc is None for ch in self.atom_chunks) 
         def single_altloc(self):
             return len({ch.altloc for ch in self.atom_chunks})==1
         # Whether geomection is active in preswap structure
@@ -611,12 +611,6 @@ class LP_Input:
         return UntangleFunctions.model_handle(model_path)+"_WaSw"
         
     
-    def get_echoed(self,child_parent_altloc_dict:dict[str,str]):
-        for child_altloc, parent_altlocs in child_parent_altloc_dict.items():
-            child_atoms = self.ordered_atom_lookup.select_atoms_by(altloc=child_altloc)
-            parent_atoms = []
-        
-        return echoed_atoms,tmp_echoed_altlocs
 
     def calculate_paths(self,scoring_function,quick_wE=False, dry_run=False,atoms_only=True,
                         clash_punish_thing=False,nonbonds=True,water_water_nonbond=None,
@@ -1189,6 +1183,8 @@ class LP_Input:
 
 
         return finest_depth_chunks,disordered_connections
+    
+
     def get_echoes(self,atom_chunks:dict[str,AtomChunk],disordered_connections:dict[str,list[Geomection]],child_parent_altloc_dict:dict[str,str]):
         chunk_echoes:dict[OrderedTag,AtomChunk]={}
         disordered_connection_echoes:dict[str,list[LP_Input.Geomection]]={}
@@ -1310,7 +1306,7 @@ class LP_Input:
         # NOTE this is assuming same number of child conformations per parent conformation, and all involving same atoms...
         print("Adding echo bonds between splits in conformations as links")
         links_added=0
-        all_split_site_tags = [ch.get_disordered_tag() for ch in atom_chunks.values() if ch.get_altloc() in child_parent_altloc_dict] 
+        all_split_site_tags = list(set([ch.get_disordered_tag() for ch in atom_chunks.values() if ch.get_altloc() in child_parent_altloc_dict and ch.echoed_altloc is None]))
         for disordered_conn in disordered_connections.values():
             if disordered_conn[0].connection_type != ConstraintsHandler.BondConstraint:
                 continue
