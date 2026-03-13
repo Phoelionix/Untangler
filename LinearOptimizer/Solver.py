@@ -38,7 +38,7 @@ from LinearOptimizer.Input import *
 from LinearOptimizer.VariableID import *
 import itertools
 import UntangleFunctions
-from UntangleFunctions import start_timer,end_timer
+from UntangleFunctions import start_timer, end_timer
 import json
 from copy import deepcopy
 import gc; 
@@ -51,17 +51,16 @@ from time import time,sleep
 import random
 
 
-ALTERNATIVE_CONSTRAINT_2_FORMULATION =True
+MUTAL_EXCLU_CONSTRAINT =True
 
 #THREADS=None # Num cpu threads made available to ILP solver 
 THREADS=UntangleFunctions.NUM_THREADS
 
-HIDE_UNUSED_TO_ALTLOC_VARS=False # Variables of ILP problem specifying inactive geomection to_altlocs that aren't in the altloc subset considered for a solve run are removed from the ILP problem before the solve run.     
 
 
 #import pulp as pl
 # just for residues for now
-PLOTTING=False
+PLOTTING=True
 MAX_BOND_CHANGES_SECOND_HALF_ONLY=False
 CHANGES_MUST_INVOLVE=None#["A"] # In testing.
 DEBUG_FIRST_100_SITES=False
@@ -71,7 +70,7 @@ FORCE_ALT_COORDS=False
 
 KEEP_PREVIOUS_FLEXI=False
 NUM_RELEASE_ROUNDS=0
-USE_DYNAMIC_ALTLOC_SUBSET_SIZE = True # Dynamically modify the number of conformations considered each ILP subproblem solve run
+USE_DYNAMIC_ALTLOC_SUBSET_SIZE=True
 
 # Specify None to consider all altlocs.
 #ALTLOC_RUN_SUBSET_SIZES=[3,3,3,3,4,4,4,5,5,None] # None 
@@ -87,25 +86,19 @@ USE_DYNAMIC_ALTLOC_SUBSET_SIZE = True # Dynamically modify the number of conform
 #     MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS=3
 #     MIN_ALTLOCS_TO_FIX_RANDOM=3
 
-PEPPER_FIXED_SITES=True
 PEPPER_FIXED_GEOMECTIONS=True
-
+CEMENT=False
 
 #ALTLOC_RUN_SUBSET_SIZES=[2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,None] # None 
 #ALTLOC_RUN_SUBSET_SIZES=[None] # None 
 ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT=[3,3,3,4,5,None]
-DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS=np.inf # TODO remove this since dynamic subset size approach replaces it.
+
+DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS=99999
 
 
 
 
-#ALTLOC_RUN_SUBSET_SIZES=[3,3,3,3,3,4,4,4,4,4,4] # None 
-#ALTLOC_RUN_SUBSET_SIZES=[6,6,7,8,10] # None 
-#ALTLOC_RUN_SUBSET_SIZES=[3,4,5,5,6,7] # None 
-#ALTLOC_RUN_SUBSET_SIZES=[2,2,2,2,3,3,3,4,4,4] # None 
-
-#ALTLOC_RUN_SUBSET_SIZES=[9,9,9,9,9,9] # None 
-#ALTLOC_RUN_SUBSET_SIZES=[3,4,4,4,4,4] # None 
+ALTLOC_RUN_SUBSET_SIZES=[3,3,3,4,4,4] # None 
 MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS=3
 MIN_ALTLOCS_TO_FIX_RANDOM=3
 
@@ -131,7 +124,7 @@ def add_sos2(lp_problem:LpProblem,sos2_name,sos2_rule):
 
 
 def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
-          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=3,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=5,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
           inert_water_sites=False,
           #gapRel=0.001,
           #gapRel=0,
@@ -191,7 +184,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         [ch.get_disordered_tag() for ch in chunk_sites 
         if (ch.get_altloc() in child_parent_altloc_dict and ch.echoed_altloc is None) or len(child_parent_altloc_dict)==0])
     )
-   
     parent_to_children_dict={}
     for child_altloc,parent_altlocs in child_parent_altloc_dict.items():
         assert len(parent_altlocs)==1, f"Not implemented multiple parent altlocs ({parent_altlocs})"
@@ -226,7 +218,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
     forced_swap_solutions=[]
 
-    
+
 
 
     lp_problem = pl.LpProblem(f"Untangling_Problem-{out_handle}", LpMinimize)
@@ -301,18 +293,14 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 improvement_factors_to_tolerate=np.array([5,2,1,0.5,0.25]) 
             else:
 
-                #improvement_factors_to_tolerate=np.array([100,4,2,1.5,1]) 
-                #improvement_factors_to_tolerate=np.array([4,2,1,0.7,0.4]) 
-                #improvement_factors_to_tolerate=np.array([4,2,1]) 
-                #improvement_factors_to_tolerate=np.array([4,0.8]) 
-                improvement_factors_to_tolerate=np.array([2,0.8]) 
-                #improvement_factors_to_tolerate=np.array([10,4,2,1,0.7,0.4,0.2]) /0.2
+                improvement_factors_to_tolerate=np.array([100,4,2,1.5,1,0.75]) 
+
         # TODO remove altloc_run_subset_size variable, replace
-        num_subset_runs=4
+        num_subset_runs=1
         #improvement_factors_to_tolerate=np.array([2,0.8]) 
         improvement_factors_to_tolerate=np.array([20,5,3,2,1.01,0.8]) 
         #start_of_round_altloc_subset_size=max(2,math.ceil(len(all_altlocs)/2))
-        start_of_round_altloc_subset_size=3
+        start_of_round_altloc_subset_size=6
         ALTLOC_RUN_SUBSET_SIZES=[start_of_round_altloc_subset_size,]*num_subset_runs
 
     #TODO limit alternatives to consider to the top N alternatives. Otherwise when have really bad outliers, introduce a huge number of branches.
@@ -337,7 +325,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     site_restrict_from_to_dict={}
     for i, chunk in enumerate(chunk_sites):
         site = VariableID.Atom(chunk)
-        
 
         if not site_being_considered(site):
             continue
@@ -364,20 +351,15 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         if site not in site_var_dict:
             site_var_dict[site] = {}
         site_var_dict[site][from_altloc]={}
-        
+
         if chunk.get_disordered_tag() not in all_split_site_tags:
             site_restrict_from_to_dict[site]=bundled_altloc_rule
         # if chunk.get_disordered_tag()==DisorderedTag(2,"C"):
         #     assert chunk.get_disordered_tag() not in all_split_site_tags, (chunk.get_disordered_tag(), all_split_site_tags)
         #     print(chunk.get_disordered_tag(),site_restrict_from_to_dict[site])
         #     debug_C_site=site
-
-    
-
-    # TODO make these variables binaries that correspond to every permutation (for more than 2 altlocs). E.g. 6 variables for 3 altlocs (could try 3)    
-    dummy_one = pl.LpVariable("One",1,1,cat=const.LpBinary)
-    dummy_one.setInitialValue(1)
-
+        
+    '''
     for site in disordered_atom_sites:
         if site.is_water:
             have_water=True
@@ -394,33 +376,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         site_altlocs = []
         for possible_altloc in site_var_dict[site]:
             site_altlocs.append(possible_altloc)
-        EXPERIMENTAL_FEATURE_THING=False
-        if site.is_water and EXPERIMENTAL_FEATURE_THING: 
-            if set(site_altlocs)!=set(all_altlocs):
-                sticky_site=True
-            allowed_to_altlocs=all_altlocs
-        else:
-            allowed_to_altlocs=site_altlocs
 
-        # NOTE
-        sticky_site=False # Whether to add a small cost for changing altloc
 
-            
+        allowed_to_altlocs=site_altlocs # NOTE May want to change this to be all altlocs if water is involved. 
         if len(all_altlocs)>2: #TODO optimize
             for from_altloc in site_altlocs:
                 # Create variable for each possible swap to other altloc
                 for to_altloc in allowed_to_altlocs:
-                    # if site==debug_C_site:
-                    #     print("----")
-                    #     print(from_altloc,to_altloc,site_restrict_from_to_dict[site][from_altloc])
-                    #     print((site in site_restrict_from_to_dict
-                    #     and to_altloc not in site_restrict_from_to_dict[site][from_altloc]))
-                    #     print("----")
-                    if (site in site_restrict_from_to_dict
-                        and to_altloc not in site_restrict_from_to_dict[site][from_altloc]):
-                        # [ Bundled Altlocs] Skip to_altlocs that are not allowed 
-                        continue
-
                     var_atom_assignment =  pl.LpVariable(
                         f"@{site}_{from_altloc}.{to_altloc}",
                         lowBound=0,upBound=1,cat=pl.LpBinary #TODO pl.LpBinary
@@ -428,7 +390,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     # For warm start.
                     var_atom_assignment.setInitialValue(0)
                     if to_altloc == from_altloc: 
-                        var_atom_assignment.setInitialValue(1)         
+                        var_atom_assignment.setInitialValue(1)
                     site_var_dict[site][from_altloc][to_altloc]=var_atom_assignment
 
                 # Each ordered atom is assigned to one conformation from:to == n:1
@@ -442,10 +404,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             for to_altloc in allowed_to_altlocs: 
                 to_altloc_vars:list[LpVariable] = []
                 for from_alt_loc_dict in site_var_dict[site].values():
-                    if to_altloc in from_alt_loc_dict: # [ Bundled Altlocs] only one altloc label of a bundle (i.e. parent and echo altlocs) is assigned.
-                        to_altloc_vars.append(from_alt_loc_dict[to_altloc])
-                    # else:
-                    #     assert site in site_restrict_from_to_dict
+                    to_altloc_vars.append(from_alt_loc_dict[to_altloc])
                 # from:to == 1:n
                 if set(site_altlocs)==set(all_altlocs):
                     lp_problem += (  
@@ -477,13 +436,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 site_var_dict[site][site_altlocs[0]][site_altlocs[1]] = var_flipped
                 site_var_dict[site][site_altlocs[1]][site_altlocs[0]] = var_flipped
                 site_var_dict[site][site_altlocs[1]][site_altlocs[1]] = var_not_flipped
-        
-        if sticky_site:
-            epsilon=1e-6
-            for from_altloc in site_var_dict[site]:
-                assert from_altloc in site_var_dict[site][from_altloc], (site,from_altloc,"---",site_var_dict[site])
-                distance_vars.append(-epsilon * site_var_dict[site][from_altloc][from_altloc])
-
             # lp_problem += (  
             #     #lpSum(site_var_dict[site][from_altloc])==1,
             #     var_flipped+var_not_flipped==1,
@@ -550,7 +502,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 site_var_dict[site][altloc][altloc]==1,
                 get_force_no_flips_name(site,altloc)
             ) 
-
         
         if CHANGES_MUST_INVOLVE is not None:
             for a in site_altlocs:
@@ -562,8 +513,15 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                             site_var_dict[site][a][b]==0,
                             f"Forbid_{site}_{a}{TOSYMBOL}{b}"
                         )  
+    '''
 
 
+    def get_altlocs_key(from_altlocs,position_option_indices=None):
+        altlocs_key=''.join(from_altlocs)
+        if position_option_indices is not None and not all(i==0 for i in position_option_indices):
+            altlocs_key+=''.join([str(i) for i in position_option_indices])
+        return altlocs_key
+    
     # TODO improve terminology
     # A "connection" just refers to a group of atoms with a constraint assigned by LinearOptimizer.Input.
     # A disordered connection refers to all the *possible* groupings of these atoms.
@@ -582,8 +540,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     always_allow_original_tranches:list[list[bool]]=[] #  
     flexible_bad_original_vars:list=[]
 
-    to_altloc_var_dict:dict[str,list[tuple[LpVariable,list[LpVariable]]]]={a:[] for a in all_altlocs}
-
     initial_badness=0
     def add_constraints_from_disordered_connection(constraint_type:VariableKind,disordered_connection: list[LP_Input.Geomection],global_score_tolerate_threshold=0):
         # Rule: If all atom assignments corresponding to a connection are active,
@@ -597,7 +553,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         nonlocal flexible_bad_original_constr_types
         nonlocal always_allow_original_tranches
         nonlocal flexible_allowed_constr_tranches
-        nonlocal to_altloc_var_dict
 
 
         def forbid_change_conditions():
@@ -708,25 +663,12 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
         site_altlocs_same=True
         sites = [VariableID.Atom(ch) for ch in disordered_connection[0].atom_chunks]
-        to_altloc_options = None
         for site in sites:
             if not site_being_considered(site):
                     return # Don't add this constraint
-            if to_altloc_options is None:
-                to_altloc_options = set(site_var_dict[site].keys())
-            else:
-                if to_altloc_options != set(site_var_dict[site].keys()):
-                    conformation_tree=True
-                    if not conformation_tree:
-                        site_altlocs_same=False
-                        assert ((site.is_water or sites[0].is_water) and inert_water_sites), \
-                            f"{disordered_connection[0]}: Site {site} has altlocs {list(site_var_dict[site].keys())} but site {sites[0]} has altlocs {list(site_var_dict[sites[0]].keys())}"
-                        #print(f"Warning: altlocs don't match, skipping {disordered_connection[0].get_disordered_connection_id()}")
-                        #return
-                    else:
-                        to_altloc_options=to_altloc_options & set(site_var_dict[site].keys()) 
 
-
+        # dicts indexed by code corresponding to from altlocs (e.g. "ACB" means connecting up site 1 altloc A, site 2 altloc C, site 3 altloc B)
+        geomection_var_dict:dict[str,tuple[LP_Input.Geomection,LpVariable]]={} # indexed by from_altloc
 
         #assert site_altlocs_same, (disordered_connection[0].connection_type, len(connection_dict),n**m,n,m)
 
@@ -804,14 +746,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         
         # TODO if hydrogen tag, make copy parent.
 
-        def get_altlocs_key(from_altlocs,position_option_indices=None):
-            altlocs_key=''.join(from_altlocs)
-            if position_option_indices is not None and not all(i==0 for i in position_option_indices):
-                altlocs_key+=''.join([str(i) for i in position_option_indices])
-            return altlocs_key
-        
-        # dicts indexed by code corresponding to from altlocs (e.g. "ACB" means connecting up site 1 altloc A, site 2 altloc C, site 3 altloc B)
-        geomection_var_dict:dict[str,tuple[LP_Input.Geomection,LpVariable]]={} # indexed by from_altloc
+
         for geomection in disordered_connection:
             tag = get_tag(geomection)
             ########
@@ -854,14 +789,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         nonlocal num_allowed_connections
         nonlocal num_forbidden_connections
 
+        num_original_connections = len([conn for conn,_ in geomection_var_dict.values() if conn.original()])
 
         # TODO refactor, make geomection_var_dict same as allowed_geomection_var_dict. Deal with allowed and not allowed in separate loops.
 
         allowed_geomection_var_dict:dict[str,tuple[LP_Input.Geomection,LpVariable]]={} # indexed by from_altloc
-        
-        
-        
-
         for altlocs_key, (geomection, var_active) in geomection_var_dict.items():
 
             is_flexible=False
@@ -907,66 +839,26 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             tag = get_tag(geomection)
 
                 
-            # Connections contains ordered atoms from any and likely multiplke altlocs that 
-            # *are to be assigned to the same altlocs*
-            assignment_options:dict[str,list[LpVariable]]={}
-            #involves_link=False
-            no_link_geoms:list[LP_Input.Geomection]=[]
-
-
-            if len(geomection.atom_chunks)==2:
-                #involves_link=geomection.echo_is_link
-                for to_altloc in to_altloc_options:
-                    assignment_options[to_altloc]=[]
-                    forbidden_to_altloc=False
-                    for ch in geomection.atom_chunks:
-                        from_altloc = ch.get_altloc()
-                        site = VariableID.Atom(ch)
-                        if (site in site_restrict_from_to_dict
-                            and to_altloc not in site_restrict_from_to_dict[site][from_altloc]):
-                            forbidden_to_altloc=True
-                            break
-                        else:
-                            assignment_options[to_altloc].append(site_var_dict[site][from_altloc][to_altloc])
-                    if forbidden_to_altloc:
-                        del assignment_options[to_altloc]
-                        continue
-
-                    alt_position_vars_involved=[]
-                    for site_position_index, ch in zip(geomection.position_option_indices, geomection.atom_chunks):
-                        site = VariableID.Atom(ch)
-                        if site not in site_altposvar_dict:
-                            continue
-                        alt_position_vars_involved.append(site_altposvar_dict[site][ch.get_altloc()][site_position_index])
-                    if geomection.involves_position_changes():
-                        assert len(alt_position_vars_involved)>0
-                    assignment_options[to_altloc].extend(alt_position_vars_involved)
+            # Geomections contain ordered atoms from any (and likely multiple) from_altloc labels that 
+            # *are to be assigned to the same conformation (to_altloc label)*
+            assignment_vars:list[LpVariable]=[]
+            if len(geomection.atom_chunks)==2:                   
+                    pass
             else:
                 # Angle geomection is active if 2 specific bond geomections are active.
                 assert geomection.connection_type in [ConstraintsHandler.AngleConstraint,] # Can add other 3+ site constraints later
                 
-                def get_altlocs_key_or_echoed_altlocs_key(from_altlocs,position_option_indices,echoed_altlocs,d_id):
+                def get_altlocs_key_or_echoed_altlocs_key(from_altlocs,position_option_indices,echoed_altlocs,d_id): #TODO rename
                     bond_altlocs_key=get_altlocs_key(
                         from_altlocs,
                         position_option_indices,
                     )
-                    # if bond_altlocs_key not in ALL_mega_geomection_var_dict[d_id]:
-                    #     assert False
-                    #     # Bond is between echoed sites, so get the bond constraint between the parent altlocs that the sites are echoes of.
-                    #     assert not all(ea is None for ea in echoed_altlocs)
-                    #     parent_bond_from_altlocs=[]
-                    #     for echoed_altloc, from_altloc in zip(echoed_altlocs,from_altlocs):
-                    #         parent_bond_from_altlocs.append(echoed_altloc if echoed_altloc is not None else from_altloc)
-                    #     bond_altlocs_key=get_altlocs_key(
-                    #         parent_bond_from_altlocs,
-                    #         position_option_indices,
-                    #     )
-                    #     assert bond_altlocs_key in ALL_mega_geomection_var_dict[d_id], (d_id,bond_altlocs_key,from_altlocs,parent_bond_from_altlocs,echoed_altlocs,position_option_indices)
+                    assert bond_altlocs_key in ALL_mega_geomection_var_dict[d_id]
+                        
 
                     return bond_altlocs_key
                 
                 bond_vars=[]
-                impossible_split_conformation_cross=False
                 for i,(ch_A,ch_B) in enumerate(zip(geomection.atom_chunks[:-1],geomection.atom_chunks[1:])):
                     site_tags=(ch_A.get_disordered_tag(),ch_B.get_disordered_tag())
                     d_id = LP_Input.Geomection.construct_disordered_connection_id(
@@ -990,28 +882,14 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                             echoed_altlocs,
                             d_id
                         )
-                        if bond_altlocs_key not in ALL_mega_geomection_var_dict[d_id]:
-                            #assert len([ea for ea in echoed_altlocs if ea is not None])>=2
-                            #TODO shouldn't create the angle geomection in Input.py in the first place.
-                            impossible_split_conformation_cross=True
-                            break
-                        bond_geom, bond_var=ALL_mega_geomection_var_dict[d_id][bond_altlocs_key] 
-                        bond_vars.append(bond_var)
-                        # if bond_geom.echo_is_link:
-                        #     involves_link=True
+                        bond_vars.append(ALL_mega_geomection_var_dict[d_id][bond_altlocs_key][1])
                     except Exception as e:
                         print(e)
                         print(ordered_conn_from_altlocs)
                         print(bond_altlocs_key, list(ALL_mega_geomection_var_dict[d_id].keys()))
                         assert False
-                if impossible_split_conformation_cross:
-                    if allowed_sequence is not None:
-                        if always_allow_original_tranches[-1] is allowed_sequence:
-                            always_allow_original_tranches.pop()
-                        if flexible_allowed_constr_tranches[-1] is allowed_sequence:
-                            flexible_allowed_constr_tranches.pop()
-                    continue
-                assignment_options["ANY"]=bond_vars
+                assignment_vars=bond_vars
+
                     
             # if variable is inactive, cannot have all atoms assigned to the same altloc.
             # Note that since every connection option is looped through, this also means 
@@ -1042,84 +920,57 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             flexible_forbidden_constrs=[]
             flexible_original_allowed=[]
             flexible_original_forbidden=[]
-            for to_altloc, assignment_vars in assignment_options.items():
-                #assert len(geomection.atom_chunks)==len(assignment_vars) or geomection.involves_position_changes()   
+           
+            #assert len(geomection.atom_chunks)==len(assignment_vars) or geomection.involves_position_changes()   
+            if len(assignment_vars)>0:
                 allowed_constraint = (
                     lpSum(assignment_vars) <=  len(assignment_vars)-1+var_active,   # Active if all assignment vars active.
-                    f"ALLOW{constraint_type.value}_{tag}{TOSYMBOL}{to_altloc}"
+                    f"ALLOW{constraint_type.value}_{tag}"
                 )                      
                 forbidden_constraint = (
                     lpSum(assignment_vars) <=  len(assignment_vars)-1,   
-                    f"FORBID{constraint_type.value}_{tag}{TOSYMBOL}{to_altloc}"
+                    f"FORBID{constraint_type.value}_{tag}"
                 )  
-                if is_flexible:
-                    flexible_allowed_constrs.append(allowed_constraint)
-                    flexible_forbidden_constrs.append(forbidden_constraint)
-                elif is_bad_original_constraint:
-                    flexible_original_allowed.append(allowed_constraint)
-                    flexible_original_forbidden.append(forbidden_constraint)
-                else: # Whether allowed or not will depend on the round within a solution loop, as governed by `flexible_allowed_constr_tranches`  
-                    if allowed:
-                        if (not HIDE_UNUSED_TO_ALTLOC_VARS) or to_altloc == "ANY":
-                            lp_problem+=allowed_constraint
-                        else:
-                            to_altloc_var_dict[to_altloc].append((allowed_constraint,assignment_vars))
-                    else:
-                        if (not HIDE_UNUSED_TO_ALTLOC_VARS) or to_altloc == "ANY":
-                            lp_problem+=forbidden_constraint
-                        else:
-                            to_altloc_var_dict[to_altloc].append((forbidden_constraint,None))
-
+            else:
+                allowed_constraint=None
+                forbidden_constraint = (
+                    var_active ==  0,   
+                    f"FORBID{constraint_type.value}_{tag}"
+                ) 
             if is_flexible:
-                flexible_allowed_constr_sets.append(flexible_allowed_constrs)
-                flexible_forbidden_constr_sets.append(flexible_forbidden_constrs)
+                flexible_allowed_constr_sets.append(allowed_constraint)
+                flexible_forbidden_constr_sets.append(forbidden_constraint)
                 flexible_forbidden_constr_types.append(geomection.connection_type)
                 flexible_vars.append(var_active)
             elif is_bad_original_constraint:
-                flexible_bad_original_allowed_constrs.append(flexible_original_allowed)
-                flexible_bad_original_forbid_constrs.append(flexible_original_forbidden)
+                flexible_bad_original_allowed_constrs.append(allowed_constraint)
+                flexible_bad_original_forbid_constrs.append(forbidden_constraint)
                 flexible_bad_original_constr_types.append(geomection.connection_type)
                 flexible_bad_original_vars.append(var_active)
-            else:
+            else: # Whether allowed or not will depend on the round within a solution loop, as governed by `flexible_allowed_constr_tranches`  
+                if allowed:
+                    if allowed_constraint is not None:
+                        lp_problem += allowed_constraint
+                else: 
+                    lp_problem += forbidden_constraint
                 del allowed
 
-
-            # if geomection.echo_is_link:
-            #     parent_altlocs_key = get_altlocs_key(
-            #             [ch.echoed_altloc for ch in geomection.atom_chunks],
-            #             geomection.position_option_indices,
-            #         )
-            #     parent_var = geomection_var_dict[parent_altlocs_key][1]
-            #     lp_problem+=(var_active==parent_var,f"isLink_{var_active.name}")
         
         #geomection_var_dict = allowed_geomection_var_dict
         ## CONSTRAINT 2 "Num ordered geometries (i.e. 'connections') per disordered geometry must be unchanged"
-        use_constraint_2=(geomection.connection_type is ConstraintsHandler.BondConstraint  # This might be dodgy
-            and not ALTERNATIVE_CONSTRAINT_2_FORMULATION )
+        use_constraint_2=(geomection.connection_type is ConstraintsHandler.BondConstraint)
         ##### TODO  assess if need this
-            #enforce_angle_count_conservatio=False
-        force_angle_count_conservation=False
-        if (disordered_connection[0].connection_type is ConstraintsHandler.AngleConstraint): 
-            # Seems like good to enforce when at a split because can have tiny cost and optimizer seems to just be happy to leave on? EDIT: This might have been due to a bug.
-            # TODO experiment with tuirning this off. Leaving on angle costs that can be turned off for free doesn't affect the solution. And removing these constraints might improve speed. 
-            enforce_angle_count_conservation=any(conn.crosses_conformation_split() for conn in disordered_connection) or force_angle_count_conservation
-            if enforce_angle_count_conservation:
-                use_constraint_2=True
+        enforce_angle_count_conservation=True
+        if ((geomection.connection_type is ConstraintsHandler.AngleConstraint) 
+            and enforce_angle_count_conservation):
+            use_constraint_2=True
         ####################
-
         if use_constraint_2:
             dID = disordered_connection[0].get_disordered_connection_id()
-            # num_original_no_link_geoms = len([conn for conn in no_link_geoms if conn.original()]) 
-            # lp_problem += (
-            #     lpSum([var_active for var_active in no_link_geoms])==num_original_no_link_geoms,  # less than number of FROM altlocs. i.e. number of conformations it's currently involved in. 
-            #     f"{dID}_{num_original_no_link_geoms}_nonsplitGeoms"
-            # )
-            num_original_connections = len([conn for conn,_ in geomection_var_dict.values() if conn.original()])
             lp_problem += (
                 lpSum([var_active for (_,var_active) in allowed_geomection_var_dict.values()])==num_original_connections,  # less than number of FROM altlocs. i.e. number of conformations it's currently involved in. 
                 f"{dID}_{num_original_connections}_connections"
             )
-
 
         # # Debugging
         # var_track_num_active = pl.LpVariable(f"Debug_{constraint_type.value}_{tag}_connections",  #TODO cat=pl.LpBinary
@@ -1168,97 +1019,33 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     print(f"Num forbidden geomections: {num_forbidden_connections}")
     print(f"Num small fry: {num_small_fry_geomections}")
 
-
-    smallest_unit_geomection_types = (ConstraintsHandler.BondConstraint,ConstraintsHandler.NonbondConstraint,ConstraintsHandler.ClashConstraint)
-
-    if ALTERNATIVE_CONSTRAINT_2_FORMULATION:
-        def constr2_name(var,other_var):
+    if MUTAL_EXCLU_CONSTRAINT:
+        def constr3_name(var,other_var):
             return f"mutualExclu_{var.name}@{other_var.name}"
         for itr, disordered_geomection_var_dict in enumerate(mega_geomection_var_dict.values()):
             if itr%250==0:
-                print(f"pt2 {itr}/{len(mega_geomection_var_dict)}")
-
-            # if len(list(disordered_geomection_var_dict.values()))==0:
-            #     continue
-            # if list(disordered_geomection_var_dict.values())[0][0].connection_type not in smallest_unit_geomection_types:
-            #     continue
-            
+                print(f"{itr}/{len(mega_geomection_var_dict)}")
             for constraint,var in disordered_geomection_var_dict.values():
-                if constraint.connection_type not in smallest_unit_geomection_types: #and not constraint.crosses_conformation_split()):
-                    continue
-                if constraint.echo_is_link:
-                    continue
+                #if constraint.connection_type!=ConstraintsHandler.BondConstraint: # Might be better.
+                if constraint.connection_type==ConstraintsHandler.AngleConstraint:
+                    break
                 for other_constraint, other_var in disordered_geomection_var_dict.values():
                     if other_constraint==constraint:
                         continue
-                    if constr2_name(other_var,var) in lp_problem.constraints:
+                    if constr3_name(other_var,var) in lp_problem.constraints:
                         continue
                     not_shareable=False
                     for i in range(len(constraint.from_altlocs)):
-                        if (constraint.from_altlocs[i]==other_constraint.from_altlocs[i] and
-                            constraint.position_option_indices[i]==other_constraint.position_option_indices[i]):
+                        if (constraint.from_altlocs[i]==other_constraint.from_altlocs[i]):
+                            #constraint.position_option_indices[i]==other_constraint.position_option_indices[i]):
                             not_shareable=True
                             break
                     if not_shareable:
                         lp_problem+=(
                             var+other_var<=1,
-                            constr2_name(var,other_var)
+                            constr3_name(var,other_var)
                         )
-    else:
-        assert False
 
-    # Tie echo geomections (which involve echoes of parent conformation atoms) with the active geomection of the parent conformation
-    #  TODO Might not be necessary
-    '''
-    for itr, (dID, disordered_geomection_var_dict) in enumerate(mega_geomection_var_dict.items()):
-        def echo_condition_name(child_var,parent_var,echo_indices):
-            return f"echoGroup_{child_var.name}~{parent_var.name};{','.join([str(i) for i in echo_indices])}"
-        # def echo_condition_name(parent_var,child_var):
-        #     return f"echoReq_{child_var.name}@{parent_var.name}"
-        if itr%250==0:
-            print(f"pt3 {itr}/{len(mega_geomection_var_dict)}")
-        
-        if len(list(disordered_geomection_var_dict.values()))==0:
-            continue
-        if list(disordered_geomection_var_dict.values())[0][0].connection_type not in smallest_unit_geomection_types:
-            continue
-        
-        for constraint,child_var in disordered_geomection_var_dict.values():
-            echo_chunks = [ch for ch in constraint.atom_chunks if ch.echoed_altloc is not None]
-            if len(echo_chunks)==0:
-                continue
-            if not constraint.echo_is_link:
-                assert len(set([ch.echoed_altloc for ch in echo_chunks]))==1, [ch.echoed_altloc for ch in echo_chunks]
-                assert len(set([ch.altloc for ch in echo_chunks]))==1, [ch.altloc for ch in echo_chunks]
-            parent_altloc = echo_chunks[0].echoed_altloc
-            child_altloc = echo_chunks[0].altloc
-
-            echo_indices=tuple([i for (i, ch) in enumerate(constraint.atom_chunks) if ch in echo_chunks])
-            
-
-            parent_constrs=[]
-            for other_constraint, other_var in disordered_geomection_var_dict.values():
-                #chunks_considered=[other_constraint.atom_chunks[i] for i in echo_indices]
-                for altloc in [ch.altloc for ch in other_constraint.atom_chunks]:
-                    if i in echo_indices:
-                        if altloc != parent_altloc:
-                            break
-                    else:
-                        if altloc not in UntangleFunctions.TEMP_TEST_CHILD_PARENT[child_altloc]:
-                            break
-                else:
-                    parent_constrs.append(other_var)
-            assert len(parent_constrs)<=1, (dID, parent_constrs,child_altloc,parent_altloc)
-            if len(parent_constrs)==0:
-                assert constraint.connection_type!=ConstraintsHandler.BondConstraint,(dID, parent_constrs,child_altloc,parent_altloc)
-                continue
-            anchor_var = parent_constrs[0]
-            lp_problem+=(
-                child_var <= anchor_var,
-                echo_condition_name(child_var,anchor_var,echo_indices)
-            )
-    '''
-    
     max_bond_changes_tuple=None
     exclude_alt_positions_from_max_changes=True
     if max_bond_changes is not None or MAIN_CHAIN_ONLY:
@@ -1633,22 +1420,24 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
         if r > 0:
             # remove last flexi variables
-            for constrs in flexible_allowed_constr_sets + flexible_forbidden_constr_sets:
-                for _, constr_name in constrs: 
-                    lp_problem.constraints.pop(constr_name,None) # None arg because it is okay if it does not exist
+            for constr in flexible_allowed_constr_sets + flexible_forbidden_constr_sets:
+                if constr is None:
+                    continue
+                constr_name = constr[1]
+                lp_problem.constraints.pop(constr_name,None) # None arg because it is okay if it does not exist
         num_allowed={k:0 for k in flexible_forbidden_constr_types}
         num_forbidden={k:0 for k in flexible_forbidden_constr_types}
         allowed_flexi_vars:list[LpVariable]=[]
         for i in range(len(flexible_allowed_constr_tranches)):
             if flexible_allowed_constr_tranches[i][r]:
-                constrs_to_add=flexible_allowed_constr_sets[i]
+                constr_to_add=flexible_allowed_constr_sets[i]
                 num_allowed[flexible_forbidden_constr_types[i]]+=1
                 allowed_flexi_vars.append(flexible_vars[i])
             else:
-                constrs_to_add=flexible_forbidden_constr_sets[i]
+                constr_to_add=flexible_forbidden_constr_sets[i]
                 num_forbidden[flexible_forbidden_constr_types[i]]+=1
-            for constr in constrs_to_add:
-                lp_problem+= constr
+            if constr_to_add is not None:
+                lp_problem+= constr_to_add
         
         # Forbid original geomections that are inactive and would be forbidden if . This ensures the original geomections aren't given special treatment.
 
@@ -1676,9 +1465,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         num_inactive_og_forbidden={k:0 for k in flexible_bad_original_constr_types}
         num_inactive_og_allowed={k:0 for k in flexible_bad_original_constr_types}
 
-        for constrs in flexible_bad_original_allowed_constrs + flexible_bad_original_forbid_constrs:
-            for _, constr_name in constrs: 
-                lp_problem.constraints.pop(constr_name,None) # None arg because it is okay if it does not exist
+        for constr in flexible_bad_original_allowed_constrs + flexible_bad_original_forbid_constrs:
+            if constr is None:
+                continue
+            constr_name=constr[1]
+            lp_problem.constraints.pop(constr_name,None) # None arg because it is okay if it does not exist
         
 
         
@@ -1726,34 +1517,29 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         '''
 
         for i in range(len(always_allow_original_tranches)):
-            constrs_to_add=flexible_bad_original_allowed_constrs[i]
+            constr_to_add=flexible_bad_original_allowed_constrs[i]
             # Check whether the original geomection is inactive. Otherwise, do not forbid.
             if value(flexible_bad_original_vars[i]) < 0.5:
                 if not always_allow_original_tranches[i][r]:
                     assert r > 0
-                    constrs_to_add=flexible_bad_original_forbid_constrs[i]
+                    constr_to_add=flexible_bad_original_forbid_constrs[i]
                     num_inactive_og_forbidden[flexible_bad_original_constr_types[i]]+=1
                 else:
                     num_inactive_og_allowed[flexible_bad_original_constr_types[i]]+=1
-
+            if constr_to_add is None:
+                continue
                 
-            for constr in constrs_to_add:
-                #assert value(constr[0]) > 0.5
-                try:
-                    assert constr[1] not in lp_problem.constraints
-                    lp_problem+= constr
-                except Exception as e:
-                    print(constr)
-                    print(constrs_to_add)
-                    for constrs in flexible_bad_original_allowed_constrs + flexible_bad_original_forbid_constrs:
-                        for _, constr_name in constrs: 
-                            if constr_name == constr[1]:
-                                print("Found match (expect 1)")
-                    for _,other_name in constrs_to_add:
-                        if constr[1]==other_name:
-                            print("Found other match (expect 1)")
-                    raise e
-                
+            #assert value(constr[0]) > 0.5
+            try:
+                assert constr_to_add[1] not in lp_problem.constraints
+                lp_problem+= constr_to_add
+            except Exception as e:
+                print(constr_to_add)
+                for _,constr_name in [v for v in (flexible_bad_original_allowed_constrs + flexible_bad_original_forbid_constrs) if v is not None]:
+                    if constr_name == constr_to_add[1]:
+                        print("Found match (expect 1)")
+                raise e
+            
                 
          
 
@@ -1765,20 +1551,93 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             print(f"Num inactive bad original geomections allowed for round {r+1}: {num_inactive_og_allowed}")
 
 
-    sites_restricted_by_altloc=[]
+    def construct_conformations_from_solution():
+        conf_geomection_dict:dict[str,list[LP_Input.Geomection]]={a:[] for a in all_altlocs} # Active geomections of each conformation. Keys are the conformation labels (altloc ids).
+        conf_atom_chunk_dict:dict[str,list[AtomChunk]]={a:[] for a in all_altlocs}
+        # smallest_unit_geomection_types = (ConstraintsHandler.BondConstraint,ConstraintsHandler.NonbondConstraint,ConstraintsHandler.ClashConstraint)
+
+        active_geomections:list[LP_Input.Geomection]=[]
+        for disordered_geomection_var_dict in mega_geomection_var_dict.values():
+            active_geomections.extend([constraint for constraint,var in disordered_geomection_var_dict.values() if var.value()>0.5])
+        #     for geomection in active_geomections:
+        #         for other_geomection in active_geomections:
+        
+        # To speed up search, make a dict mapping chunks to the geomections they are involved in.
+        chunk_active_geomections_dict={ch.get_ordered_tag():[] for ch in chunk_sites}
+        for g in active_geomections:
+            for ch in g.atom_chunks:
+                chunk_active_geomections_dict[ch.get_ordered_tag()].append(g) 
+
+        def get_connected(chunk:AtomChunk,connected_chunks:list[AtomChunk]=None,connected_geomections:list[LP_Input.Geomection]=None):
+            if connected_chunks is None:
+                connected_chunks=[]
+            if connected_geomections is None:
+                connected_geomections = [] # Initialize here, not in default argument, or the default list will be shared with future default calls.
+
+            connected_chunks.append(chunk)
+            if len(connected_chunks)>len(chunk_sites):
+                raise Exception(f"Something went wrong, linked more than {len(chunk_sites)} chunks together")
+            for geomection in chunk_active_geomections_dict[chunk.get_ordered_tag()]:
+                if geomection in connected_geomections:
+                    continue
+                assert chunk in geomection.atom_chunks, (chunk, geomection,chunk_active_geomections_dict[chunk.get_ordered_tag()],chunk.get_ordered_tag())
+                connected_geomections.append(geomection) 
+                # if len(connected_geomections)%1000==0:
+                #     print(f"{len(connected_geomections)}/{len(active_geomections)}",len(connected_chunks),f"{chunk.get_ordered_tag()}",geomection.get_disordered_connection_id())
+                for other_chunk in geomection.atom_chunks:
+                    if other_chunk not in connected_chunks:
+                        connected_chunks,connected_geomections = get_connected(other_chunk,connected_chunks,connected_geomections)
+
+
+            return connected_chunks,connected_geomections
+
+        '''
+        for ch in chunk_sites:
+            if ch.get_site_num() == lowest_site_num:
+                conf_atom_chunk_dict[ch.altloc],conf_geomection_dict[ch.altloc] = get_connected(ch,active_geomections)
+        '''
+
+        num_assigned_chunks=0
+        for ch in chunk_sites:
+            for altloc, assigned_chunks in conf_atom_chunk_dict.items():
+                #print(altloc,len(assigned_chunks),ch.get_ordered_tag(),assigned_chunks[0].get_ordered_tag() if len(assigned_chunks)>0 else '',assigned_chunks[1].get_ordered_tag() if len(assigned_chunks)>1 else '', ch in assigned_chunks)
+                if ch in assigned_chunks:
+                    break
+            else:
+                # Not assigned to any, so free to choose altloc.
+                to_altloc = ch.altloc
+                i=0
+                site = VariableID.Atom(ch)
+                while ((ch.get_disordered_tag() in [other_ch.get_disordered_tag() for other_ch in conf_atom_chunk_dict[to_altloc]]) 
+                or ( (site in site_restrict_from_to_dict) and to_altloc not in site_restrict_from_to_dict[site][ch.altloc])):
+                    to_altloc  = all_altlocs[i] # TODO change all_altlocs to allowed altlocs for the site
+                    i+=1
+                    
+                connected_chunks, connected_geomections = get_connected(ch) 
+                conf_atom_chunk_dict[ch.altloc].extend(connected_chunks)
+                conf_geomection_dict[ch.altloc].extend(connected_geomections)
+                num_assigned_chunks+=len(connected_chunks)
+                #print("Num assigned",num_assigned_chunks)
+                assert num_assigned_chunks <= len(chunk_sites)
+                if num_assigned_chunks==len(chunk_sites):
+                    break
+
+
+        return conf_atom_chunk_dict,conf_geomection_dict
+
+    geoms_restricted_by_altloc=[]
     altloc_pool=[]
     def set_up_altloc_subset_restrictions(altloc_subset_size):
-        start_timer()
-        nonlocal sites_restricted_by_altloc
+        nonlocal geoms_restricted_by_altloc
         nonlocal lp_problem
         nonlocal altloc_pool
         
         altloc_subset_size= min(altloc_subset_size,len(all_altlocs))
 
         # Free restrictions on variables from last function call
-        for var_name in sites_restricted_by_altloc:
+        for var_name in geoms_restricted_by_altloc:
             lp_problem.constraints.pop(var_name)        
-        sites_restricted_by_altloc=[]
+        geoms_restricted_by_altloc=[]
 
         if altloc_subset_size==len(all_altlocs):
             return all_altlocs
@@ -1794,34 +1653,20 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             altloc_selected = random.choice(altloc_pool)
             altloc_pool.remove(altloc_selected)
             altlocs_to_restrict.append(altloc_selected)
-        for site in site_var_dict:
-            for restricted_to_altloc in altlocs_to_restrict:
-                var_name = get_force_no_flips_name(site,restricted_to_altloc) 
-                # Note this variable name might correspond to different variables in different rounds.
-                if var_name not in lp_problem.constraints:
-                    for from_altloc in site_var_dict[site]:
-                        if restricted_to_altloc not in site_var_dict[site][from_altloc]: 
-                            continue
-                        if site_var_dict[site][from_altloc][restricted_to_altloc].value()>0.5:
-                            active_var= site_var_dict[site][from_altloc][restricted_to_altloc]
-                            break
-                    else: # This conformer site can't possibly have been assigned the restricted altloc.
-                        continue
+        for altloc, active_geomections in construct_conformations_from_solution()[1].items():
+            if altloc in altlocs_to_restrict:
+                for i, active_geom in enumerate(active_geomections):
+                    # if i%100==0:
+                    #     print(f"{i}/{len(active_geomections)}")
+                    altlocs_key = get_altlocs_key(active_geom.from_altlocs,
+                                        active_geom.position_option_indices if active_geom.involves_position_changes() else None)
+                    active_var=mega_geomection_var_dict[active_geom.get_disordered_connection_id()][altlocs_key][1]
+                    var_name=f"force_active_{active_var.name}"
                     lp_problem += (
                         active_var==1,
                         var_name
                     ) 
-                    sites_restricted_by_altloc.append(var_name)
-        
-        if HIDE_UNUSED_TO_ALTLOC_VARS:
-            for altloc, _vars in to_altloc_var_dict.items():
-                for (var,assignment_vars) in _vars:
-                    if altloc in altlocs_to_restrict and (assignment_vars is None or value(lpSum(assignment_vars))<len(assignment_vars)):
-                        lp_problem.constraints.pop(var[1],None)
-                    elif var[1] not in lp_problem.constraints:
-                        lp_problem+=var
-                    
-        end_timer("setting up altloc subset")
+                    geoms_restricted_by_altloc.append(var_name)
         return [alt for alt in all_altlocs if alt not in altlocs_to_restrict]
 
 
@@ -2102,13 +1947,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         log(f"{100*(diff):.3f}% ({total_distance:.6e}){extra_text}")
         #plt.scatter()
 
-
     # def good_constraint(constraint:LP_Input.Geomection):
     #     good_z_threshold=2
     #     return constraint.z_score<=good_z_threshold
     
 
     def get_active_to_altloc(atom_chunk:AtomChunk):
+        raise NotImplementedError()
         for to_altloc, site_var in site_var_dict[VariableID.Atom(atom_chunk)][atom_chunk.altloc].items():
             if site_var.value()>0.5:
                 return to_altloc
@@ -2128,8 +1973,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         def ignore_constraint(constraint:tuple[LP_Input.Geomection,LpVariable]):
             for atom_chunk in constraint[0].atom_chunks:
                 if get_active_to_altloc(atom_chunk) in ignored_altlocs:
-                    return True
-                if constraint[0].echo_is_link:
                     return True
             return False
 
@@ -2271,37 +2114,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             # #for z_bounds in [(0,2),(1,3),(2,4),(3,5),(4,6),(5,7),(6,8)]:z
                 generate_cemented_triplet_constraints(atom_name,z_bounds,ignored_altlocs=ignored_altlocs)
 
-
-    peppered_fixed_site_constr_names=[]
-    def pepper_fixed_sites(freq=1/3000,max_z_score=None):
-        if freq<=0:
-            return
-        nonlocal peppered_fixed_site_constr_names
-        nonlocal lp_problem
-        
-        for site in site_var_dict:
-            for from_altloc in site_var_dict[site]:
-                for to_altloc, var in site_var_dict[site][from_altloc].items():
-                    if get_force_no_flips_name(site,to_altloc) in lp_problem.constraints:
-                        continue
-                    if var.value()>0.5 and random.random()<=freq:
-                        constr_name="RANDOMFIX"+get_force_no_flips_name(site,to_altloc)
-                        lp_problem += (
-                            var==1,
-                            constr_name
-                        ) 
-                        peppered_fixed_site_constr_names.append(constr_name)
-        print(f"Fixed {len(peppered_fixed_site_constr_names)} sites")
-
-
-        # TODO if all geometries involving the site are good.  
-        if max_z_score is not None:
-            raise NotImplementedError() 
-            for disordered_geomection_var_dict in mega_geomection_var_dict.values():
-                for constr,var in disordered_geomection_var_dict.values():
-                    if var.value()>0.5:
-                        if constr.z_score <=max_z_score:
-                            pass
     peppered_fixed_geo_constr_names={}
     def pepper_fixed_geomections(freq=0.2,Z_min=0,Z_max=2,geomection_type=ConstraintsHandler.BondConstraint):
         if freq<=0:
@@ -2328,12 +2140,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         print(f"Fixed {len(peppered_fixed_geo_constr_names[geomection_type])} {geomection_type}")
 
     def remove_random_fixed():
-        nonlocal peppered_fixed_site_constr_names
         nonlocal peppered_fixed_geo_constr_names
         nonlocal lp_problem
-        for constr_name in peppered_fixed_site_constr_names:
-            lp_problem.constraints.pop(constr_name)
-        peppered_fixed_site_constr_names=[]
         for geomection_type in peppered_fixed_geo_constr_names: 
             for constr_name in peppered_fixed_geo_constr_names[geomection_type]:
                 lp_problem.constraints.pop(constr_name)
@@ -2377,7 +2185,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             
 
         return z_scores_dict
-
 
     def score_diagnostics(loop_idx,altloc_subset):
         # TODO CRITICAL split into generating data for each individual conformation. Store the information.
@@ -2533,7 +2340,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         if len(site_altposvar_dict)>0:
             write_poschanges_to_file(f"{log_out_dir}/ChangedCoords-{l+1}.txt")
 
-
         get_z_scores_by_conformation(all_active_constraints,site_assignments)
 
         if PLOTTING:
@@ -2593,7 +2399,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         num_rounds=get_num_rounds()
         difficult=False
         dynamic_subset_size_mod=0
-        
+
         for r in range(num_rounds):
             dynamic_subset_size_mod = min(0,dynamic_subset_size_mod)
 
@@ -2631,22 +2437,20 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
                 remove_cement()
                 if len(altlocs_in_problem)>= MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS:
-                    start_timer()
-                    clear_cement_constraints()
-                    generate_cement_constraints(ignored_altlocs = [a for a in all_altlocs if a not in altlocs_in_problem])
-                    apply_cement()
-                    end_timer("cement")
+                    if CEMENT:
+                        start_timer()
+                        clear_cement_constraints()
+                        generate_cement_constraints(ignored_altlocs = [a for a in all_altlocs if a not in altlocs_in_problem])
+                        apply_cement()
+                        end_timer("cement")
 
                 remove_random_fixed()
                 if len(altlocs_in_problem)>=MIN_ALTLOCS_TO_FIX_RANDOM:
                     start_timer()
-                    if PEPPER_FIXED_SITES:
-                        pepper_fixed_sites()
                     if PEPPER_FIXED_GEOMECTIONS:
                         pepper_fixed_geomections(0.2,Z_min=0,Z_max=2)
                         pepper_fixed_geomections(0.1,Z_min=2,Z_max=3)
                     end_timer("Pepper fixed")
-
                                 
                 def run_solve():
                     nonlocal dynamic_subset_size_mod
@@ -2736,33 +2540,23 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 write_current_connections(f"{log_out_dir}/ActiveConnections.txt")
                 ############################
 
-                site_assignments:dict[VariableID,dict[str,str]] = {}
+                site_assignments:dict[VariableID,dict[str,str]] = {} #{site: {} for site in site_var_dict}
                 site_assignment_arrays[-1]=site_assignments
                 distances[-1]= value(lp_problem.objective)
 
-                # Determine which atom has been assigned where.
-                for site in site_var_dict:
-                    site_assignments[site]={}
-                    for from_altloc in site_var_dict[site]:
-                        if lp_problem.sol_status==LpStatusInfeasible:
-                            assert False
-                            site_assignments[site][from_altloc]=from_altloc 
-                            break 
+                    #for from_altloc in site_var_dict[site]:
+                for to_altloc, chunks in construct_conformations_from_solution()[0].items():
+                    for ch in chunks:
+                        site=VariableID.Atom(ch)
+                        if site not in site_assignments:
+                            site_assignments[site]={}
                         poschange_str= ""
                         if site in site_altposvar_dict and from_altloc in site_altposvar_dict[site]:
                             for poschange_index, altposvar in site_altposvar_dict[site][from_altloc].items():
                                 if poschange_index!=0 and altposvar.value()>0.5:
                                     assert poschange_str == ""
                                     poschange_str = f" new_position={site_altpos_dict[site][from_altloc][poschange_index].get_coord()}" 
-                        to_altloc_found = False
-                        for to_altloc in site_var_dict[site][from_altloc]:
-                            if site_var_dict[site][from_altloc][to_altloc].value()>0.5:  # For some reason CPLEX outptuts values like 1.0000000000094025 sometimes.
-                                assert not to_altloc_found
-                                to_altloc_found=True
-                                site_assignments[site][from_altloc]=to_altloc+poschange_str
-
-                                            
-                        assert to_altloc_found, (site, from_altloc)
+                        site_assignments[site][ch.altloc]=to_altloc+poschange_str
                 
                 update_swaps_file(distances,site_assignment_arrays)  #,record_notable_improvements_threshold=0.03)
                 
@@ -2975,5 +2769,3 @@ if __name__=="__main__":
     )
     solve(finest_chunks,disordered_connections,handle)
 
-
-# %%
