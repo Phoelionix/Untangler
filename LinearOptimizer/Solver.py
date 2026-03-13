@@ -80,26 +80,32 @@ USE_DYNAMIC_ALTLOC_SUBSET_SIZE = True # Dynamically modify the number of conform
 #ALTLOC_RUN_SUBSET_SIZES=[4,4,5,6] # None 
 
 
-if UntangleFunctions.NO_UNRESTRAINED:
-    MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS=6
-    MIN_ALTLOCS_TO_FIX_RANDOM=6
-else:
-    MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS=3
-    MIN_ALTLOCS_TO_FIX_RANDOM=3
+# if UntangleFunctions.NO_UNRESTRAINED:
+#     MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS=6
+#     MIN_ALTLOCS_TO_FIX_RANDOM=6
+# else:
+#     MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS=3
+#     MIN_ALTLOCS_TO_FIX_RANDOM=3
+
+PEPPER_FIXED_SITES=True
+PEPPER_FIXED_GEOMECTIONS=True
+
 
 #ALTLOC_RUN_SUBSET_SIZES=[2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,None] # None 
 #ALTLOC_RUN_SUBSET_SIZES=[None] # None 
 ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT=[3,3,3,4,5,None]
-
-DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS=99999
+DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS=np.inf # TODO remove this since dynamic subset size approach replaces it.
 
 
 
 
 #ALTLOC_RUN_SUBSET_SIZES=[3,3,3,3,3,4,4,4,4,4,4] # None 
 #ALTLOC_RUN_SUBSET_SIZES=[6,6,7,8,10] # None 
-ALTLOC_RUN_SUBSET_SIZES=[3,4,5,5,6,7] # None 
+#ALTLOC_RUN_SUBSET_SIZES=[3,4,5,5,6,7] # None 
 #ALTLOC_RUN_SUBSET_SIZES=[2,2,2,2,3,3,3,4,4,4] # None 
+
+#ALTLOC_RUN_SUBSET_SIZES=[9,9,9,9,9,9] # None 
+#ALTLOC_RUN_SUBSET_SIZES=[3,4,4,4,4,4] # None 
 MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS=3
 MIN_ALTLOCS_TO_FIX_RANDOM=3
 
@@ -125,7 +131,7 @@ def add_sos2(lp_problem:LpProblem,sos2_name,sos2_rule):
 
 
 def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
-          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=4,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=3,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
           inert_water_sites=False,
           #gapRel=0.001,
           #gapRel=0,
@@ -181,7 +187,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
 
     child_parent_altloc_dict=UntangleFunctions.TEMP_TEST_CHILD_PARENT
-    all_split_site_tags = list(set([ch.get_disordered_tag() for ch in chunk_sites if ch.get_altloc() in child_parent_altloc_dict and ch.echoed_altloc is None]))
+    all_split_site_tags = list(set(
+        [ch.get_disordered_tag() for ch in chunk_sites 
+        if (ch.get_altloc() in child_parent_altloc_dict and ch.echoed_altloc is None) or len(child_parent_altloc_dict)==0])
+    )
+   
     parent_to_children_dict={}
     for child_altloc,parent_altlocs in child_parent_altloc_dict.items():
         assert len(parent_altlocs)==1, f"Not implemented multiple parent altlocs ({parent_altlocs})"
@@ -216,7 +226,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
     forced_swap_solutions=[]
 
-
+    
 
 
     lp_problem = pl.LpProblem(f"Untangling_Problem-{out_handle}", LpMinimize)
@@ -294,8 +304,16 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 #improvement_factors_to_tolerate=np.array([100,4,2,1.5,1]) 
                 #improvement_factors_to_tolerate=np.array([4,2,1,0.7,0.4]) 
                 #improvement_factors_to_tolerate=np.array([4,2,1]) 
-                improvement_factors_to_tolerate=np.array([4,0.8]) 
+                #improvement_factors_to_tolerate=np.array([4,0.8]) 
+                improvement_factors_to_tolerate=np.array([2,0.8]) 
                 #improvement_factors_to_tolerate=np.array([10,4,2,1,0.7,0.4,0.2]) /0.2
+        # TODO remove altloc_run_subset_size variable, replace
+        num_subset_runs=4
+        #improvement_factors_to_tolerate=np.array([2,0.8]) 
+        improvement_factors_to_tolerate=np.array([20,5,3,2,1.01,0.8]) 
+        #start_of_round_altloc_subset_size=max(2,math.ceil(len(all_altlocs)/2))
+        start_of_round_altloc_subset_size=3
+        ALTLOC_RUN_SUBSET_SIZES=[start_of_round_altloc_subset_size,]*num_subset_runs
 
     #TODO limit alternatives to consider to the top N alternatives. Otherwise when have really bad outliers, introduce a huge number of branches.
     # TODO dynamical solution space size. Stop solve if taking too long, and increase the required improvement_factor, then retry. 
@@ -346,7 +364,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         if site not in site_var_dict:
             site_var_dict[site] = {}
         site_var_dict[site][from_altloc]={}
-
+        
         if chunk.get_disordered_tag() not in all_split_site_tags:
             site_restrict_from_to_dict[site]=bundled_altloc_rule
         # if chunk.get_disordered_tag()==DisorderedTag(2,"C"):
@@ -532,6 +550,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 site_var_dict[site][altloc][altloc]==1,
                 get_force_no_flips_name(site,altloc)
             ) 
+
         
         if CHANGES_MUST_INVOLVE is not None:
             for a in site_altlocs:
@@ -1462,9 +1481,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     if not os.path.exists(log_file):
         with open(log_file,'w') as f:
             f.write(f"{out_handle} altloc optimizer log\n")
-    def log(line:str):
+    def log(line:str,also_print=False):
         with open(log_file, 'a') as f:
             f.write(str(line)+"\n")
+        if also_print:
+            print(line)
             
 
     swaps_file =  swaps_file_path(out_dir,out_handle,all_altlocs)
@@ -1788,7 +1809,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                         continue
                     lp_problem += (
                         active_var==1,
-                        get_force_no_flips_name(site,restricted_to_altloc)
+                        var_name
                     ) 
                     sites_restricted_by_altloc.append(var_name)
         
@@ -2318,7 +2339,46 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 lp_problem.constraints.pop(constr_name)
             peppered_fixed_geo_constr_names[geomection_type]=[]
 
-                        
+
+    # TODO move validation diagnostics/triage to a different file
+    def get_z_scores_by_conformation(active_geomections:list[tuple[LP_Input.Geomection,LpVariable]], site_assignments:dict[VariableID,dict[str,str]],
+        log_indiv=False,log_average=True):
+        #active_constraints=[(constraint,var) for constraint,var in disordered_geomection_var_dict.values() if var.value()>0.5]
+        #original_constraints=[(constraint,var) for constraint,var in disordered_geomection_var_dict.values() if constraint.original()]
+        z_scores_dict={altloc: {ConstraintsHandler.Constraint.kind(conn_type):[] for conn_type in connection_types} for altloc in all_altlocs}
+        for geomection,var in active_geomections:
+            conformation_label=site_assignments[VariableID.Atom(geomection.atom_chunks[0])][geomection.atom_chunks[0].altloc][0]
+            z_scores_dict[conformation_label][ConstraintsHandler.Constraint.kind(geomection.connection_type)].append(geomection.z_score)
+        totals_dict={ConstraintsHandler.Constraint.kind(conn_type):[] for conn_type in connection_types}
+        def rms(array):
+            return math.sqrt(np.sum(v**2 for v in array)/len(array))
+        if log_indiv or log_average:
+            log("-- RMSZ --")
+            for altloc in z_scores_dict:
+                if log_indiv:
+                    log(altloc)
+                for kind, z_scores in z_scores_dict[altloc].items():
+                    if kind in [VariableKind.Clash.value,VariableKind.Penalty.value]:
+                        val=len(z_scores)
+                    else:
+                        #val=np.mean(z_scores)
+                        val=rms(z_scores) if len(z_scores)>0 else 0
+                    totals_dict[kind].append(val)
+                    if log_indiv:
+                        log(f"{kind}: {val}")
+                if log_indiv:
+                    log("--------------")
+        if log_average:
+            log("==============")
+            log("All conformations:")
+            for kind,vals in totals_dict.items():
+                log(f"{kind}: {rms(vals)} (min/max conf. RMS: {min(vals)},{max(vals)}) ") # TODO worst z values of conformations or histogram.
+            log("==============")
+            
+
+        return z_scores_dict
+
+
     def score_diagnostics(loop_idx,altloc_subset):
         # TODO CRITICAL split into generating data for each individual conformation. Store the information.
         return
@@ -2347,7 +2407,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         print("***********")
         return
 
-    def log_geometry_changes():
+    def log_geometry_changes(site_assignments:dict[VariableID,dict[str,str]]):
         if PLOTTING:
             all_sigma_costs:list[list[tuple[float]]]=[]
         ### Changed Connections ###
@@ -2355,9 +2415,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         changed_disordered_connections=[]
         bonds_replaced:list[LP_Input.Geomection]=[] # connections in original that are not present in solution
         #new_connections=[]
+        all_active_constraints:list[tuple[LP_Input.Geomection,LpVariable]]=[]
         for disordered_geomection_var_dict in mega_geomection_var_dict.values():
-            # NOTE theses are lists of tuples
+            # NOTE these are lists of tuples
             active_constraints=[(constraint,var) for constraint,var in disordered_geomection_var_dict.values() if var.value()>0.5]
+            all_active_constraints.extend(active_constraints)
             original_constraints=[(constraint,var) for constraint,var in disordered_geomection_var_dict.values() if constraint.original()]
 
             if len(active_constraints)==len(original_constraints)==0:
@@ -2472,6 +2534,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             write_poschanges_to_file(f"{log_out_dir}/ChangedCoords-{l+1}.txt")
 
 
+        get_z_scores_by_conformation(all_active_constraints,site_assignments)
+
         if PLOTTING:
             try:
                 all_sigma_costs = np.array(all_sigma_costs,dtype=np.float32)
@@ -2531,6 +2595,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         dynamic_subset_size_mod=0
         
         for r in range(num_rounds):
+            dynamic_subset_size_mod = min(0,dynamic_subset_size_mod)
 
             altloc_subset_sizes=[None]
             if not difficult and (ALTLOC_RUN_SUBSET_SIZES is not None):
@@ -2552,7 +2617,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             for j in range(num_altloc_subset_runs):
                 if altloc_subset_sizes[j] is not None and altloc_subset_sizes[j]<len(all_altlocs):
                     if USE_DYNAMIC_ALTLOC_SUBSET_SIZE:
-                        dynamic_subset_size = max(2, altloc_subset_sizes[j] + dynamic_subset_size_mod)
+                        dynamic_subset_size = max(2, altloc_subset_sizes[j] + math.floor(dynamic_subset_size_mod))
                     else:
                         dynamic_subset_size=altloc_subset_sizes[j]
                     altlocs_in_problem = set_up_altloc_subset_restrictions(dynamic_subset_size)
@@ -2575,9 +2640,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 remove_random_fixed()
                 if len(altlocs_in_problem)>=MIN_ALTLOCS_TO_FIX_RANDOM:
                     start_timer()
-                    pepper_fixed_sites()
-                    pepper_fixed_geomections(0.2,Z_min=0,Z_max=2)
-                    pepper_fixed_geomections(0.1,Z_min=2,Z_max=3)
+                    if PEPPER_FIXED_SITES:
+                        pepper_fixed_sites()
+                    if PEPPER_FIXED_GEOMECTIONS:
+                        pepper_fixed_geomections(0.2,Z_min=0,Z_max=2)
+                        pepper_fixed_geomections(0.1,Z_min=2,Z_max=3)
                     end_timer("Pepper fixed")
 
                                 
@@ -2618,9 +2685,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     gc.collect()
 
                     if solve_time/60 > minutes:  # FIXME subtract read time
-                        dynamic_subset_size_mod-=1
+                        dynamic_subset_size_mod-= 1
                     elif solve_time/60 < minutes/2:
-                        dynamic_subset_size_mod+=1
+                        dynamic_subset_size_mod+=1/2
                     return solve_time
                 
                 solve_time = run_solve()
@@ -2630,7 +2697,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     dynamic_subset_size_mod=0
                     solve_time=run_solve()
                 total_solve_time=time()-start_time
-                log(f"Solver time: {int(solve_time/60)} m {int(solve_time%60)} s, Total: {int(total_solve_time/60)} m {int(total_solve_time%60)} s")
+                log(f"\nSolver time: {int(solve_time/60)} m {int(solve_time%60)} s, Total: {int(total_solve_time/60)} m {int(total_solve_time%60)} s")
 
                 print()
                 print("Solver finished")
@@ -2669,7 +2736,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 write_current_connections(f"{log_out_dir}/ActiveConnections.txt")
                 ############################
 
-                site_assignments:dict[VariableID,dict[str,dict[str,int]]] = {}
+                site_assignments:dict[VariableID,dict[str,str]] = {}
                 site_assignment_arrays[-1]=site_assignments
                 distances[-1]= value(lp_problem.objective)
 
@@ -2699,7 +2766,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 
                 update_swaps_file(distances,site_assignment_arrays)  #,record_notable_improvements_threshold=0.03)
                 
-                log_geometry_changes()
+                log_geometry_changes(site_assignments)
                 score_diagnostics(l,altlocs_in_problem)
 
 
