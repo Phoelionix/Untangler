@@ -138,7 +138,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
           max_bond_changes=None,
           modify_forbid_conditions=True,  # Whether the function is allowed to modify (generally, turn off) the "forbidden" flags of the connections
           change_punish_factor=0, # Adds cost of: change_punish_factor x num_conformer_labels_changed/num_conformers x original_cost. Num conformers excludes conformers that are being ignore (see `site_being_considered()`).
-          forbid_ring_changes=False,
+          forbid_ring_changes=True,
           forbid_solutions_composed_of_better_solutions=False,
           forbid_CECD12_changes=False, # Leaving true until fix bug from missing interchangability of C[E/D]1 and C[E/D]2 when reading geometry restraints 
           reference_pdb_file=None
@@ -225,8 +225,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
     
 
-   
-
     ##### Constraints ####
 
 
@@ -298,7 +296,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         # TODO remove altloc_run_subset_size variable, replace
         num_subset_runs=1
         #improvement_factors_to_tolerate=np.array([2,0.8]) 
-        improvement_factors_to_tolerate=np.array([20,5,3,2,1.01,0.8]) 
+        improvement_factors_to_tolerate=np.array([20,5,3,2,1.01,0.8,0.6,0.4,0.2,0.1]) 
         #start_of_round_altloc_subset_size=max(2,math.ceil(len(all_altlocs)/2))
         start_of_round_altloc_subset_size=6
         ALTLOC_RUN_SUBSET_SIZES=[start_of_round_altloc_subset_size,]*num_subset_runs
@@ -588,13 +586,28 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                             if ch.name in ["CD1","CD2","CE1","CE2","CZ"]:
                                 return True
                         elif ch.get_resname()=="PRO":
-                            if ch.name in ["CG"]: # Include CD?
+                            if ch.name in ["CG",
+                                            "CD","CB","CA"]: # FIXME temporary while debugging
                                 return True
                         elif ch.get_resname()=="TRP":
                             if ch.name not in MCH\
                             and ch.name not in ["CG"]:
                                 return True
-
+                        elif ch.get_resname()=="FOL":
+                            if ch.name in ["C12","C13","C14","C15",
+                                           "C7","N5","C4A","N8","C8A",
+                                           "N1","C2","N3",]:
+                                return True
+                        elif ch.get_resname()=="NAP":
+                            if ch.name in ["N1A","C2A","N3A","C4A","C5A",
+                                           "N7A","C8A",
+                                           "O4B","C3B","C2B", #XXX
+                                           "C3D","O4D",
+                                           "C3N","C4N","C6N","C5N","C2N"]:
+                                return True
+                        elif ch.get_resname()=="HIS":
+                            if ch.name in ["ND1","NE2","CE1","CD2"]:
+                                return True
 
             # Forbid changes that are costly to consider and don't seem to tangle
             #TESTING_DISABLE_CHANGES=["CD2","CE2","OH","NH2","NZ"]
@@ -1552,6 +1565,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
 
     def construct_conformations_from_solution():
+        sys.setrecursionlimit(int(1e4)) 
         conf_geomection_dict:dict[str,list[LP_Input.Geomection]]={a:[] for a in all_altlocs} # Active geomections of each conformation. Keys are the conformation labels (altloc ids).
         conf_atom_chunk_dict:dict[str,list[AtomChunk]]={a:[] for a in all_altlocs}
         # smallest_unit_geomection_types = (ConstraintsHandler.BondConstraint,ConstraintsHandler.NonbondConstraint,ConstraintsHandler.ClashConstraint)
@@ -1574,6 +1588,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             if connected_geomections is None:
                 connected_geomections = [] # Initialize here, not in default argument, or the default list will be shared with future default calls.
 
+
+            assert chunk.get_disordered_tag() not in [ch.get_disordered_tag() for ch in connected_chunks], (chunk.get_ordered_tag(), [ch.get_ordered_tag() for ch in connected_chunks], [(geom.get_disordered_connection_id(),geom.from_altlocs) for geom in connected_geomections])
             connected_chunks.append(chunk)
             if len(connected_chunks)>len(chunk_sites):
                 raise Exception(f"Something went wrong, linked more than {len(chunk_sites)} chunks together")
