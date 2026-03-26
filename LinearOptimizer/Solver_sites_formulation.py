@@ -388,6 +388,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     def get_force_no_flips_name(site,altloc):
         return f"forceNoFlips_{site}_{altloc}"
 
+    print("NEED TO LET WATERS GET ASSIGNED TO ANY ALTLOC")
     for site in disordered_atom_sites:
         if not site_being_considered(site) :
             continue
@@ -2378,31 +2379,40 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
         return z_scores_dict
 
-
+    SKIP_SCORE_DIAGNOSTICS=False
     def score_diagnostics(loop_idx,altloc_subset):
         # TODO CRITICAL split into generating data for each individual conformation. Store the information.
-        return
+        if SKIP_SCORE_DIAGNOSTICS:
+            return
         print("***********")
         print("Running score diagnostics")
         if reference_pdb_file is not None:
             swapped_model=get_swapped_file(reference_pdb_file,swaps_file,loop_idx)
             
             
-            reference_pdb_file_subset=LP_Input.create_altloc_subset_model(reference_pdb_file,altloc_subset)
-            swapped_model=LP_Input.create_altloc_subset_model(swapped_model,altloc_subset)
-            
-            for i, pdb in enumerate([reference_pdb_file_subset,swapped_model]):
-                if i ==0:
-                    print("Before")
-                else:
-                    print("After")
-                print("========")
+            TEMP_implemented_individual_conformation_storing=False
+            if TEMP_implemented_individual_conformation_storing:
+                reference_pdb_file_subset=LP_Input.create_altloc_subset_model(reference_pdb_file,altloc_subset)
+                swapped_model=LP_Input.create_altloc_subset_model(swapped_model,altloc_subset)
+            else:
+                reference_pdb_file_subset=reference_pdb_file
+            for i, pdb in enumerate([reference_pdb_file_subset,swapped_model]): # need to change this after implemeneting individual conformation scoring
 
+                havent_stored = False # TODO will use when storing data.
                 if i!=0 or  havent_stored:
-                    get_clashes(pdb)
+                    if i ==0:
+                        print("Before")
+                    else:
+                        print("After")
+                    print("========")
+                    out_clash_file_handle=out_handle
+                    if i!=0:
+                        out_clash_file_handle+="_swapped"
+                    run_clash_validation(pdb,out_clash_file_handle)
                     UntangleFunctions.assess_geometry_wE(pdb)
                 else:
                     pass
+            clash_validation_changes(out_handle,out_handle+"_swapped",out_handle)
 
         print("***********")
         return
@@ -2563,7 +2573,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 print(f"Plotting failed. Error: {e}")    
     ########
 
-    get_clashes(reference_pdb_file)
+    run_clash_validation(reference_pdb_file,out_handle)
     for l in range(num_solutions):
         if l > 0 and l <= len(forced_swap_solutions):
             lp_problem.constraints.pop("forcedSwap")
@@ -2664,7 +2674,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                                 except:
                                     raise Exception(v,v.value())
                             f.write(f"Total distance = {value(lp_problem.objective)}")
-                    minutes = easy_timeLimit if not difficult else difficult_timeLimit
+                    timeLimit_seconds = (easy_timeLimit if not difficult else difficult_timeLimit)*60
                     # if is_subset_run:
                     #     minutes= max(1,minutes/4)
 
@@ -2675,7 +2685,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     #         extra_args["options"]=advanced_basis_solver_options
                     
                     # TODO try reusing solver object and just modify member variables. Might be that pulp naturally supports loading file information from previous CPLEX run, as CPLEX environment naturally does. 
-                    solver = solver_class(timeLimit=60*minutes,threads=THREADS,warmStart=warmStart,logPath=logPath,
+                    solver = solver_class(timeLimit=timeLimit_seconds,threads=THREADS,warmStart=warmStart,logPath=logPath,
                                           gapRel=gapRel,
                     **extra_args)
                     run_start_time=time()
@@ -2684,20 +2694,20 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     sleep(1)
                     gc.collect()
 
-                    if solve_time/60 > minutes:  # FIXME subtract read time
+                    if solve_time > timeLimit_seconds:  # FIXME subtract read time
                         dynamic_subset_size_mod-= 1
-                    elif solve_time/60 < minutes/2:
+                    elif solve_time < timeLimit_seconds/2:
                         dynamic_subset_size_mod+=1/2
-                    return solve_time
+                    return solve_time, solve_time>timeLimit_seconds
                 
-                solve_time = run_solve()
+                solve_time,exceeded_time_limit = run_solve()
                 if not difficult and solve_time/60>=DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS:
                     print("shifting gears to difficult problem mode")
                     difficult=True
                     dynamic_subset_size_mod=0
                     solve_time=run_solve()
                 total_solve_time=time()-start_time
-                log(f"\nSolver time: {int(solve_time/60)} m {int(solve_time%60)} s, Total: {int(total_solve_time/60)} m {int(total_solve_time%60)} s")
+                log(f"\nSolver time: {int(solve_time/60)} m {int(solve_time%60)} s, Total: {int(total_solve_time/60)} m {int(total_solve_time%60)} s" + (" (Exceeded time limit)" if exceeded_time_limit else ""))
 
                 print()
                 print("Solver finished")
@@ -2950,17 +2960,61 @@ def get_swapped_file(unswapped_pdb_file,swap_file_path,swap_idx):
             break
         i+=1
     else:
-        print(f"get_clashes error - did not get model at index {swap_idx}")
+        print(f"run_clash_validation error - did not get model at index {swap_idx}")
         return
     return swapped_model
     
-def get_clashes(pdb_model):
-    clash_score_program= os.path.join(UntangleFunctions.UNTANGLER_WORKING_DIRECTORY,"Measures","clash_score_keepH.sh")
+def get_clash_validation_file_path(handle):
+    return os.path.join(os.path.abspath(os.getcwd()),"output",f"clashes_{handle}.txt")
+
+def run_clash_validation(pdb_model,out_handle,keep_H=True):
+    if keep_H:
+        clash_score_program= os.path.join(UntangleFunctions.UNTANGLER_WORKING_DIRECTORY,"Measures","clash_score_keepH.sh")
+    else:
+        clash_score_program= os.path.join(UntangleFunctions.UNTANGLER_WORKING_DIRECTORY,"Measures","clash_score.sh")
 
     args=["bash", clash_score_program, pdb_model]
     print (f"|+ Running: {' '.join(args)}")
-    subprocess.run(args)
+    proc = subprocess.run(args,capture_output=True,text=True)
     
+    out_file_path = get_clash_validation_file_path(out_handle)
+    with open(out_file_path,'w+') as f:
+        writing=False
+        for line in proc.stdout.split('\n'):
+            line+='\n'
+            if writing:
+                f.write(line)
+            if line.startswith("Bad Clashes"):
+                writing=True
+    assert writing
+    clash_score_line=str(proc.stdout).split('\n')[-2]
+    #print(os.path.basename(pdb_model), clash_score_line)
+    print(out_handle, clash_score_line)
+
+
+def clash_validation_changes(reference_clash_file_handle,comparison_clash_file_handle,out_handle):
+    reference=[]; comparison=[]
+    clash_scores = []
+    for handle, entry_list in ((reference_clash_file_handle,reference), (comparison_clash_file_handle,comparison)):
+        with open(get_clash_validation_file_path(handle)) as f:
+            for line in f:
+                if line.startswith("clashscore"):
+                    clash_scores.append(float(line.strip('\n').split()[-1]))
+                    break
+                entry = line.split()
+                entry[2]=entry[2][1:]; entry[6]=entry[6][1:] # Remove conformation label
+
+                entry_list.append(' '.join(entry))
+    
+    removed_clashes = [entry for entry in reference if entry not in comparison]
+    new_clashes =  [entry for entry in comparison if entry not in reference]
+
+    out_file_path =  os.path.join(os.path.abspath(os.getcwd()),"output",f"clash_changes_{out_handle}.txt")
+    with open(out_file_path, 'w') as f:
+        assert len(clash_scores)==2
+        f.write(f"Clash score {clash_scores[0]} --> {clash_scores[1]}\n")
+        f.write(f"Removed clashes:\n{'\n'.join(removed_clashes)}\n{'='*30}\n")
+        f.write(f"New clashes:\n{'\n'.join(new_clashes)}\n")
 
 def swaps_file_path(out_dir,out_handle,altlocs):
     return f"{out_dir}/xLO-toFlip_{out_handle}-{''.join(sorted(altlocs))}.json"

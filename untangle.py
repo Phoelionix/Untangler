@@ -35,7 +35,7 @@ CLEAR_SOLVENT_AROUND_SIDECHAINS_BEFORE_SWAP=False
 DISABLE_WATER_ALTLOC_OPTIM=False
 TURN_OFF_BULK_SOLVENT=False
 CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=False
-PHENIX_ORDERED_SOLVENT=True
+PHENIX_ORDERED_SOLVENT=False
 PHENIX_filter_ordered_solvent_FIRST=False
 PHENIX_ORDERED_SOLVENT_APPLIED_ONCE=False # Apply in a single macro cycle each loop
 PHENIX_SAME_OCC_ORDERED_SOLVENT=False
@@ -44,11 +44,11 @@ PHENIX_FREEZE_WATER=False
 PHENIX_DISABLE_CDL=False # Disables the conformation-dependent library for phenix.refine. 
 DEBUG_FORCE_NEVER_RIDING_H_PHENIX=True
 PHENIX_DISABLE_NQH=True
-ILP_IGNORES_WATERS=True
+ILP_IGNORES_WATERS=False
 DISABLE_UNTANGLE_FOR_CONTROL=False
 
 
-REFINE_FOR_POSITIONS_UNTIL_WORSE=True
+REFINE_FOR_POSITIONS_UNTIL_WORSE=False
 
 
 FORCE_DIVVY_REFINE_INTO_SINGLE_LOOPS_PHENIX=False
@@ -61,13 +61,17 @@ TIMEOUT_MINS_FACTOR=30
 
 
 
-SITES_FORMULATION=False
+SITES_FORMULATION=True
+
 
 
 if DISABLE_UNTANGLE_FOR_CONTROL:
     print("xXx ALTLOC OPTIMIZER DISABLED xXx")
     print(f"Unrestrained refinement step is {'disabled' if UntangleFunctions.NO_UNRESTRAINED else 'enabled'}")
     print()
+else:
+    if ILP_IGNORES_WATERS:
+        print("Altloc optimizer will ignore waters")
 # TODO:
 # down-weight swaps that were previously made but need to be made again (i.e. cases where it's not tangled and the density is pushing it a different way.)
 
@@ -81,7 +85,7 @@ class Untangler():
     # As of writing, untwist step is skipped if the unrestrained step is skipped.
     debug_skip_refine = False  # Note: Can set to True alongside debug_skip_first_swaps to skip to first proposal
     debug_skip_initial_refine=True
-    debug_skip_first_unrestrained_refine=False
+    debug_skip_first_unrestrained_refine=True
     debug_skip_first_untwist_refine=False
     debug_skip_first_swaps=False
     debug_skip_first_batch_refine=False # skip to assessing best model from the batch of refinements
@@ -92,11 +96,11 @@ class Untangler():
     never_do_unrestrained=UntangleFunctions.NO_UNRESTRAINED # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
     always_allow_O_swaps=False
     always_forbid_O_swaps=False
-    debug_main_chain_swaps_only=False  ##
+    debug_main_chain_swaps_only=True  ##
     main_chain_swaps_only_after_first_loop=False
     optimize_side_and_main_separately=False
-    default_scoring_function = staticmethod(ConstraintsHandler.chi_z_sqr) # Like Holton score (non-outlier terms)
-    #default_scoring_function = staticmethod(ConstraintsHandler.z_sqr)
+    #default_scoring_function = staticmethod(ConstraintsHandler.chi_z_sqr) # Like Holton score (non-outlier terms)
+    default_scoring_function = staticmethod(ConstraintsHandler.z_sqr)
     #default_scoring_function = staticmethod(ConstraintsHandler.chi) # Like how phenix scores
     #default_scoring_function = staticmethod(ConstraintsHandler.log_chi)
     debug_skip_to_loop=0
@@ -1344,6 +1348,7 @@ class Untangler():
                     disable_NQH_flips=True,
                     max_sigma_movement_of_selected=0.1, # applies to protein if restrain_protein_movement is True. But unsure if it is doing anything (as in recip space?)
                     restrain_protein_movement=True, 
+                    disable_adp=True,
                 )
                 last_model=next_model
                 next_model = self.refine(
@@ -1730,7 +1735,7 @@ class Untangler():
                           no_restrain_movement=False,max_sigma_movement_of_selected=0.1,refine_hydrogens=False, # restraining movement refers to the reference_coordinate_restraints option
                           altloc_subset=None,disable_NQH_flips=False,restrain_protein_movement=False,
                           water_and_H_only=False,refine_water_occupancies=False,filter_ordered_solvent=False,
-                          real_space_refine=False):
+                          real_space_refine=False,disable_adp=False):
         if altloc_subset is not None:
             altloc_subset = ''.join(altloc_subset)  
         assert altloc_subset is None, altloc_subset
@@ -1805,7 +1810,8 @@ class Untangler():
                                  [P.hold_protein_positions,"-p"],[P.refine_occupancies,"-O"],[P.refine_water_occupancies,"-W"],
                                  [P.turn_off_bulk_solvent,"-t"],[P.ordered_solvent,"-S"],[P.no_restrain_movement,"-R"],
                                  [P.restrain_protein_movement,"-P"],[P.disable_CDL,"-C"],[P.disable_NQH_flips,"-N"],
-                                 [P.water_and_H_only, "-Z"],[P.filter_ordered_solvent,"-F"],[P.real_space_refine,"-X"]):
+                                 [P.water_and_H_only, "-Z"],[P.filter_ordered_solvent,"-F"],[P.real_space_refine,"-X"],
+                                 [P.disable_adp,"-A"]):
             if bool_param:
                 args.append(flag)
         return args
@@ -1987,9 +1993,9 @@ def main():
             ConstraintsHandler.NonbondConstraint: 0,
             #ConstraintsHandler.NonbondConstraint: 0.001,
             #ConstraintsHandler.NonbondConstraint: 0.1,
-            #ConstraintsHandler.ClashConstraint: 200, #50 #1e4
+            ConstraintsHandler.ClashConstraint: 200, #50 #1e4
             #ConstraintsHandler.ClashConstraint: 0.1, 
-            ConstraintsHandler.ClashConstraint: 0,
+            #ConstraintsHandler.ClashConstraint: 0,
             ConstraintsHandler.TwoAtomPenalty: 0,
             ConstraintsHandler.Dihedral: 0,
             ConstraintsHandler.Planarity: 0,
@@ -2014,7 +2020,7 @@ def main():
         # max_num_best_swaps_considered=5,
         #default_wc=2,endloop_wc=2,refine_for_positions_geo_weight=0.4,
         default_wc=0.5,endloop_wc=0.5,refine_for_positions_geo_weight=0, 
-        default_wu=100,
+        default_wu=1,
         num_end_loop_refine_cycles=end_loop_cycles,
         #endloop_wc=3, num_end_loop_refine_cycles=1,
         starting_num_best_swaps_considered=1,

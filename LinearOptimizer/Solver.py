@@ -49,6 +49,7 @@ import matplotlib
 from typing import Union
 from time import time,sleep
 import random
+from LinearOptimizer.SolverHighways import construct_highways
 
 
 MUTAL_EXCLU_CONSTRAINT =True
@@ -121,6 +122,8 @@ def add_sos(lp_problem:LpProblem,sos_name,sos_rule):
     lp_problem.sos1[sos_name]=sos_rule
 def add_sos2(lp_problem:LpProblem,sos2_name,sos2_rule):
     lp_problem.sos2[sos2_name]=sos2_rule
+
+
 
 
 def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
@@ -514,11 +517,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     '''
 
 
-    def get_altlocs_key(from_altlocs,position_option_indices=None):
-        altlocs_key=''.join(from_altlocs)
-        if position_option_indices is not None and not all(i==0 for i in position_option_indices):
-            altlocs_key+=''.join([str(i) for i in position_option_indices])
-        return altlocs_key
+
     
     # TODO improve terminology
     # A "connection" just refers to a group of atoms with a constraint assigned by LinearOptimizer.Input.
@@ -594,7 +593,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                             and ch.name not in ["CG"]:
                                 return True
                         elif ch.get_resname()=="FOL":
-                            if ch.name in ["C12","C13","C14","C15",
+                            if ch.name in ["C12","C13","C14","C15","C16"
                                            "C7","N5","C4A","N8","C8A",
                                            "N1","C2","N3",]:
                                 return True
@@ -998,6 +997,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
         return allowed_geomection_var_dict,geomection_var_dict
         
+
+
     worst_connection_before_swap=None
     worst_global_no_change_score=0
     for connection_id, ordered_connection_choices in disordered_connections.items():
@@ -1017,10 +1018,20 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     #TODO this should replace 'constraint_var_dict'
     mega_geomection_var_dict:dict[str,dict[str,tuple[LP_Input.Geomection,LpVariable]]]={}
     ALL_mega_geomection_var_dict:dict[str,dict[str,tuple[LP_Input.Geomection,LpVariable]]]={}
+    added_highways=False
+    impossible_long_distance_geomections:list[LP_Input.Geomection]=None
     for i, (connection_id, ordered_connection_choices) in enumerate(disordered_connections.items()):
         if i % 250 == 0:
             print(f"Adding constraints {i}/{len(disordered_connections)} ({connection_id})")
         constraint_type = VariableKind[connection_id.split('_')[0]]  #XXX ?????
+
+        # TODO need bridges and rings to be done too
+        if constraint_type not in [VariableKind.Angle,VariableKind.Bond]:
+            if not added_highways:
+                highways, impossible_long_distance_geomections = construct_highways(disordered_connections,mega_geomection_var_dict)
+                added_highways=True
+        else:
+            assert not added_highways
         result = add_constraints_from_disordered_connection(constraint_type,ordered_connection_choices,global_score_tolerate_threshold=global_score_tolerate_threshold)
         if result is not None:
             #XXX
@@ -2202,30 +2213,40 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
         return z_scores_dict
 
+    SKIP_SCORE_DIAGNOSTICS=True
     def score_diagnostics(loop_idx,altloc_subset):
         # TODO CRITICAL split into generating data for each individual conformation. Store the information.
-        return
+        if SKIP_SCORE_DIAGNOSTICS:
+            return
         print("***********")
         print("Running score diagnostics")
         if reference_pdb_file is not None:
             swapped_model=get_swapped_file(reference_pdb_file,swaps_file,loop_idx)
             
             
-            reference_pdb_file_subset=LP_Input.create_altloc_subset_model(reference_pdb_file,altloc_subset)
-            swapped_model=LP_Input.create_altloc_subset_model(swapped_model,altloc_subset)
-            
-            for i, pdb in enumerate([reference_pdb_file_subset,swapped_model]):
-                if i ==0:
-                    print("Before")
-                else:
-                    print("After")
-                print("========")
+            TEMP_implemented_individual_conformation_storing=False
+            if TEMP_implemented_individual_conformation_storing:
+                reference_pdb_file_subset=LP_Input.create_altloc_subset_model(reference_pdb_file,altloc_subset)
+                swapped_model=LP_Input.create_altloc_subset_model(swapped_model,altloc_subset)
+            else:
+                reference_pdb_file_subset=reference_pdb_file
+            for i, pdb in enumerate([reference_pdb_file_subset,swapped_model]): # need to change this after implemeneting individual conformation scoring
 
+                havent_stored = False # TODO will use when storing data.
                 if i!=0 or  havent_stored:
-                    get_clashes(pdb)
+                    if i ==0:
+                        print("Before")
+                    else:
+                        print("After")
+                    print("========")
+                    out_clash_file_handle=out_handle
+                    if i!=0:
+                        out_clash_file_handle+="_swapped"
+                    run_clash_validation(pdb,out_clash_file_handle)
                     UntangleFunctions.assess_geometry_wE(pdb)
                 else:
                     pass
+            clash_validation_changes(out_handle,out_handle+"_swapped",out_handle)
 
         print("***********")
         return
@@ -2385,7 +2406,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 print(f"Plotting failed. Error: {e}")    
     ########
 
-    get_clashes(reference_pdb_file)
+    run_clash_validation(reference_pdb_file,out_handle)
     for l in range(num_solutions):
         if l > 0 and l <= len(forced_swap_solutions):
             lp_problem.constraints.pop("forcedSwap")
@@ -2484,7 +2505,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                                 except:
                                     raise Exception(v,v.value())
                             f.write(f"Total distance = {value(lp_problem.objective)}")
-                    minutes = easy_timeLimit if not difficult else difficult_timeLimit
+                    timeLimit_seconds = (easy_timeLimit if not difficult else difficult_timeLimit)*60
                     # if is_subset_run:
                     #     minutes= max(1,minutes/4)
 
@@ -2495,7 +2516,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     #         extra_args["options"]=advanced_basis_solver_options
                     
                     # TODO try reusing solver object and just modify member variables. Might be that pulp naturally supports loading file information from previous CPLEX run, as CPLEX environment naturally does. 
-                    solver = solver_class(timeLimit=60*minutes,threads=THREADS,warmStart=warmStart,logPath=logPath,
+                    solver = solver_class(timeLimit=timeLimit_seconds,threads=THREADS,warmStart=warmStart,logPath=logPath,
                                           gapRel=gapRel,
                     **extra_args)
                     run_start_time=time()
@@ -2504,20 +2525,20 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     sleep(1)
                     gc.collect()
 
-                    if solve_time/60 > minutes:  # FIXME subtract read time
+                    if solve_time > timeLimit_seconds:  # FIXME subtract read time
                         dynamic_subset_size_mod-= 1
-                    elif solve_time/60 < minutes/2:
+                    elif solve_time < timeLimit_seconds/2:
                         dynamic_subset_size_mod+=1/2
-                    return solve_time
+                    return solve_time, solve_time>timeLimit_seconds
                 
-                solve_time = run_solve()
+                solve_time,exceeded_time_limit = run_solve()
                 if not difficult and solve_time/60>=DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS:
                     print("shifting gears to difficult problem mode")
                     difficult=True
                     dynamic_subset_size_mod=0
                     solve_time=run_solve()
                 total_solve_time=time()-start_time
-                log(f"\nSolver time: {int(solve_time/60)} m {int(solve_time%60)} s, Total: {int(total_solve_time/60)} m {int(total_solve_time%60)} s")
+                log(f"\nSolver time: {int(solve_time/60)} m {int(solve_time%60)} s, Total: {int(total_solve_time/60)} m {int(total_solve_time%60)} s" + (" (Exceeded time limit)" if exceeded_time_limit else ""))
 
                 print()
                 print("Solver finished")
@@ -2760,17 +2781,61 @@ def get_swapped_file(unswapped_pdb_file,swap_file_path,swap_idx):
             break
         i+=1
     else:
-        print(f"get_clashes error - did not get model at index {swap_idx}")
+        print(f"run_clash_validation error - did not get model at index {swap_idx}")
         return
     return swapped_model
     
-def get_clashes(pdb_model):
-    clash_score_program= os.path.join(UntangleFunctions.UNTANGLER_WORKING_DIRECTORY,"Measures","clash_score_keepH.sh")
+def get_clash_validation_file_path(handle):
+    return os.path.join(os.path.abspath(os.getcwd()),"output",f"clashes_{handle}.txt")
+
+def run_clash_validation(pdb_model,out_handle,keep_H=True):
+    if keep_H:
+        clash_score_program= os.path.join(UntangleFunctions.UNTANGLER_WORKING_DIRECTORY,"Measures","clash_score_keepH.sh")
+    else:
+        clash_score_program= os.path.join(UntangleFunctions.UNTANGLER_WORKING_DIRECTORY,"Measures","clash_score.sh")
 
     args=["bash", clash_score_program, pdb_model]
     print (f"|+ Running: {' '.join(args)}")
-    subprocess.run(args)
+    proc = subprocess.run(args,capture_output=True,text=True)
     
+    out_file_path = get_clash_validation_file_path(out_handle)
+    with open(out_file_path,'w+') as f:
+        writing=False
+        for line in proc.stdout.split('\n'):
+            line+='\n'
+            if writing:
+                f.write(line)
+            if line.startswith("Bad Clashes"):
+                writing=True
+    assert writing
+    clash_score_line=str(proc.stdout).split('\n')[-2]
+    #print(os.path.basename(pdb_model), clash_score_line)
+    print(out_handle, clash_score_line)
+
+
+def clash_validation_changes(reference_clash_file_handle,comparison_clash_file_handle,out_handle):
+    reference=[]; comparison=[]
+    clash_scores = []
+    for handle, entry_list in ((reference_clash_file_handle,reference), (comparison_clash_file_handle,comparison)):
+        with open(get_clash_validation_file_path(handle)) as f:
+            for line in f:
+                if line.startswith("clashscore"):
+                    clash_scores.append(float(line.strip('\n').split()[-1]))
+                    break
+                entry = line.split()
+                entry[2]=entry[2][1:]; entry[6]=entry[6][1:] # Remove conformation label
+
+                entry_list.append(' '.join(entry))
+    
+    removed_clashes = [entry for entry in reference if entry not in comparison]
+    new_clashes =  [entry for entry in comparison if entry not in reference]
+
+    out_file_path =  os.path.join(os.path.abspath(os.getcwd()),"output",f"clash_changes_{out_handle}.txt")
+    with open(out_file_path, 'w') as f:
+        assert len(clash_scores)==2
+        f.write(f"Clash score {clash_scores[0]} --> {clash_scores[1]}\n")
+        f.write(f"Removed clashes:\n {'\n'.join(removed_clashes)}\n{'='*30}\n")
+        f.write(f"New clashes:\n {'\n'.join(new_clashes)}\n")
 
 def swaps_file_path(out_dir,out_handle,altlocs):
     return f"{out_dir}/xLO-toFlip_{out_handle}-{''.join(sorted(altlocs))}.json"
