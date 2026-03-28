@@ -981,14 +981,19 @@ class ConstraintsHandler:
                     # H2O_clash_weight=0.95
                     # H_clash_weight=0.9
                     # HH_clash_weight=0.8
+
+                    # Reduce weight on clashes that are more likely to be a result of incorrectly placed conformers  
                     H2O_clash_weight=0.5
-                    H_clash_weight=0.25
+                    H2OH2O_clash_weight=0.1
+                    H_clash_weight=0.25 
                     HH_clash_weight=0.1
                     if all(conf.element()=="H" for conf in (confA,confB)):
-                        nb_weight*=H_clash_weight
-                    elif any(conf.element()=="H" for conf in (confA,confB)):
                         nb_weight*=HH_clash_weight
-                    if any([(conf.resnum() in ordered_atom_lookup.water_residue_nums and conf.atom_name()=="O") for conf in (confA,confB)]):
+                    elif any(conf.element()=="H" for conf in (confA,confB)):
+                        nb_weight*=H_clash_weight
+                    if all([(conf.resnum() in ordered_atom_lookup.water_residue_nums and conf.atom_name()=="O") for conf in (confA,confB)]):
+                        nb_weight*=H2OH2O_clash_weight
+                    elif any([(conf.resnum() in ordered_atom_lookup.water_residue_nums and conf.atom_name()=="O") for conf in (confA,confB)]):
                         nb_weight*=H2O_clash_weight
 
                     if vdw_gap - min_separation >= CLASH_OVERLAP_THRESHOLD:  
