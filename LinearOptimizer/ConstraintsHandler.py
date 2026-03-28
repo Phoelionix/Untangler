@@ -23,6 +23,7 @@ CLIP_NEG_LJ=True # try False
 IGNORE_HYDROGEN_NONBOND=False # Does not apply to TwoAtomPenalty
 VDW_BUFFER=0 
 CLASH_OVERLAP_THRESHOLD=0.4 #0.8+0.4 # 0.4 0.6
+CLASH_MAX_COST_OVERLAP=0.6 #0.8+0.4 # 0.4 0.6
 #CLASH_OVERLAP_THRESHOLD=0.4
 
 
@@ -334,7 +335,11 @@ class ConstraintsHandler:
             
             #cost=scoring_function(dev,sigma=1,ideal=worst_r0,num_bound_e=self.num_bound_e)
             #cost=scoring_function(dev,sigma=0.1,ideal=worst_r0,num_bound_e=self.num_bound_e)
-            cost=1
+            if CLASH_MAX_COST_OVERLAP<=CLASH_OVERLAP_THRESHOLD:
+                cost=1
+            else:
+                cost=  min(1,max(0.2,(worst_r0-worst_actual-CLASH_OVERLAP_THRESHOLD)/(CLASH_MAX_COST_OVERLAP-CLASH_OVERLAP_THRESHOLD)))
+
             return worst_r0, worst_actual, 99, cost*self.weight# note a z-score doesnt make sense here.
 
         def badness_DEPRECATED(r, vdw_gap):
@@ -973,9 +978,12 @@ class ConstraintsHandler:
                     #H2O_clash_weight=1/50
                     # H_clash_weight=1/10
                     # HH_clash_weight=1/50
-                    H2O_clash_weight=0.95
-                    H_clash_weight=0.9
-                    HH_clash_weight=0.8
+                    # H2O_clash_weight=0.95
+                    # H_clash_weight=0.9
+                    # HH_clash_weight=0.8
+                    H2O_clash_weight=0.5
+                    H_clash_weight=0.25
+                    HH_clash_weight=0.1
                     if all(conf.element()=="H" for conf in (confA,confB)):
                         nb_weight*=H_clash_weight
                     elif any(conf.element()=="H" for conf in (confA,confB)):
