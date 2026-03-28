@@ -47,6 +47,7 @@ PHENIX_DISABLE_NQH=True
 ILP_IGNORES_WATERS=False
 DISABLE_UNTANGLE_FOR_CONTROL=False
 
+REFINE_ADP_WHEN_REFINING_POSITIONS=True
 
 REFINE_FOR_POSITIONS_UNTIL_WORSE=False
 
@@ -245,12 +246,13 @@ class Untangler():
                     
 
     def prepare_pdb_and_read_altlocs(self,pdb_path,out_path,
-                                     sep_chain_format=False,altloc_from_chain_fix=False,ring_name_grouping=False):
+                                     sep_chain_format=False,altloc_from_chain_fix=False,ring_name_grouping=False,single_altloc_solvent=False):
         prepare_pdb(pdb_path,out_path,
                     sep_chain_format=sep_chain_format,
                     altloc_from_chain_fix=altloc_from_chain_fix,
                     ring_name_grouping=ring_name_grouping,
-                    even_split_occupancies=EVEN_SPLIT_OCCUPANCIES)
+                    even_split_occupancies=EVEN_SPLIT_OCCUPANCIES,
+                    single_altloc_solvent=single_altloc_solvent)
         self.protein_altlocs,self.solvent_altlocs = get_altlocs_from_pdb(pdb_path)
 
     def run(self,pdb_file_path,hkl_file_path,desired_score=18.6,max_num_runs=100):
@@ -879,8 +881,8 @@ class Untangler():
         old_working_model=working_model
         working_model = old_working_model[:-4]+"_fmtd.pdb"
         self.prepare_pdb_and_read_altlocs(old_working_model,working_model,
-                                          ring_name_grouping=UntangleFunctions.RING_NAME_GROUPING #NOTE
-            
+                                          ring_name_grouping=UntangleFunctions.RING_NAME_GROUPING, #NOTE
+                                          single_altloc_solvent=True,
                                           )
         if CLEAR_SOLVENT_AROUND_SIDECHAINS_BEFORE_SWAP:
             working_model=clear_solvent_around_sidechains(working_model)
@@ -1348,7 +1350,7 @@ class Untangler():
                     disable_NQH_flips=True,
                     max_sigma_movement_of_selected=0.1, # applies to protein if restrain_protein_movement is True. But unsure if it is doing anything (as in recip space?)
                     restrain_protein_movement=True, 
-                    disable_adp=True,
+                    disable_adp=not REFINE_ADP_WHEN_REFINING_POSITIONS,
                 )
                 last_model=next_model
                 next_model = self.refine(

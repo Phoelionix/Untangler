@@ -1189,6 +1189,8 @@ class LP_Input:
         chunk_echoes:dict[OrderedTag,AtomChunk]={}
         disordered_connection_echoes:dict[str,list[LP_Input.Geomection]]={}
 
+        if len(child_parent_altloc_dict)==0:
+            return chunk_echoes,disordered_connection_echoes
         
 
         num_echoed_conns_to_add=0
@@ -1306,7 +1308,10 @@ class LP_Input:
         # NOTE this is assuming same number of child conformations per parent conformation, and all involving same atoms...
         print("Adding echo bonds between splits in conformations as links")
         links_added=0
-        all_split_site_tags = list(set([ch.get_disordered_tag() for ch in atom_chunks.values() if ch.get_altloc() in child_parent_altloc_dict and ch.echoed_altloc is None]))
+        all_split_site_tags = list(set(
+            [ch.get_disordered_tag() for ch in atom_chunks.values()
+            if (ch.get_altloc() in child_parent_altloc_dict and ch.echoed_altloc is None) or len(child_parent_altloc_dict)==0])
+        )
         for disordered_conn in disordered_connections.values():
             if disordered_conn[0].connection_type != ConstraintsHandler.BondConstraint:
                 continue
@@ -1384,7 +1389,7 @@ class LP_Input:
 
 
     @staticmethod
-    def create_altloc_subset_model(model,altloc_subset):
+    def create_altloc_subset_model(model:str,altloc_subset):
         struct=PDBParser().get_structure("struct",model)
         atom_lookup = OrderedAtomLookup(struct.get_atoms(),
                                                     protein=True,waters=True,
@@ -1394,3 +1399,11 @@ class LP_Input:
         atom_lookup.output_as_pdb_file(reference_pdb_file=model,out_path=temp_path)
         #TODO could just use UntangleFunctions.prepare_pdb ? 
         return temp_path
+    
+
+def get_altlocs_key(from_altlocs,position_option_indices=None):
+    # For geomection dictionaries (used in Solver.py and SolverHighways.py).
+    altlocs_key=''.join(from_altlocs)
+    if position_option_indices is not None and not all(i==0 for i in position_option_indices):
+        altlocs_key+=''.join([str(i) for i in position_option_indices])
+    return altlocs_key

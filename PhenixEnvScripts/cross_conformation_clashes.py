@@ -27,6 +27,9 @@ import mmtbx.validation.molprobity
 # ext = bp.import_ext("cctbx_geometry_restraints_ext")
 # from cctbx_geometry_restraints_ext import *
 
+IGNORE_WATER_WATER_CLASHES=False
+USE_HOLTON_CSDA=False #  csda used in scoring for untangle challenge
+
 
 holton_csda = 0.6
 
@@ -36,13 +39,19 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
     if use_cdl is None:
         use_cdl = False
 
+
+    radius_considered = 10
+    ###TEMPORARY####
+    #radius_considered = 5
+    ################
     
     params = mmtbx.model.manager.get_default_pdb_interpretation_params()
     params.pdb_interpretation.allow_polymer_cross_special_position=True
-    params.pdb_interpretation.clash_guard.nonbonded_distance_threshold = 10
-    params.pdb_interpretation.nonbonded_distance_cutoff= 10
+    params.pdb_interpretation.clash_guard.nonbonded_distance_threshold = radius_considered
+    params.pdb_interpretation.nonbonded_distance_cutoff= radius_considered
     params.pdb_interpretation.restraints_library.cdl = use_cdl
-    params.pdb_interpretation.const_shrink_donor_acceptor=holton_csda
+    if USE_HOLTON_CSDA:
+        params.pdb_interpretation.const_shrink_donor_acceptor=holton_csda
     #pdb_inp = iotbx.pdb.input(lines=raw_records.split("\n"), source_info=None)
 
     tmp_pdb_file = os.path.join(os.path.abspath(os.path.join(__file__ ,"../")),"tmp_samealtloc.pdb")
@@ -231,8 +240,9 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
 
 
         resnameA,resnameB = keyA.split('"')[1][4:7],keyB.split('"')[1][4:7]
-        if resnameA==resnameB=="HOH":
-            return None
+        if IGNORE_WATER_WATER_CLASHES:
+            if resnameA==resnameB=="HOH":
+                return None
 
 
         def possible_hydrogen_bond(keyA,keyB):
@@ -247,7 +257,7 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
             return None
 
     out_data=[]
-    print("WARNING clash table is not  fully implemented")
+    #print("WARNING clash table is not  fully implemented")
     for i, item in enumerate(nonbonded_list):
         if i%100000==0:
             print(f"{i}/{len(nonbonded_list)}")

@@ -25,8 +25,8 @@ RING_NAME_GROUPING=False # Note argument forbid_CECD12_changes in LinearOptimize
 TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY=True # Because generating data is incredibly slow with multiple altlocs.  # TODO replace with generating for each altloc in parallel then taking average.
 ALWAYS_PRINT_CURRENT_CLASHES=False
 
-#TEMP_TEST_CHILD_PARENT={}
-TEMP_TEST_CHILD_PARENT={c:"A" for c in "GH"} | {c:"B" for c in "IJ"} | {c:"C" for c in "KL"} | {c:"D" for c in "MN"} | {c:"E" for c in "OP"} | {c:"F" for c in "QR"}
+TEMP_TEST_CHILD_PARENT={}
+#TEMP_TEST_CHILD_PARENT={c:"A" for c in "GH"} | {c:"B" for c in "IJ"} | {c:"C" for c in "KL"} | {c:"D" for c in "MN"} | {c:"E" for c in "OP"} | {c:"F" for c in "QR"}
 
 
 ATOMS = ('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr'
@@ -653,7 +653,9 @@ def relabel_ring(pdb_path):
     return ring_relabel_dict
     
 
-def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False,ring_name_grouping=False,altlocs_allowed=None,even_split_occupancies=False,allow_no_altloc=False,treat_solvent_identically=False):
+def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False,ring_name_grouping=False,altlocs_allowed=None,
+                even_split_occupancies=False,allow_no_altloc=False,treat_solvent_identically_to_protein=False,
+                single_altloc_solvent=False):
         # Gets into format we expect. !!!!!!Assumes single chain!!!!!
         # Relabels ring atoms CE1/CE2, CD1/CD2 so that all with same label are closest         
         def replace_occupancy(line,occ):
@@ -696,10 +698,10 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
             start_lines = []
             solvent_lines=[]
             end_lines = []
-            atom_dict:dict[str,dict[str,dict[str,str]]] = {}  
+            atom_dict:dict[str,dict[str,dict[str,str]]] = {}   # non-solvent atoms
             last_chain=None
             solvent_res_names=WATER_RESNAMES
-            if treat_solvent_identically:
+            if treat_solvent_identically_to_protein:
                 solvent_res_names=[]
             solvent_chain_id = "z"
             warned_collapse=False
@@ -750,9 +752,9 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                         continue
                     solvent_lines.append(replace_chain(line,solvent_chain_id))
                     continue
-                assert len(end_lines)==0
                 
                 # Non-solvent atoms                
+                assert len(end_lines)==0
                 if not sep_chain_format and not warned_collapse and chain != last_chain and last_chain is not None:
                     print("Warning: Multiple chains detected. Collapsing chains into single chain")
                     warned_collapse=True
@@ -780,7 +782,7 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
         n=0
         # Add non-solvent atoms
         chain_dict={}
-        for res_atom_dict in atom_dict.values():
+        for res_atom_dict in atom_dict.values(): # iterate through the dictionary of each residue number
             for altloc, altloc_atom_dict in res_atom_dict.items():
                 if sep_chain_format:
                     protein_chain_id=altloc
@@ -825,6 +827,12 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
             
             #modified_line = replace_res_num(line,new_solvent_resnum_dict[solvent_resnum])
             modified_line = replace_serial_num(line,n)
+            if single_altloc_solvent:
+                # TODO do NOT do this if the atoms are all within clash range diameter sphere (2.4 angstroms for water).
+                if "last_resnum" not in vars():
+                    last_resnum =max(resnum for resnum in atom_dict) 
+                last_resnum +=1 
+                modified_line=replace_res_num(line,last_resnum)
             start_lines.append(modified_line)
         
         if os.path.dirname(out_path)!='':

@@ -388,23 +388,24 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     def get_force_no_flips_name(site,altloc):
         return f"forceNoFlips_{site}_{altloc}"
 
-    print("NEED TO LET WATERS GET ASSIGNED TO ANY ALTLOC")
+    ASSIGN_TO_ANY_ALTLOC=True
+    STICKY_SITES=False # Whether to add a small cost for going to an altloc that isn't one of the original altlocs
+    sticky_site_epsilon=1e-6
+
     for site in disordered_atom_sites:
+        sticky_site=False 
         if not site_being_considered(site) :
             continue
         site_altlocs = []
         for possible_altloc in site_var_dict[site]:
             site_altlocs.append(possible_altloc)
-        EXPERIMENTAL_FEATURE_THING=False
-        if site.is_water and EXPERIMENTAL_FEATURE_THING: 
+        if site.is_water and ASSIGN_TO_ANY_ALTLOC: 
             if set(site_altlocs)!=set(all_altlocs):
-                sticky_site=True
-            allowed_to_altlocs=all_altlocs
+                sticky_site=STICKY_SITES
+            allowed_to_altlocs=all_altlocs #TODO Implement option to only add protein altlocs to the allowed_to_altlocs.
         else:
             allowed_to_altlocs=site_altlocs
 
-        # NOTE
-        sticky_site=False # Whether to add a small cost for changing altloc
 
             
         if len(all_altlocs)>2: #TODO optimize
@@ -480,10 +481,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 site_var_dict[site][site_altlocs[1]][site_altlocs[1]] = var_not_flipped
         
         if sticky_site:
-            epsilon=1e-6
-            for from_altloc in site_var_dict[site]:
-                assert from_altloc in site_var_dict[site][from_altloc], (site,from_altloc,"---",site_var_dict[site])
-                distance_vars.append(-epsilon * site_var_dict[site][from_altloc][from_altloc])
+            for from_altloc1 in site_var_dict[site]:
+                for from_altloc2 in site_var_dict[site]:
+                    assert from_altloc2 in site_var_dict[site][from_altloc1], (site,from_altloc1,from_altloc2,"---",site_var_dict[site])
+                    distance_vars.append(-sticky_site_epsilon * site_var_dict[site][from_altloc1][from_altloc2])
 
             # lp_problem += (  
             #     #lpSum(site_var_dict[site][from_altloc])==1,
@@ -713,6 +714,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         for site in sites:
             if not site_being_considered(site):
                     return # Don't add this constraint
+            if ASSIGN_TO_ANY_ALTLOC:
+                to_altloc_options=all_altlocs
+                continue
             if to_altloc_options is None:
                 to_altloc_options = set(site_var_dict[site].keys())
             else:
@@ -2373,7 +2377,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             log("==============")
             log("All conformations:")
             for kind,vals in totals_dict.items():
-                log(f"{kind}: {rms(vals)} (min/max conf. RMS: {min(vals)},{max(vals)}) ") # TODO worst z values of conformations or histogram.
+                log(f"{kind}: {rms(vals)} (min/max conf. RMSZ: {min(vals)},{max(vals)}) ") # TODO worst z values of conformations or histogram.
             log("==============")
             
 
@@ -2416,6 +2420,58 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
         print("***********")
         return
+
+    def get_clash_validation_file_path(handle):
+        return os.path.join(log_out_dir,f"clashes_{handle}.txt")
+
+    def run_clash_validation(pdb_model,out_handle,keep_H=True):
+        if keep_H:
+            clash_score_program= os.path.join(UntangleFunctions.UNTANGLER_WORKING_DIRECTORY,"Measures","clash_score_keepH.sh")
+        else:
+            clash_score_program= os.path.join(UntangleFunctions.UNTANGLER_WORKING_DIRECTORY,"Measures","clash_score.sh")
+
+        args=["bash", clash_score_program, pdb_model]
+        print (f"|+ Running: {' '.join(args)}")
+        proc = subprocess.run(args,capture_output=True,text=True)
+        
+        out_file_path = get_clash_validation_file_path(out_handle)
+        with open(out_file_path,'w+') as f:
+            writing=False
+            for line in proc.stdout.split('\n'):
+                line+='\n'
+                if writing:
+                    f.write(line)
+                if line.startswith("Bad Clashes"):
+                    writing=True
+        assert writing
+        clash_score_line=str(proc.stdout).split('\n')[-2]
+        #print(os.path.basename(pdb_model), clash_score_line)
+        print(out_handle, clash_score_line)
+
+
+    def clash_validation_changes(reference_clash_file_handle,comparison_clash_file_handle,out_handle):
+        reference=[]; comparison=[]
+        clash_scores = []
+        for handle, entry_list in ((reference_clash_file_handle,reference), (comparison_clash_file_handle,comparison)):
+            with open(get_clash_validation_file_path(handle)) as f:
+                for line in f:
+                    if line.startswith("clashscore"):
+                        clash_scores.append(float(line.strip('\n').split()[-1]))
+                        break
+                    entry = line.split()
+                    entry[2]=entry[2][1:]; entry[6]=entry[6][1:] # Remove conformation label
+
+                    entry_list.append(' '.join(entry))
+        
+        removed_clashes = [entry for entry in reference if entry not in comparison]
+        new_clashes =  [entry for entry in comparison if entry not in reference]
+
+        out_file_path =  os.path.join(log_out_dir,f"Clash_changes_{out_handle}.txt")
+        with open(out_file_path, 'w') as f:
+            assert len(clash_scores)==2
+            f.write(f"Clash score {clash_scores[0]} --> {clash_scores[1]}\n")
+            f.write(f"Removed clashes:\n{'\n'.join(removed_clashes)}\n{'='*30}\n")
+            f.write(f"New clashes:\n{'\n'.join(new_clashes)}\n")
 
     def log_geometry_changes(site_assignments:dict[VariableID,dict[str,str]]):
         if PLOTTING:
@@ -2963,58 +3019,6 @@ def get_swapped_file(unswapped_pdb_file,swap_file_path,swap_idx):
         print(f"run_clash_validation error - did not get model at index {swap_idx}")
         return
     return swapped_model
-    
-def get_clash_validation_file_path(handle):
-    return os.path.join(os.path.abspath(os.getcwd()),"output",f"clashes_{handle}.txt")
-
-def run_clash_validation(pdb_model,out_handle,keep_H=True):
-    if keep_H:
-        clash_score_program= os.path.join(UntangleFunctions.UNTANGLER_WORKING_DIRECTORY,"Measures","clash_score_keepH.sh")
-    else:
-        clash_score_program= os.path.join(UntangleFunctions.UNTANGLER_WORKING_DIRECTORY,"Measures","clash_score.sh")
-
-    args=["bash", clash_score_program, pdb_model]
-    print (f"|+ Running: {' '.join(args)}")
-    proc = subprocess.run(args,capture_output=True,text=True)
-    
-    out_file_path = get_clash_validation_file_path(out_handle)
-    with open(out_file_path,'w+') as f:
-        writing=False
-        for line in proc.stdout.split('\n'):
-            line+='\n'
-            if writing:
-                f.write(line)
-            if line.startswith("Bad Clashes"):
-                writing=True
-    assert writing
-    clash_score_line=str(proc.stdout).split('\n')[-2]
-    #print(os.path.basename(pdb_model), clash_score_line)
-    print(out_handle, clash_score_line)
-
-
-def clash_validation_changes(reference_clash_file_handle,comparison_clash_file_handle,out_handle):
-    reference=[]; comparison=[]
-    clash_scores = []
-    for handle, entry_list in ((reference_clash_file_handle,reference), (comparison_clash_file_handle,comparison)):
-        with open(get_clash_validation_file_path(handle)) as f:
-            for line in f:
-                if line.startswith("clashscore"):
-                    clash_scores.append(float(line.strip('\n').split()[-1]))
-                    break
-                entry = line.split()
-                entry[2]=entry[2][1:]; entry[6]=entry[6][1:] # Remove conformation label
-
-                entry_list.append(' '.join(entry))
-    
-    removed_clashes = [entry for entry in reference if entry not in comparison]
-    new_clashes =  [entry for entry in comparison if entry not in reference]
-
-    out_file_path =  os.path.join(os.path.abspath(os.getcwd()),"output",f"clash_changes_{out_handle}.txt")
-    with open(out_file_path, 'w') as f:
-        assert len(clash_scores)==2
-        f.write(f"Clash score {clash_scores[0]} --> {clash_scores[1]}\n")
-        f.write(f"Removed clashes:\n{'\n'.join(removed_clashes)}\n{'='*30}\n")
-        f.write(f"New clashes:\n{'\n'.join(new_clashes)}\n")
 
 def swaps_file_path(out_dir,out_handle,altlocs):
     return f"{out_dir}/xLO-toFlip_{out_handle}-{''.join(sorted(altlocs))}.json"
