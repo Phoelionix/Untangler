@@ -2207,7 +2207,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             log("==============")
             log("All conformations:")
             for kind,vals in totals_dict.items():
-                log(f"{kind}: {rms(vals)} (min/max conf. RMS: {min(vals)},{max(vals)}) ") # TODO worst z values of conformations or histogram.
+                log(f"{kind}: {rms(vals):.5f} (min/max conf.{' RMSZ' if kind not in [VariableKind.Clash.value,VariableKind.Penalty.value] else ''}: {min(vals)},{max(vals)}) ") # TODO worst z values of conformations or histogram.
             log("==============")
             
 
@@ -2289,6 +2289,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                         clash_scores.append(float(line.strip('\n').split()[-1]))
                         break
                     entry = line.split()
+                    if len(entry[2])<3: 
+                        # e.g. form of 'C MN'  instead of 'CARG'
+                        entry[2] == entry[2]+entry.pop(3)
                     entry[2]=entry[2][1:]; entry[6]=entry[6][1:] # Remove conformation label
 
                     entry_list.append(' '.join(entry))

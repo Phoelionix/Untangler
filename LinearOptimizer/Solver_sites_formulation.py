@@ -2459,6 +2459,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                         clash_scores.append(float(line.strip('\n').split()[-1]))
                         break
                     entry = line.split()
+                    if len(entry[2])<3: 
+                        # e.g. form of 'C MN'  instead of 'CARG'
+                        entry[2] == entry[2]+entry.pop(3)
                     entry[2]=entry[2][1:]; entry[6]=entry[6][1:] # Remove conformation label
 
                     entry_list.append(' '.join(entry))
