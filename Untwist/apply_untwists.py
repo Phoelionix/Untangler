@@ -5,7 +5,7 @@ import os, sys, pathlib
 sys.path.append(str(pathlib.Path(__file__).parent.parent))
 from UntangleFunctions import H_get_parent_fullname, UNTANGLER_WORKING_DIRECTORY, PDB_Atom_Entry
 import shutil
-from LinearOptimizer.ConstraintsHandler  import DisorderedTag 
+from LinearOptimizer.RestraintsHandler  import DisorderedTag 
 import numpy as np
 def apply_untwists(model_path, untwist_file):
 

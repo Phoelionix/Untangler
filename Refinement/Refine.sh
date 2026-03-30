@@ -20,6 +20,7 @@ random_seed=42
 serial=999
 wc=1
 wu=1
+max_ordered_solvent_B=80
 const_shrink_donor_acceptor=0
 wxc_scale=0.5
 macro_cycles=5
@@ -37,6 +38,7 @@ refine_occupancies='false'
 refine_water_occupancies='false'
 ordered_solvent='false'
 disable_ADP='false'
+group_adp='false'
 ADP_only='false'
 water_and_H_only='false'
 disable_CDL='false' # Disable conformation-dependent library
@@ -46,11 +48,11 @@ user_param_file=''
 filter_ordered_solvent='false'
 clear_out_solvent_mode='false'
 real_space_refine='false'
+hold_main_chain='false'
 
 max_sigma_movement_restraint=0.1
 
 refine_hydrogens='false'
-
 
 restrain_movement_of_protein='false' # Note this does nothing when True if disable_movement_restraint is True
 
@@ -59,7 +61,7 @@ fixed_water_occupancy='false' # Fix water occupancies at value of ordered_solven
 reTry_on_fail='false' # You should not have any need to use this.
 
 
-while getopts ":a:f:o:u:c:e:n:s:q:whprgtzACDHLNOPRSTWXZ" flag; do
+while getopts ":a:f:o:u:c:e:n:s:q:whprgtzACDFGHLMNOPRSTWXZ" flag; do
  case $flag in
     a) altlocs_to_refine=$OPTARG
     ;;
@@ -101,9 +103,15 @@ while getopts ":a:f:o:u:c:e:n:s:q:whprgtzACDHLNOPRSTWXZ" flag; do
     ;;
     D) ADP_only='true'
     ;;
+    F) filter_ordered_solvent='true'
+    ;;
+    G) group_adp='true'
+    ;;
     H) refine_hydrogens='true'
     ;;
     L) clear_out_solvent_mode='true'
+    ;;
+    M) hold_main_chain='true'
     ;;
     N) disable_nqh_flips='true'
     ;;
@@ -263,6 +271,11 @@ if $water_and_H_only; then
     mv $tmpfile $paramFile
 fi
 
+if $hold_main_chain; then 
+    sed "s/individual = TEMPLATE_SITES_INDIVIDUAL/individual = not (name C or name CA or name N or name N1 or name NH or name O)/g" $paramFile > $tmpfile 
+    mv $tmpfile $paramFile
+fi
+
 if $no_mlhl; then
   sed "s/target = auto ml \*mlhl ml_sad ls mli/target = *auto ml mlhl ml_sad ls mli/g" $paramFile > $tmpfile 
   mv $tmpfile $paramFile
@@ -311,6 +324,11 @@ if $ordered_solvent; then
   mv $tmpfile $paramFile
 fi
 
+if $group_adp; then 
+  sed "s/\*individual_adp group_adp/individual_adp *group_adp/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+fi 
+
 if $ADP_only; then 
   if $disable_ADP; then
     echo "ADP only but ADP disabled!"
@@ -349,12 +367,12 @@ if $disable_nqh_flips; then
 fi
 
 if $fixed_water_occupancy; then  
-  sed "s/occupancy_min = 0.02/occupancy_min = $ordered_solvent_occupancy/g" $paramFile  > tmp.$$ 
-  mv tmp.$$ $paramFile
-  sed "s/occupancy_max = 1.0/occupancy_max = $ordered_solvent_occupancy/g" $paramFile  > tmp.$$ 
-  mv tmp.$$ $paramFile
-  sed "s/occupancy = 0.33/occupancy = $ordered_solvent_occupancy/g" $paramFile  > tmp.$$
-  mv tmp.$$ $paramFile
+  sed "s/occupancy_min = 0.02/occupancy_min = $ordered_solvent_occupancy/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+  sed "s/occupancy_max = 1.0/occupancy_max = $ordered_solvent_occupancy/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+  sed "s/occupancy = 0.33/occupancy = $ordered_solvent_occupancy/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
 fi
 
 sed "s/const_shrink_donor_acceptor = 0/const_shrink_donor_acceptor = $const_shrink_donor_acceptor/g" $paramFile  > $tmpfile 
@@ -381,8 +399,8 @@ if $clear_out_solvent_mode; then
   sed "s/dist_min_altloc = 0.03/dist_min_altloc = 1.8/g" $paramFile  > $tmpfile 
   mv $tmpfile $paramFile
 fi
-
-
+sed "s/b_iso_max = 80.0/b_iso_max = $max_ordered_solvent_B/g" $paramFile  > $tmpfile 
+mv $tmpfile $paramFile
 # Broad sweep attempt to stop phenix segfaulting when run in parallel
 # export OMP_NUM_THREADS=1
 # export OPENBLAS_NUM_THREADS=1
@@ -419,9 +437,12 @@ while true; do
   #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-4PSS_2conf6conf_noWater.eff 
   #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-cov63_2conf6conf.eff
   #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints-cov63_2conf6conf_noWater.eff
-  user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints_noNB-4PSS_6conf18conf.eff
+  #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints_noNB-4PSS_6conf18conf.eff
+  #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints_noNB-4PSS_6conf18conf_reduced.eff
+  #user_param_file=/home/speno/Untangler/Refinement/4PSS_group_adp.eff
 
-  if (( $wc == 0 )); then 
+  # XXX Assuming user param file is only ever conformation tree restraints...
+  if (( $wc == 0 )); then  
     user_param_file=""
   fi
 

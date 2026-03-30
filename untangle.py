@@ -2,7 +2,7 @@
 from typing import Any
 from LinearOptimizer import Solver
 from LinearOptimizer import Solver_sites_formulation
-from LinearOptimizer.Input import ConstraintsHandler
+from LinearOptimizer.Input import RestraintsHandler
 from LinearOptimizer.OrderedAtomLookup import clear_solvent_around_sidechains
 from LinearOptimizer.Swapper import Swapper
 from LinearOptimizer.Tag import DisorderedTag
@@ -45,18 +45,18 @@ PHENIX_DISABLE_CDL=False # Disables the conformation-dependent library for pheni
 DEBUG_FORCE_NEVER_RIDING_H_PHENIX=True
 PHENIX_DISABLE_NQH=True
 ILP_IGNORES_WATERS=False
-DISABLE_UNTANGLE_FOR_CONTROL=False
 
 REFINE_ADP_WHEN_REFINING_POSITIONS=True
+WU_MULT_WHEN_REFINING_POSITIONS=1.2
 
-REFINE_FOR_POSITIONS_UNTIL_WORSE=False
+REFINE_FOR_POSITIONS_UNTIL_WORSE=True
 
 
 FORCE_DIVVY_REFINE_INTO_SINGLE_LOOPS_PHENIX=False
 
 DISABLE_ALTLOC_SUBSET_REFINE=True
 
-EVEN_SPLIT_OCCUPANCIES=True
+EVEN_SPLIT_PROTEIN_OCCUPANCIES=True
 
 TIMEOUT_MINS_FACTOR=30
 
@@ -64,6 +64,7 @@ TIMEOUT_MINS_FACTOR=30
 
 SITES_FORMULATION=True
 
+DISABLE_UNTANGLE_FOR_CONTROL=False
 
 
 if DISABLE_UNTANGLE_FOR_CONTROL:
@@ -97,13 +98,13 @@ class Untangler():
     never_do_unrestrained=UntangleFunctions.NO_UNRESTRAINED # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
     always_allow_O_swaps=False
     always_forbid_O_swaps=False
-    debug_main_chain_swaps_only=True  ##
+    debug_main_chain_swaps_only=False  ##
     main_chain_swaps_only_after_first_loop=False
     optimize_side_and_main_separately=False
-    #default_scoring_function = staticmethod(ConstraintsHandler.chi_z_sqr) # Like Holton score (non-outlier terms)
-    default_scoring_function = staticmethod(ConstraintsHandler.z_sqr)
-    #default_scoring_function = staticmethod(ConstraintsHandler.chi) # Like how phenix scores
-    #default_scoring_function = staticmethod(ConstraintsHandler.log_chi)
+    #default_scoring_function = staticmethod(RestraintsHandler.chi_z_sqr) # Like Holton score (non-outlier terms)
+    default_scoring_function = staticmethod(RestraintsHandler.z_sqr)
+    #default_scoring_function = staticmethod(RestraintsHandler.chi) # Like how phenix scores
+    #default_scoring_function = staticmethod(RestraintsHandler.log_chi)
     debug_skip_to_loop=0
     debug_force_subsets=None # ["BDEF"] # None
     #debug_force_subsets=["BDEF"] # None
@@ -251,7 +252,7 @@ class Untangler():
                     sep_chain_format=sep_chain_format,
                     altloc_from_chain_fix=altloc_from_chain_fix,
                     ring_name_grouping=ring_name_grouping,
-                    even_split_occupancies=EVEN_SPLIT_OCCUPANCIES,
+                    even_split_protein_occupancies=EVEN_SPLIT_PROTEIN_OCCUPANCIES,
                     single_altloc_solvent=single_altloc_solvent)
         self.protein_altlocs,self.solvent_altlocs = get_altlocs_from_pdb(pdb_path)
 
@@ -437,7 +438,7 @@ class Untangler():
                 # TODO swaps can create nonbond issues that are not recorded due to not being present in geo file?
                 Solver.LP_Input.prepare_geom_files(working_model,altloc_subsets,allowed_resnames=allowed_resnames,
                                                       water_swaps=(altloc_subset_size==2))
-                if r==0 and self.loop==0 and (self.weight_factors[ConstraintsHandler.TwoAtomPenalty]!=0 or UntangleFunctions.ALWAYS_PRINT_CURRENT_CLASHES):
+                if r==0 and self.loop==0 and (self.weight_factors[RestraintsHandler.TwoAtomPenalty]!=0 or UntangleFunctions.ALWAYS_PRINT_CURRENT_CLASHES):
                     create_clashes_file(restrained_refine_pdb_file_path,timeout_mins=2*self.altloc_subset_size*TIMEOUT_MINS_FACTOR)
             else:
                 print("Warning: reusing old geom files")
@@ -493,17 +494,17 @@ class Untangler():
                                       MAIN_CHAIN_ONLY=False,SIDE_CHAIN_ONLY=False,NO_CB_CHANGES=False,num_sols_already_saved_this_loop=0): #TODO refactor as method of Swapper class
         # TODO should be running solver for altloc set partitioned into subsets, not a single subset. 
         
-        #scoring_function_list = [ConstraintsHandler.e_density_scaled_dev,ConstraintsHandler.chi,ConstraintsHandler.prob_weighted_stat]
-        #scoring_function_list = [ConstraintsHandler.prob_weighted_stat,ConstraintsHandler.prob_weighted_stat,ConstraintsHandler.e_density_scaled_dev,ConstraintsHandler.e_density_scaled_dev]
-        #scoring_function_list = [ConstraintsHandler.prob_weighted_stat]
-        #scoring_function_list = [ConstraintsHandler.prob_weighted_stat,ConstraintsHandler.chi,ConstraintsHandler.e_density_scaled_dev]
-        #scoring_function_list = [ConstraintsHandler.chi]
-        #scoring_function_list = [ConstraintsHandler.dev_sqr]
-        #scoring_function_list = [ConstraintsHandler.log_chi] 
-        #scoring_function_list = [ConstraintsHandler.chi] #
+        #scoring_function_list = [RestraintsHandler.e_density_scaled_dev,RestraintsHandler.chi,RestraintsHandler.prob_weighted_stat]
+        #scoring_function_list = [RestraintsHandler.prob_weighted_stat,RestraintsHandler.prob_weighted_stat,RestraintsHandler.e_density_scaled_dev,RestraintsHandler.e_density_scaled_dev]
+        #scoring_function_list = [RestraintsHandler.prob_weighted_stat]
+        #scoring_function_list = [RestraintsHandler.prob_weighted_stat,RestraintsHandler.chi,RestraintsHandler.e_density_scaled_dev]
+        #scoring_function_list = [RestraintsHandler.chi]
+        #scoring_function_list = [RestraintsHandler.dev_sqr]
+        #scoring_function_list = [RestraintsHandler.log_chi] 
+        #scoring_function_list = [RestraintsHandler.chi] #
         scoring_function_list = [self.default_scoring_function]
-        #scoring_function_list = [ConstraintsHandler.prob_weighted_stat]
-        #scoring_function_list = [ConstraintsHandler.e_density_scaled_dev]
+        #scoring_function_list = [RestraintsHandler.prob_weighted_stat]
+        #scoring_function_list = [RestraintsHandler.e_density_scaled_dev]
         scoring_function = scoring_function_list[self.loop%len(scoring_function_list)]
         print(f"Using scoring function: {scoring_function.__name__}")
 
@@ -511,7 +512,7 @@ class Untangler():
             #Override
             need_to_prepare_geom_files=False
             need_to_prepare_restrained_model_clashes=False
-        if self.weight_factors[ConstraintsHandler.TwoAtomPenalty]==0 and not UntangleFunctions.ALWAYS_PRINT_CURRENT_CLASHES:
+        if self.weight_factors[RestraintsHandler.TwoAtomPenalty]==0 and not UntangleFunctions.ALWAYS_PRINT_CURRENT_CLASHES:
             need_to_prepare_restrained_model_clashes=False
         
         # keep altloc_subset None if all subsets. This is to save regenerating some files and to make it clear from file names when we are using a subset.
@@ -870,7 +871,7 @@ class Untangler():
 
             if skip_unrestrained and not os.path.exists(working_model):
                 working_model = self.current_model
-
+                print(f"Warning: Using {os.path.basename(working_model)}")
         # if self.solution_reference is not None:
         #     self.track(working_model,label=f"preSwap")
         
@@ -1342,6 +1343,7 @@ class Untangler():
                     model_path=next_model,
                     num_macro_cycles=1,
                     #wc=0,
+                    wu=self.default_wu*WU_MULT_WHEN_REFINING_POSITIONS,
                     wc=self.refine_for_positions_geo_weight,
                     #wu=0,
                     #wc=0.25,
@@ -1651,7 +1653,7 @@ class Untangler():
         out_path = P.out_path
         assert P.model_path is not None and os.path.exists(P.model_path), P
         if not debug_skip:
-            max_attempts=30
+            max_attempts=3
             attempt=0
             backup_path = out_path+'#'
             if os.path.abspath(P.model_path)!=os.path.abspath(out_path): # So as not to disrupt multiple refines using same file output name
@@ -1979,7 +1981,7 @@ class Untangler():
 
 def main():
     if len(sys.argv) not in [3,4]:
-        print("Usage: python3.9 untangle.py data/myInitialModel.pdb data/myReflections.mtz [tangle_evaluation_reference_model]")
+        print("Usage: python3 untangle.py data/myInitialModel.pdb data/myReflections.mtz [tangle_evaluation_reference_model]")
         return
 
     starting_model = sys.argv[1]
@@ -1988,32 +1990,34 @@ def main():
         solution_reference=None
     if len(sys.argv)==4:
         solution_reference=sys.argv[3]
+
+    # Bond length RMSZ after unrestrained refinement is considerably higher than angle RMSZ (e.g. ~ 3.4 vs 2.2). 
     if UntangleFunctions.NO_INDIV_WEIGHTS:
         weight_factors = {
-            ConstraintsHandler.BondConstraint: 1,
-            ConstraintsHandler.AngleConstraint: 1, #1,
-            ConstraintsHandler.NonbondConstraint: 0,
-            #ConstraintsHandler.NonbondConstraint: 0.001,
-            #ConstraintsHandler.NonbondConstraint: 0.1,
-            ConstraintsHandler.ClashConstraint: 200, #50 #1e4
-            #ConstraintsHandler.ClashConstraint: 0.1, 
-            #ConstraintsHandler.ClashConstraint: 0,
-            ConstraintsHandler.TwoAtomPenalty: 0,
-            ConstraintsHandler.Dihedral: 0,
-            ConstraintsHandler.Planarity: 0,
+            RestraintsHandler.BondRestraint: 0.5, # 1 0.5
+            RestraintsHandler.AngleRestraint: 1, 
+            RestraintsHandler.NonbondRestraint: 0,
+            #RestraintsHandler.NonbondRestraint: 0.001,
+            #RestraintsHandler.NonbondRestraint: 0.1,
+            RestraintsHandler.ClashRestraint: 200, #50 #1e4
+            #RestraintsHandler.ClashRestraint: 0.1, 
+            #RestraintsHandler.ClashRestraint: 0,
+            RestraintsHandler.TwoAtomPenalty: 0,
+            RestraintsHandler.Dihedral: 0,
+            RestraintsHandler.Planarity: 0,
         }
     else:
         weight_factors = {
-            ConstraintsHandler.BondConstraint: 0.1,
-            ConstraintsHandler.AngleConstraint: 80,
-            #ConstraintsHandler.NonbondConstraint: 0.1,
-            ConstraintsHandler.NonbondConstraint: 0,
-            #ConstraintsHandler.ClashConstraint: 1e8,
-            #ConstraintsHandler.ClashConstraint: 1e7,#1e2,
-            ConstraintsHandler.ClashConstraint: 1e7,
-            ConstraintsHandler.TwoAtomPenalty: 0,
-            ConstraintsHandler.Dihedral: 0,
-            ConstraintsHandler.Planarity: 0,
+            RestraintsHandler.BondRestraint: 0.1,
+            RestraintsHandler.AngleRestraint: 80,
+            #RestraintsHandler.NonbondRestraint: 0.1,
+            RestraintsHandler.NonbondRestraint: 0,
+            #RestraintsHandler.ClashRestraint: 1e8,
+            #RestraintsHandler.ClashRestraint: 1e7,#1e2,
+            RestraintsHandler.ClashRestraint: 1e7,
+            RestraintsHandler.TwoAtomPenalty: 0,
+            RestraintsHandler.Dihedral: 0,
+            RestraintsHandler.Planarity: 0,
         }
     end_loop_cycles=6
     if PHENIX_ORDERED_SOLVENT and not PHENIX_ORDERED_SOLVENT_APPLIED_ONCE:
@@ -2021,7 +2025,8 @@ def main():
     Untangler(
         # max_num_best_swaps_considered=5,
         #default_wc=2,endloop_wc=2,refine_for_positions_geo_weight=0.4,
-        default_wc=0.5,endloop_wc=0.5,refine_for_positions_geo_weight=0, 
+        #default_wc=0.5,endloop_wc=0.5,refine_for_positions_geo_weight=0, 
+        default_wc=1,endloop_wc=1,refine_for_positions_geo_weight=0, 
         default_wu=1,
         num_end_loop_refine_cycles=end_loop_cycles,
         #endloop_wc=3, num_end_loop_refine_cycles=1,

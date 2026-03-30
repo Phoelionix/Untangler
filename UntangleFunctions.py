@@ -654,7 +654,7 @@ def relabel_ring(pdb_path):
     
 
 def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False,ring_name_grouping=False,altlocs_allowed=None,
-                even_split_occupancies=False,allow_no_altloc=False,treat_solvent_identically_to_protein=False,
+                even_split_protein_occupancies=False,allow_no_altloc=False,treat_solvent_identically_to_protein=False,
                 single_altloc_solvent=False):
         # Gets into format we expect. !!!!!!Assumes single chain!!!!!
         # Relabels ring atoms CE1/CE2, CD1/CD2 so that all with same label are closest         
@@ -792,7 +792,7 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                     num_altlocs_for_atom = len([ alt for alt in res_atom_dict if atom_name in res_atom_dict[alt] ])
                     n+=1
                     modified_line = line
-                    if even_split_occupancies:
+                    if even_split_protein_occupancies:
                         modified_line = replace_occupancy(modified_line,
                             1/num_altlocs_for_atom) # Set occupancies to all be same
                     modified_line = replace_chain(modified_line,protein_chain_id)

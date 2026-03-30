@@ -3,7 +3,7 @@
 import sys,pathlib
 sys.path.append(str(pathlib.Path(__file__).parent.parent))
 from LinearOptimizer.Tag import *
-from LinearOptimizer.ConstraintsHandler import ConstraintsHandler
+from LinearOptimizer.RestraintsHandler import RestraintsHandler
 from LinearOptimizer.Input import LP_Input
 from LinearOptimizer.OrderedAtomLookup import OrderedAtomLookup
 from Bio.PDB import PDBParser,Structure,PDBIO
@@ -55,10 +55,10 @@ def create_all_child_restraints(model_path,altloc_parents_dict:dict,child_atom_t
     LP_Input.prepare_geom_files(model_path,None)
     struct=PDBParser().get_structure("struct",model_path)
     ordered_atom_lookup=OrderedAtomLookup(struct.get_atoms(),waters=True)
-    constraints_handler=ConstraintsHandler()
-    constraints_to_skip=[ConstraintsHandler.ClashConstraint,ConstraintsHandler.TwoAtomPenalty]
+    constraints_handler=RestraintsHandler()
+    constraints_to_skip=[RestraintsHandler.ClashRestraint,RestraintsHandler.TwoAtomPenalty]
     if not include_nonbonds:
-        constraints_to_skip.append(ConstraintsHandler.NonbondConstraint)
+        constraints_to_skip.append(RestraintsHandler.NonbondRestraint)
     constraints_handler.load_all_constraints(model_path,ordered_atom_lookup,symmetries=parse_symmetries_from_pdb(model_path),water_water_nonbond=False,
                                              constraints_to_skip=constraints_to_skip,
                                              all_restraints_mode=True)
@@ -74,18 +74,18 @@ def create_all_child_restraints(model_path,altloc_parents_dict:dict,child_atom_t
     return text
 
 def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[DisorderedTag],all_ordered_tags:list[OrderedTag],
-                            constraints_handler:ConstraintsHandler, chain_dict):
+                            constraints_handler:RestraintsHandler, chain_dict):
 
     allowed_constraints = [
-        ConstraintsHandler.BondConstraint,
-        ConstraintsHandler.AngleConstraint,
-        ConstraintsHandler.Dihedral,
-        ConstraintsHandler.Planarity,
-        ConstraintsHandler.NonbondConstraint,
+        RestraintsHandler.BondRestraint,
+        RestraintsHandler.AngleRestraint,
+        RestraintsHandler.Dihedral,
+        RestraintsHandler.Planarity,
+        RestraintsHandler.NonbondRestraint,
     ]
     # Create all geometry restraints for child atoms to mimic their parents.
     text=""
-    processed_constraints:list[ConstraintsHandler.Constraint]=[]
+    processed_constraints:list[RestraintsHandler.Constraint]=[]
     for disordered_tag, constraints in constraints_handler.atom_constraints.items():
         if not disordered_tag in child_atom_tags:
             continue
@@ -109,13 +109,13 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
                     atom_selection_lines.append(
                         f"      atom_selection_{i+1} = name {site_tag.atom_name()} and resseq {site_tag.resnum()} and chain {chain_dict[site_tag.resnum()]} and altid {line_altloc}"
                     )
-                if type(constraint) == ConstraintsHandler.Planarity:
+                if type(constraint) == RestraintsHandler.Planarity:
                     atom_selection_lines = [line[line.index('=')+1:] for line in atom_selection_lines ]
                     atom_selection_lines='      atom_selection = (' + ') \\\n      or ('.join(atom_selection_lines)+ ')'
                 else:
                     atom_selection_lines='\n'.join(atom_selection_lines)
                 parameter_scope_name =constraint.get_str_rep_kind().lower()
-                if type(constraint) != ConstraintsHandler.NonbondConstraint:
+                if type(constraint) != RestraintsHandler.NonbondRestraint:
                     ideal = constraint.ideal
                 else:
                     #  ###
@@ -135,7 +135,7 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
                      ideal = ideal_same_asu  
                      parameter_scope_name="bond" # FIXME
                      nonbond_limit_param=ideal # TODO check this does what expect... 
-                if type(constraint) in [ConstraintsHandler.AngleConstraint,ConstraintsHandler.Dihedral]:
+                if type(constraint) in [RestraintsHandler.AngleRestraint,RestraintsHandler.Dihedral]:
                     ideal_variable_name="angle_ideal"
                 else:
                     ideal_variable_name="distance_ideal"
@@ -143,7 +143,7 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
                 text += (f"    {parameter_scope_name}"+" {\n"
                 +"      action = *add\n"
                 +f"{atom_selection_lines}\n")
-                if type(constraint)!=ConstraintsHandler.Planarity:
+                if type(constraint)!=RestraintsHandler.Planarity:
                     text+=f"      {ideal_variable_name} = {ideal:.4f}\n"
                     
                 text+=((f"      sigma = {constraint.sigma:.4f}\n" if constraint.sigma is not None else "      sigma = 1\n      "+f"limit = 0\n      "+f"top_out = True"+"\n") 

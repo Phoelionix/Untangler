@@ -14,25 +14,25 @@ IGNORE_WATERS=False
 assert not IGNORE_WATERS, "bugged"
 
 def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False,scoring_function=None):
-    scoring_function = ConstraintsHandler.chi_z_sqr if scoring_function is None else scoring_function # ConstraintsHandler.log_chi
+    scoring_function = RestraintsHandler.chi_z_sqr if scoring_function is None else scoring_function # RestraintsHandler.log_chi
     def get_out_path(model_handle,out_tag):
         output_dir = os.path.join(UNTANGLER_WORKING_DIRECTORY,"output","")
         return f"{output_dir}{model_handle}_{out_tag}.pdb"
     
     if weight_factors is None:
         weight_factors = {
-            ConstraintsHandler.BondConstraint: 0.1,
-            ConstraintsHandler.AngleConstraint: 80,#1,
-            ConstraintsHandler.NonbondConstraint: 0.1, # 0.1
-            ConstraintsHandler.ClashConstraint: 1e2, 
-            ConstraintsHandler.TwoAtomPenalty: 0,
+            RestraintsHandler.BondRestraint: 0.1,
+            RestraintsHandler.AngleRestraint: 80,#1,
+            RestraintsHandler.NonbondRestraint: 0.1, # 0.1
+            RestraintsHandler.ClashRestraint: 1e2, 
+            RestraintsHandler.TwoAtomPenalty: 0,
         }
     else:
         weight_factors=copy.deepcopy(weight_factors)
     if ignore_nonbond:
-        weight_factors[ConstraintsHandler.NonbondConstraint]=0
-        weight_factors[ConstraintsHandler.ClashConstraint]=0 
-        weight_factors[ConstraintsHandler.TwoAtomPenalty]=0
+        weight_factors[RestraintsHandler.NonbondRestraint]=0
+        weight_factors[RestraintsHandler.ClashRestraint]=0 
+        weight_factors[RestraintsHandler.TwoAtomPenalty]=0
 
         
 

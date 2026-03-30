@@ -23,7 +23,7 @@ import pulp as pl
 import LinearOptimizer.Input
 from LinearOptimizer.Input import LP_Input, get_altlocs_key
 from LinearOptimizer.VariableID import VariableID
-from LinearOptimizer.ConstraintsHandler import ConstraintsHandler
+from LinearOptimizer.RestraintsHandler import RestraintsHandler
 
 
 def angle_to_highways(disordered_angles:dict[str,tuple[LP_Input.Geomection,pl.LpVariable]]):
@@ -115,10 +115,10 @@ def construct_backbone_highways(LD_geomections:list[LP_Input.Geomection],constr_
     # bond_var_dict={}
     # angle_var_dict={}
     # for constr_var_subdict in constr_var_dict.values():
-    #     bond_var_dict |= {k:v for k, v in constr_var_subdict.items() if v[0].connection_type is ConstraintsHandler.BondConstraint}
-    #     angle_var_dict |= {k:v for k, v in constr_var_subdict.items() if v[0].connection_type is ConstraintsHandler.AngleConstraint}
-    bond_var_dict = {k:v for k, v in constr_var_dict.items() if list(v.values())[0][0].connection_type is ConstraintsHandler.BondConstraint}
-    angle_var_dict = {k:v for k, v in constr_var_dict.items() if list(v.values())[0][0].connection_type is ConstraintsHandler.AngleConstraint}
+    #     bond_var_dict |= {k:v for k, v in constr_var_subdict.items() if v[0].connection_type is RestraintsHandler.BondRestraint}
+    #     angle_var_dict |= {k:v for k, v in constr_var_subdict.items() if v[0].connection_type is RestraintsHandler.AngleRestraint}
+    bond_var_dict = {k:v for k, v in constr_var_dict.items() if list(v.values())[0][0].connection_type is RestraintsHandler.BondRestraint}
+    angle_var_dict = {k:v for k, v in constr_var_dict.items() if list(v.values())[0][0].connection_type is RestraintsHandler.AngleRestraint}
 
     max_resnum= max(max(list(v.values())[0][0].res_nums) for v in bond_var_dict.values())
     
@@ -139,11 +139,11 @@ def construct_backbone_highways(LD_geomections:list[LP_Input.Geomection],constr_
         # 1. Create the 3-atom highways. 
 
         CA_to_N_id = LP_Input.Geomection.construct_disordered_connection_id(
-            ConstraintsHandler.AngleConstraint,
+            RestraintsHandler.AngleRestraint,
             [DisorderedTag(i,"CA"),DisorderedTag(i,"C"),DisorderedTag(i+1,"N")]
             )
         N_to_CA_id = LP_Input.Geomection.construct_disordered_connection_id(
-            ConstraintsHandler.BondConstraint,
+            RestraintsHandler.BondRestraint,
             [DisorderedTag(i+1,"N"),DisorderedTag(i+1,"CA")]
             )
         

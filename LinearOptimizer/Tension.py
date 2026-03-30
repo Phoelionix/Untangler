@@ -1,4 +1,4 @@
-from LinearOptimizer.Input import ConstraintsHandler,DisorderedTag,OrderedAtomLookup
+from LinearOptimizer.Input import RestraintsHandler,DisorderedTag,OrderedAtomLookup
 #from LinearOptimizer.Solver import VariableID,VariableKind
 import UntangleFunctions
 from Bio.PDB import PDBParser
@@ -26,7 +26,7 @@ class GeoXrayTension:
         atom_pos_dicts:list[dict[DisorderedTag,dict[str,tuple[float]]]]=[]
         for pdb in pdb_files:
             atom_pos_dict:dict[DisorderedTag,dict[str,tuple[float]]]={}
-            constraints_handler = ConstraintsHandler()
+            constraints_handler = RestraintsHandler()
 
             geo_file = f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/StructureGeneration/HoltonOutputs/{UntangleFunctions.model_handle(pdb)}.geo"
 

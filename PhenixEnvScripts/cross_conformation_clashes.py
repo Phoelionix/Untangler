@@ -175,6 +175,7 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
             O=1.40, HOH_O=1.40,
             P=1.80,
             S=1.80,
+            MN_MN=1.80, # FIXME
             #Se=1.90,
         )
         #TODO HOH
@@ -184,7 +185,7 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
         
         def to_energy_type(key):
             entry=key.split('"')[1]
-            name,resname = entry[0:4].strip(),entry[4:7]
+            name,resname = entry[0:4].strip(),entry[4:7].strip()
 
             aromatic_H_dict=dict(
                 HIS=("HD1","HE1","HE2","HD2"),

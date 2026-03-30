@@ -3,7 +3,7 @@
 import sys,pathlib
 sys.path.append(str(pathlib.Path(__file__).parent.parent))
 from LinearOptimizer.Tag import *
-from LinearOptimizer.ConstraintsHandler import ConstraintsHandler
+from LinearOptimizer.RestraintsHandler import RestraintsHandler
 from LinearOptimizer.Input import LP_Input
 from LinearOptimizer.OrderedAtomLookup import OrderedAtomLookup
 from Bio.PDB import PDBParser,Structure,PDBIO
@@ -82,10 +82,10 @@ def create_all_child_restraints(model_path,child_parent_altlocs_dict:dict,includ
     assert len(child_atom_tags)>0
     assert len(all_ordered_tags)>0
 
-    constraints_handler=ConstraintsHandler()
-    constraints_to_skip=[ConstraintsHandler.ClashConstraint,ConstraintsHandler.TwoAtomPenalty]
+    constraints_handler=RestraintsHandler()
+    constraints_to_skip=[RestraintsHandler.ClashRestraint,RestraintsHandler.TwoAtomPenalty]
     if not include_nonbonds:
-        constraints_to_skip.append(ConstraintsHandler.NonbondConstraint)
+        constraints_to_skip.append(RestraintsHandler.NonbondRestraint)
     symmetries=parse_symmetries_from_pdb(model_path)
     constraints_handler.load_all_constraints(subset_model_path,ordered_atom_lookup,
                                              symmetries=symmetries,
@@ -108,19 +108,19 @@ def create_all_child_restraints(model_path,child_parent_altlocs_dict:dict,includ
     return text
 
 def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[DisorderedTag],all_ordered_tags:list[OrderedTag],
-                            constraints_handler:ConstraintsHandler, chain_dict,
+                            constraints_handler:RestraintsHandler, chain_dict,
                             all_atom_lookup:OrderedAtomLookup,symmetries):
 
     allowed_constraints = [
-        ConstraintsHandler.BondConstraint,
-        ConstraintsHandler.AngleConstraint,
-        ConstraintsHandler.Dihedral,
-        ConstraintsHandler.Planarity,
-        ConstraintsHandler.NonbondConstraint,
+        RestraintsHandler.BondRestraint,
+        RestraintsHandler.AngleRestraint,
+        RestraintsHandler.Dihedral,
+        RestraintsHandler.Planarity,
+        RestraintsHandler.NonbondRestraint,
     ]
     # Create all geometry restraints for child atoms to mimic their parents.
     text=""
-    processed_constraints:list[ConstraintsHandler.Constraint]=[]
+    processed_constraints:list[RestraintsHandler.Constraint]=[]
     for disordered_tag, constraints in constraints_handler.atom_constraints.items():
         if not disordered_tag in child_atom_tags:
             continue
@@ -144,13 +144,13 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
                     atom_selection_lines.append(
                         f"      atom_selection_{i+1} = name {site_tag.atom_name()} and resseq {site_tag.resnum()} and chain {chain_dict[site_tag.resnum()]} and altid {line_altloc}"
                     )
-                if type(constraint) == ConstraintsHandler.Planarity:
+                if type(constraint) == RestraintsHandler.Planarity:
                     atom_selection_lines = [line[line.index('=')+1:] for line in atom_selection_lines ]
                     atom_selection_lines='      atom_selection = (' + ') \\\n      or ('.join(atom_selection_lines)+ ')'
                 else:
                     atom_selection_lines='\n'.join(atom_selection_lines)
                 parameter_scope_name =constraint.get_str_rep_kind().lower()
-                if type(constraint) != ConstraintsHandler.NonbondConstraint:
+                if type(constraint) != RestraintsHandler.NonbondRestraint:
                     ideal = constraint.ideal
                 else:
                     def include_nonbond(crystal_packing=False):
@@ -159,7 +159,7 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
                                 parent_altloc if site_tag in parent_site_tags else child_altloc] 
                                 for site_tag in constraint.site_tags] 
                         r0,r0_sym = constraint.altlocs_vdw_dict[None] # XXX TODO
-                        r, r_sym_min = ConstraintsHandler.NonbondConstraint.symm_min_separation(atoms[0],atoms[1],symmetries)
+                        r, r_sym_min = RestraintsHandler.NonbondRestraint.symm_min_separation(atoms[0],atoms[1],symmetries)
                         threshold_factor=1.5
                         return r is not None and r/r0<=threshold_factor
                     if not include_nonbond():
@@ -182,7 +182,7 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
                     ideal = ideal_same_asu  
                     parameter_scope_name="bond" # FIXME
 
-                if type(constraint) in [ConstraintsHandler.AngleConstraint,ConstraintsHandler.Dihedral]:
+                if type(constraint) in [RestraintsHandler.AngleRestraint,RestraintsHandler.Dihedral]:
                     ideal_variable_name="angle_ideal"
                 else:
                     ideal_variable_name="distance_ideal"
@@ -190,7 +190,7 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
                 text += (f"    {parameter_scope_name}"+" {\n"
                 +"      action = *add\n"
                 +f"{atom_selection_lines}\n")
-                if type(constraint)!=ConstraintsHandler.Planarity:
+                if type(constraint)!=RestraintsHandler.Planarity:
                     text+=f"      {ideal_variable_name} = {ideal:.4f}\n"
                     
                 text+=((f"      sigma = {constraint.sigma:.4f}\n" if constraint.sigma is not None else "      sigma = 1\n      "+f"limit = 0\n      "+f"top_out = True"+"\n") 
@@ -199,11 +199,14 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
     return text
 
 if __name__ == "__main__":
+    #child_parent_altlocs_dict=UntangleFunctions.TEMP_TEST_CHILD_PARENT
     model_path="/home/speno/Untangler/data/4PSS_6conf18conf_reduced_unrefined.pdb"
+    child_parent_altlocs_dict={c:"A" for c in "GH"} | {c:"B" for c in "IJ"} | {c:"C" for c in "KL"} | {c:"D" for c in "MN"} | {c:"E" for c in "OP"} | {c:"F" for c in "QR"}
     
     include_nonbonds=True
+
     text=create_all_child_restraints(model_path,
-                                     child_parent_altlocs_dict=UntangleFunctions.TEMP_TEST_CHILD_PARENT,
+                                     child_parent_altlocs_dict=child_parent_altlocs_dict,
                                      include_nonbonds=include_nonbonds)
     out_path=os.path.join(UntangleFunctions.UNTANGLER_WORKING_DIRECTORY,"ConformationTree","output",f"split_conformations_restraints{'' if include_nonbonds else '_noNB'}.eff")
     with open(out_path,"w") as f:

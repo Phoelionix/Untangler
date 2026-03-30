@@ -160,11 +160,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         gapRel = None
 
     connection_types= (
-        ConstraintsHandler.BondConstraint,
-        ConstraintsHandler.AngleConstraint,
-        ConstraintsHandler.NonbondConstraint,
-        ConstraintsHandler.ClashConstraint,#1e2,
-        ConstraintsHandler.TwoAtomPenalty,
+        RestraintsHandler.BondRestraint,
+        RestraintsHandler.AngleRestraint,
+        RestraintsHandler.NonbondRestraint,
+        RestraintsHandler.ClashRestraint,#1e2,
+        RestraintsHandler.TwoAtomPenalty,
     )
     num_forbidden_connections={k:0 for k in connection_types}
     num_allowed_connections={k:0 for k in connection_types}
@@ -536,6 +536,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     flexible_bad_original_constr_types:list[Type]=[]
     always_allow_original_tranches:list[list[bool]]=[] #  
     flexible_bad_original_vars:list=[]
+    geometries_forbidden_from_changing:list[str]=[]
 
     initial_badness=0
     def add_constraints_from_disordered_connection(constraint_type:VariableKind,disordered_connection: list[LP_Input.Geomection],global_score_tolerate_threshold=0):
@@ -550,6 +551,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         nonlocal flexible_bad_original_constr_types
         nonlocal always_allow_original_tranches
         nonlocal flexible_allowed_constr_tranches
+        nonlocal geometries_forbidden_from_changing
 
 
         def forbid_change_conditions():
@@ -572,10 +574,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                                     conn.z_score=0
                                 return True
             if constraint_type==VariableKind.Bond: 
-                # TODO this allows water to change. But necessary.
-                if MAIN_CHAIN_ONLY and not in_main_chain and (any(ch.get_resname() not in ["CYS","HOH"] for ch in chunks)):  # XXX tidy up and put in a separate python file for specifying what to optimize
+                # XXX this allows water to change. But necessary.
+                other_things=["MN", "NAP", "FOL"] # XXX
+                if MAIN_CHAIN_ONLY and not in_main_chain and (any(ch.get_resname().strip() not in (["CYS","HOH"] + other_things) for ch in chunks)):  # XXX tidy up and put in a separate python file for specifying what to optimize
                     return True
-                if SIDE_CHAIN_ONLY and in_main_chain and (any(ch.get_resname() not in ["HOH",] for ch in chunks)):
+                if SIDE_CHAIN_ONLY and in_main_chain and (any(ch.get_resname().strip() not in (["HOH",] + other_things) for ch in chunks)):
                     return True
                 if NO_CB_CHANGES and any(ch.name =="CB" for ch in chunks):
                     return True
@@ -631,8 +634,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     return True
             return False
         
-        forbid_constraint_change=forbid_change_conditions()
-        
+        forbid_geometry_change=forbid_change_conditions()
+        if forbid_geometry_change:
+            geometries_forbidden_from_changing.append(disordered_connection[0].get_disordered_connection_id())
 
         scores = [conn.ts_distance for conn in disordered_connection]
         # if max(scores)-min(scores) < required_cost_range_to_consider:
@@ -666,7 +670,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
         
 
-        if len(small_fry)==len(disordered_connection) and not forbid_constraint_change:
+        if len(small_fry)==len(disordered_connection) and not forbid_geometry_change:
             return
         
 
@@ -738,14 +742,14 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             # If is sidechain
             #if any(name not in ["CB","C","CA","N","O"] for name in disordered_connection[0].atom_names):
             if any(name not in ["C","CA","N","O"] for name in disordered_connection[0].atom_names):
-                if disordered_connection[0].connection_type is ConstraintsHandler.AngleConstraint:
+                if disordered_connection[0].connection_type is RestraintsHandler.AngleRestraint:
                     always_tolerate_score_threshold_sequence/=sidechain_improvement_factor_requirement_mult_angle
-                elif disordered_connection[0].connection_type is ConstraintsHandler.BondConstraint:
+                elif disordered_connection[0].connection_type is RestraintsHandler.BondRestraint:
                     always_tolerate_score_threshold_sequence/=sidechain_improvement_factor_requirement_mult_bond
             else:
-                if disordered_connection[0].connection_type is ConstraintsHandler.AngleConstraint:
+                if disordered_connection[0].connection_type is RestraintsHandler.AngleRestraint:
                     always_tolerate_score_threshold_sequence/=mainchain_improvement_factor_requirement_mult_angle
-                elif disordered_connection[0].connection_type is ConstraintsHandler.BondConstraint:
+                elif disordered_connection[0].connection_type is RestraintsHandler.BondRestraint:
                     always_tolerate_score_threshold_sequence/=mainchain_improvement_factor_requirement_mult_bond
             ########
             tmp_scores= [conn.ts_distance for conn in disordered_connection]
@@ -821,7 +825,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                         always_allow_original_tranches.append(allowed_sequence)
                     else:
                         allowed=True 
-                elif forbid_constraint_change:
+                elif forbid_geometry_change:
                     allowed=False
                 elif not geomection.forbidden:
                     allowed=True
@@ -858,7 +862,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     pass
             else:
                 # Angle geomection is active if 2 specific bond geomections are active.
-                assert geomection.connection_type in [ConstraintsHandler.AngleConstraint,] # Can add other 3+ site constraints later
+                assert geomection.connection_type in [RestraintsHandler.AngleRestraint,] # Can add other 3+ site constraints later
                 
                 def get_altlocs_key_or_echoed_altlocs_key(from_altlocs,position_option_indices,echoed_altlocs,d_id): #TODO rename
                     bond_altlocs_key=get_altlocs_key(
@@ -874,14 +878,14 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 for i,(ch_A,ch_B) in enumerate(zip(geomection.atom_chunks[:-1],geomection.atom_chunks[1:])):
                     site_tags=(ch_A.get_disordered_tag(),ch_B.get_disordered_tag())
                     d_id = LP_Input.Geomection.construct_disordered_connection_id(
-                        ConstraintsHandler.BondConstraint,site_tags
+                        RestraintsHandler.BondRestraint,site_tags
                     )                    
                     ordered_conn_from_altlocs = geomection.from_altlocs[i:i+2]
                     position_option_indices=geomection.position_option_indices[i:i+2]
                     echoed_altlocs = [ch.echoed_altloc for ch in geomection.atom_chunks[i:i+2]] 
                     if d_id not in ALL_mega_geomection_var_dict:
                         d_id = LP_Input.Geomection.construct_disordered_connection_id(
-                        ConstraintsHandler.BondConstraint,list(reversed(site_tags))
+                        RestraintsHandler.BondRestraint,list(reversed(site_tags))
                         )
                         ordered_conn_from_altlocs=list(reversed(ordered_conn_from_altlocs))
                         position_option_indices = list(reversed(position_option_indices))
@@ -914,7 +918,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 #     no_link_geoms.append(geomection)
                 if geomection not in small_fry:
                     assert geomection.ts_distance>=0, (geomection,geomection.ts_distance)
-                    #if geomection.connection_type == ConstraintsHandler.ClashConstraint:
+                    #if geomection.connection_type == RestraintsHandler.ClashRestraint:
                     distance_vars.append(geomection.ts_distance*var_active)
             # TODO change "not (is_flexible or is_bad_original_constraint or allowed)" to "always_forbidden" variable.
             if not is_flexible and not is_bad_original_constraint:
@@ -970,10 +974,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         
         #geomection_var_dict = allowed_geomection_var_dict
         ## CONSTRAINT 2 "Num ordered geometries (i.e. 'connections') per disordered geometry must be unchanged"
-        use_constraint_2=(geomection.connection_type is ConstraintsHandler.BondConstraint)
+        use_constraint_2=(geomection.connection_type is RestraintsHandler.BondRestraint)
         ##### TODO  assess if need this
         enforce_angle_count_conservation=True
-        if ((geomection.connection_type is ConstraintsHandler.AngleConstraint) 
+        if ((geomection.connection_type is RestraintsHandler.AngleRestraint) 
             and enforce_angle_count_conservation):
             use_constraint_2=True
         ####################
@@ -1050,8 +1054,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             if itr%250==0:
                 print(f"{itr}/{len(mega_geomection_var_dict)}")
             for constraint,var in disordered_geomection_var_dict.values():
-                #if constraint.connection_type!=ConstraintsHandler.BondConstraint: # Might be better.
-                if constraint.connection_type==ConstraintsHandler.AngleConstraint:
+                #if constraint.connection_type!=RestraintsHandler.BondRestraint: # Might be better.
+                if constraint.connection_type==RestraintsHandler.AngleRestraint:
                     break
                 for other_constraint, other_var in disordered_geomection_var_dict.values():
                     if other_constraint==constraint:
@@ -1162,7 +1166,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     other_bond_list = [(("CA","CB"),(resnum,resnum))]
                 for atom_names,resnums in other_bond_list: # TODO shouldn't need to do this. Should be sorted in Geomection class
                     disordered_tags= [DisorderedTag(num,name) for num,name in zip(resnums,atom_names)]
-                    other_d_id= LP_Input.Geomection.construct_disordered_connection_id(ConstraintsHandler.BondConstraint,disordered_tags)
+                    other_d_id= LP_Input.Geomection.construct_disordered_connection_id(RestraintsHandler.BondRestraint,disordered_tags)
                     if other_d_id in mega_geomection_var_dict and altlocs_key in mega_geomection_var_dict[other_d_id]: # XXX
                         _other_bond, other_var = mega_geomection_var_dict[other_d_id][altlocs_key]
                         other_bond_nochange_vars.append(other_var)
@@ -1220,7 +1224,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     #     if len(active_constraints)==0:
     #         print("warning: , initial constraint inactive")
     #         continue
-    #     if active_constraints[0][0].connection_type!=ConstraintsHandler.BondConstraint:
+    #     if active_constraints[0][0].connection_type!=RestraintsHandler.BondRestraint:
     #         continue
     #     for site in active_constraints[0][0].atom_chunks:
     #         if site.name not in ["N","CA","CB","C","O"]:
@@ -1350,7 +1354,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         #vals.sort(key=lambda x: x[0].z_score,reverse=True)
         vals.sort(key=lambda x: x[0].ts_distance,reverse=True)
         vals_selection = []
-        ignore_zero_constraint_types = [ConstraintsHandler.ClashConstraint,ConstraintsHandler.NonbondConstraint,ConstraintsHandler.TwoAtomPenalty] 
+        ignore_zero_constraint_types = [RestraintsHandler.ClashRestraint,RestraintsHandler.NonbondRestraint,RestraintsHandler.TwoAtomPenalty] 
         for constraint,var in vals:
             if constraint.ts_distance != 0 or (constraint.connection_type not in ignore_zero_constraint_types):
                 vals_selection.append((constraint,var))
@@ -1579,7 +1583,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         sys.setrecursionlimit(int(1e4)) 
         conf_geomection_dict:dict[str,list[LP_Input.Geomection]]={a:[] for a in all_altlocs} # Active geomections of each conformation. Keys are the conformation labels (altloc ids).
         conf_atom_chunk_dict:dict[str,list[AtomChunk]]={a:[] for a in all_altlocs}
-        # smallest_unit_geomection_types = (ConstraintsHandler.BondConstraint,ConstraintsHandler.NonbondConstraint,ConstraintsHandler.ClashConstraint)
+        # smallest_unit_geomection_types = (RestraintsHandler.BondRestraint,RestraintsHandler.NonbondRestraint,RestraintsHandler.ClashRestraint)
 
         active_geomections:list[LP_Input.Geomection]=[]
         for disordered_geomection_var_dict in mega_geomection_var_dict.values():
@@ -2016,9 +2020,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         if len(midpoint_atom_constraints)==0:
             return
         for constraint,var in midpoint_atom_constraints:
-            if constraint.connection_type == ConstraintsHandler.BondConstraint:
+            if constraint.connection_type == RestraintsHandler.BondRestraint:
                 good_geomection_dict=good_bond_geomection_resnum_dict
-            elif constraint.connection_type == ConstraintsHandler.AngleConstraint:
+            elif constraint.connection_type == RestraintsHandler.AngleRestraint:
                 good_geomection_dict=good_angle_geomection_resnum_dict
             else:
                 continue
@@ -2142,7 +2146,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 generate_cemented_triplet_constraints(atom_name,z_bounds,ignored_altlocs=ignored_altlocs)
 
     peppered_fixed_geo_constr_names={}
-    def pepper_fixed_geomections(freq=0.2,Z_min=0,Z_max=2,geomection_type=ConstraintsHandler.BondConstraint):
+    def pepper_fixed_geomections(freq=0.2,Z_min=0,Z_max=2,geomection_type=RestraintsHandler.BondRestraint):
         if freq<=0:
             return
         nonlocal peppered_fixed_geo_constr_names
@@ -2180,35 +2184,40 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         log_indiv=False,log_average=True):
         #active_constraints=[(constraint,var) for constraint,var in disordered_geomection_var_dict.values() if var.value()>0.5]
         #original_constraints=[(constraint,var) for constraint,var in disordered_geomection_var_dict.values() if constraint.original()]
-        z_scores_dict={altloc: {ConstraintsHandler.Constraint.kind(conn_type):[] for conn_type in connection_types} for altloc in all_altlocs}
+        z_scores_dict={altloc: {RestraintsHandler.Constraint.kind(conn_type):[] for conn_type in connection_types} for altloc in all_altlocs}
+        z_scores_mch_dict={altloc: {RestraintsHandler.Constraint.kind(conn_type):[] for conn_type in connection_types} for altloc in all_altlocs}
         for geomection,var in active_geomections:
             conformation_label=site_assignments[VariableID.Atom(geomection.atom_chunks[0])][geomection.atom_chunks[0].altloc][0]
-            z_scores_dict[conformation_label][ConstraintsHandler.Constraint.kind(geomection.connection_type)].append(geomection.z_score)
-        totals_dict={ConstraintsHandler.Constraint.kind(conn_type):[] for conn_type in connection_types}
+            z_scores_dict[conformation_label][RestraintsHandler.Constraint.kind(geomection.connection_type)].append(geomection.z_score)
+            if any((ch.name in ["C","N","CA"] and not ch.is_water) for ch in geomection.atom_chunks):
+            #if geomection.get_disordered_connection_id() in geometries_forbidden_from_changing:
+                z_scores_mch_dict[conformation_label][RestraintsHandler.Constraint.kind(geomection.connection_type)].append(geomection.z_score)
         def rms(array):
             return math.sqrt(np.sum(v**2 for v in array)/len(array))
-        if log_indiv or log_average:
-            log("-- RMSZ --")
-            for altloc in z_scores_dict:
-                if log_indiv:
-                    log(altloc)
-                for kind, z_scores in z_scores_dict[altloc].items():
-                    if kind in [VariableKind.Clash.value,VariableKind.Penalty.value]:
-                        val=len(z_scores)
-                    else:
-                        #val=np.mean(z_scores)
-                        val=rms(z_scores) if len(z_scores)>0 else 0
-                    totals_dict[kind].append(val)
+        for selected_dict, measure in zip ((z_scores_dict,z_scores_mch_dict),("RMSZ","RMSZ main chain")):
+            totals_dict={RestraintsHandler.Constraint.kind(conn_type):[] for conn_type in connection_types}
+            if log_indiv or log_average:
+                log(f"-- {measure} --")
+                for altloc in selected_dict:
                     if log_indiv:
-                        log(f"{kind}: {val}")
-                if log_indiv:
-                    log("--------------")
-        if log_average:
-            log("==============")
-            log("All conformations:")
-            for kind,vals in totals_dict.items():
-                log(f"{kind}: {rms(vals):.5f} (min/max conf.{' RMSZ' if kind not in [VariableKind.Clash.value,VariableKind.Penalty.value] else ''}: {min(vals)},{max(vals)}) ") # TODO worst z values of conformations or histogram.
-            log("==============")
+                        log(altloc)
+                    for kind, z_scores in selected_dict[altloc].items():
+                        if kind in [VariableKind.Clash.value,VariableKind.Penalty.value]:
+                            val=len(z_scores)
+                        else:
+                            #val=np.mean(z_scores)
+                            val=rms(z_scores) if len(z_scores)>0 else 0
+                        totals_dict[kind].append(val)
+                        if log_indiv:
+                            log(f"{kind}: {val}")
+                    if log_indiv:
+                        log("--------------")
+            if log_average:
+                log("==============")
+                log("All conformations:")
+                for kind,vals in totals_dict.items():
+                    log(f"{kind}: {rms(vals):.5f} (min/max conf.{' RMSZ' if kind not in [VariableKind.Clash.value,VariableKind.Penalty.value] else ''}: {min(vals)},{max(vals)})") # TODO worst z values of conformations or histogram.
+                log("==============")
             
 
         return z_scores_dict
@@ -2280,9 +2289,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
 
     def clash_validation_changes(reference_clash_file_handle,comparison_clash_file_handle,out_handle):
-        reference=[]; comparison=[]
+        reference=[]; comparison=[] # without altloc
+        reference_og=[]; comparison_og=[] # with altloc
         clash_scores = []
-        for handle, entry_list in ((reference_clash_file_handle,reference), (comparison_clash_file_handle,comparison)):
+        for handle, entry_list, unmodified_entry_list in ((reference_clash_file_handle,reference,reference_og), (comparison_clash_file_handle,comparison,comparison_og)):
             with open(get_clash_validation_file_path(handle)) as f:
                 for line in f:
                     if line.startswith("clashscore"):
@@ -2295,16 +2305,17 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     entry[2]=entry[2][1:]; entry[6]=entry[6][1:] # Remove conformation label
 
                     entry_list.append(' '.join(entry))
+                    unmodified_entry_list.append(line)
         
-        removed_clashes = [entry for entry in reference if entry not in comparison]
-        new_clashes =  [entry for entry in comparison if entry not in reference]
+        removed_clashes = [entry_og for entry, entry_og in zip(reference,reference_og) if entry not in comparison]
+        new_clashes =  [entry_og for entry, entry_og in zip(comparison,comparison_og) if entry not in reference]
 
         out_file_path =  os.path.join(log_out_dir,f"Clash_changes_{out_handle}.txt")
         with open(out_file_path, 'w') as f:
             assert len(clash_scores)==2
             f.write(f"Clash score {clash_scores[0]} --> {clash_scores[1]}\n")
-            f.write(f"Removed clashes:\n {'\n'.join(removed_clashes)}\n{'='*30}\n")
-            f.write(f"New clashes:\n {'\n'.join(new_clashes)}\n")
+            f.write(f"Removed clashes:\n{'\n'.join(removed_clashes)}\n{'='*30}\n")
+            f.write(f"New clashes:\n{'\n'.join(new_clashes)}\n")
 
 
     def log_geometry_changes(site_assignments:dict[VariableID,dict[str,str]]):
@@ -2327,7 +2338,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 continue
 
             connection_type = active_constraints[0][0].connection_type if len(active_constraints)>0 else original_constraints[0][0].connection_type
-            if connection_type==ConstraintsHandler.BondConstraint:
+            if connection_type==RestraintsHandler.BondRestraint:
                 bonds_replaced.extend(og_constraint[0] \
                                     for og_constraint in original_constraints if og_constraint not in active_constraints)
             if PLOTTING:
@@ -2337,7 +2348,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             if no_change:
                 continue
 
-            if connection_type in [ConstraintsHandler.ClashConstraint,ConstraintsHandler.NonbondConstraint,ConstraintsHandler.TwoAtomPenalty]:
+            if connection_type in [RestraintsHandler.ClashRestraint,RestraintsHandler.NonbondRestraint,RestraintsHandler.TwoAtomPenalty]:
                 original_constraints = [(constraint,var) for constraint,var in original_constraints if constraint.ts_distance!=0]
                 active_constraints = [(constraint,var) for constraint,var in active_constraints if constraint.ts_distance!=0]
 
@@ -2371,6 +2382,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         total_distance = value(lp_problem.objective)
         diff=total_distance/initial_badness-1
         out_str+=f"Total distance = {total_distance} ({100*(diff):.3f}%)\n"
+        out_str+="'Original' refers to geometries removed from the model, 'Active' refers to the geometries replacing them\n"
         out_str+="name, z-score, cost\n"
         for original_constraints,active_constraints,original_cost,active_cost in changed_disordered_connections:
             Dordered_constr_ref=active_constraints if len(active_constraints)>0 else original_constraints
@@ -2726,7 +2738,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 if len(disordered_geomection_var_dict)==0:
                     continue
                 reference_conn=list(disordered_geomection_var_dict.values())[0][0]
-                if reference_conn.connection_type!=ConstraintsHandler.BondConstraint:
+                if reference_conn.connection_type!=RestraintsHandler.BondRestraint:
                     continue
                 geom_vars_to_force_change.extend(var for _, var in disordered_geomection_var_dict.values())
                 active_bond_vars.extend([var for constraint,var in disordered_geomection_var_dict.values() if var.value()>0.5])
@@ -2765,7 +2777,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         for disordered_geomection_var_dict in mega_geomection_var_dict.values():
             active_bonds=[(constraint,var) for constraint,var in disordered_geomection_var_dict.values() if var.value()>0.5]
             reference_conn=active_bonds[0][0]
-            if reference_conn.connection_type!=ConstraintsHandler.BondConstraint:
+            if reference_conn.connection_type!=RestraintsHandler.BondRestraint:
                 continue
 
             

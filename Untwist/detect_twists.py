@@ -18,7 +18,7 @@ import itertools
 from scipy.linalg import norm
 from scipy.stats import multivariate_normal
 import matplotlib.pyplot as plt
-from LinearOptimizer.ConstraintsHandler import ConstraintsHandler,DisorderedTag
+from LinearOptimizer.RestraintsHandler import RestraintsHandler,DisorderedTag
 from LinearOptimizer.OrderedAtomLookup import OrderedAtomLookup
 import UntangleFunctions
 
@@ -58,22 +58,22 @@ def separation(v1,v2):
 
 def get_angle_atoms()->list[tuple[Atom,Atom,Atom]]:
     assert False
-def get_ideal_angle(constraints_handler:ConstraintsHandler,atoms:tuple[Atom,Atom,Atom])->float:
+def get_ideal_angle(constraints_handler:RestraintsHandler,atoms:tuple[Atom,Atom,Atom])->float:
 
     site_tags = [DisorderedTag.from_atom(a) for a in atoms]
 
     valid_constraints = [constraint for constraint in constraints_handler.atom_constraints[site_tags[0]] \
-                         if (type(constraint)==ConstraintsHandler.AngleConstraint
+                         if (type(constraint)==RestraintsHandler.AngleRestraint
                          and all([
                              (constraint in constraints_handler.atom_constraints[site_tag]) for site_tag in site_tags[1:]
                              ]))]
     assert len(valid_constraints)==1
     return valid_constraints[0].ideal
-def get_ideal_bond_length(constraints_handler:ConstraintsHandler,atoms:tuple[Atom,Atom])->float:
+def get_ideal_bond_length(constraints_handler:RestraintsHandler,atoms:tuple[Atom,Atom])->float:
     site_tags = [DisorderedTag.from_atom(a) for a in atoms]
 
     valid_constraints = [constraint for constraint in constraints_handler.atom_constraints[site_tags[0]] \
-                         if (type(constraint)==ConstraintsHandler.BondConstraint
+                         if (type(constraint)==RestraintsHandler.BondRestraint
                          and all([
                              (constraint in constraints_handler.atom_constraints[site_tags[i+1]]) for i in range(1)
                              ]))]
@@ -85,7 +85,7 @@ def get_constraints_handler(pdb_file_path,geo_file_needs_generation=True):
     if geo_file_needs_generation:
         UntangleFunctions.create_score_file(pdb_file_path,turn_off_cdl=True)
     ordered_atom_lookup = OrderedAtomLookup(struct.get_atoms())
-    constraints_handler=ConstraintsHandler()
+    constraints_handler=RestraintsHandler()
     constraints_handler.load_all_constraints(pdb_file_path,ordered_atom_lookup,symmetries=None,calc_nonbonds=False,turn_off_cdl=True)
     return constraints_handler
 
@@ -448,7 +448,7 @@ def plot_it(A,B,C,twist_points,arcs,focus_twist=True,rot_speed=1,names=[]):
 
 
 
-def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_name:str, constraints_handler:ConstraintsHandler,
+def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_name:str, constraints_handler:RestraintsHandler,
                      include_CB_angles=False, verbose=False, debug=False,
                      num_twist_angles_required_to_ignore_no_twist_angles=1,
     # TODO Don't apply strong constraints, and return stats of the twists, so they can be filtered after calling this function.

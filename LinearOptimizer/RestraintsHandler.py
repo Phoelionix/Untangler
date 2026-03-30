@@ -51,7 +51,7 @@ def atoms_in_LO_variable_string(variable:str,atoms:list[Atom]): # e.g. "30.C_B|3
             return False
     return True
 
-class ConstraintsHandler:
+class RestraintsHandler:
     @staticmethod
     def scoring_function(dev,sigma,ideal,num_bound_e):  # TODO how to put on same scale as nonbond and clashes?
         assert False, "not set" 
@@ -70,16 +70,16 @@ class ConstraintsHandler:
         return  (dev/sigma)**2
     @staticmethod
     def chi_z_sqr(dev,sigma,ideal,num_bound_e):
-        return  ConstraintsHandler.chi(dev,sigma,ideal,num_bound_e)*ConstraintsHandler.z_sqr(dev,sigma,ideal,num_bound_e)
+        return  RestraintsHandler.chi(dev,sigma,ideal,num_bound_e)*RestraintsHandler.z_sqr(dev,sigma,ideal,num_bound_e)
     @staticmethod
     def log_chi(dev,sigma,ideal,num_bound_e):
-        return math.log(1+ConstraintsHandler.chi(dev,sigma,ideal,num_bound_e))
+        return math.log(1+RestraintsHandler.chi(dev,sigma,ideal,num_bound_e))
     @staticmethod
     def log_z_sqr(dev,sigma,ideal,num_bound_e):
-        return math.log(1+ConstraintsHandler.z_sqr(dev,sigma,ideal,num_bound_e))
+        return math.log(1+RestraintsHandler.z_sqr(dev,sigma,ideal,num_bound_e))
     @staticmethod
     def log_chi_z_sqr(dev,sigma,ideal,num_bound_e):
-        return  math.log(1+ConstraintsHandler.chi_z_sqr(dev,sigma,ideal,num_bound_e))
+        return  math.log(1+RestraintsHandler.chi_z_sqr(dev,sigma,ideal,num_bound_e))
     @staticmethod
     def scaled_dev(dev,sigma,ideal,num_bound_e):
         return abs(dev)/ideal*10
@@ -102,7 +102,7 @@ class ConstraintsHandler:
             if type(pdb_ids[0])==OrderedTag:
                 self.site_tags = [ot.disordered_tag() for ot in pdb_ids]
             elif type(pdb_ids[0])!=DisorderedTag:
-                self.site_tags = ConstraintsHandler.Constraint.site_tags_from_pdb_ids(pdb_ids)
+                self.site_tags = RestraintsHandler.Constraint.site_tags_from_pdb_ids(pdb_ids)
             self.ideal = ideal
             self.weight = weight
             if UntangleFunctions.NO_INDIV_WEIGHTS:
@@ -138,21 +138,21 @@ class ConstraintsHandler:
         def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float,float,float]:  # TODO this returns an ideal value, z_score, and a cost, but should make a class that holds this info and return that
             raise NotImplementedError("Abstract method")
         def get_str_rep_kind(self):
-            return ConstraintsHandler.Constraint.kind(type(self))
+            return RestraintsHandler.Constraint.kind(type(self))
         def __repr__(self):
             return f"({self.get_str_rep_kind()} : {self.site_tags})"
-        def __eq__(self, other:'ConstraintsHandler.Constraint'):
+        def __eq__(self, other:'RestraintsHandler.Constraint'):
             return (type(self),self.site_tags) == (type(other),other.site_tags)
         @staticmethod
         def kind(constraint_type:Type):
             return {
-                ConstraintsHandler.BondConstraint:VariableKind.Bond.value,
-                ConstraintsHandler.AngleConstraint:VariableKind.Angle.value,
-                ConstraintsHandler.Dihedral:VariableKind.Dihedral.value,
-                ConstraintsHandler.Planarity:VariableKind.Planarity.value,
-                ConstraintsHandler.NonbondConstraint:VariableKind.Nonbond.value,
-                ConstraintsHandler.ClashConstraint:VariableKind.Clash.value,
-                ConstraintsHandler.TwoAtomPenalty:VariableKind.Penalty.value,
+                RestraintsHandler.BondRestraint:VariableKind.Bond.value,
+                RestraintsHandler.AngleRestraint:VariableKind.Angle.value,
+                RestraintsHandler.Dihedral:VariableKind.Dihedral.value,
+                RestraintsHandler.Planarity:VariableKind.Planarity.value,
+                RestraintsHandler.NonbondRestraint:VariableKind.Nonbond.value,
+                RestraintsHandler.ClashRestraint:VariableKind.Clash.value,
+                RestraintsHandler.TwoAtomPenalty:VariableKind.Penalty.value,
                 }[constraint_type]
 
         DEBUG=False
@@ -174,7 +174,7 @@ class ConstraintsHandler:
             return sorted_atoms
 
         
-    class BondConstraint(Constraint):
+    class BondRestraint(Constraint):
         def specific_weight_mod(self,atom_names):
             return 1
         def __init__(self,atom_ids,outlier_ok,ideal,weight,sigma):
@@ -206,7 +206,7 @@ class ConstraintsHandler:
     
 
         
-    class AngleConstraint(Constraint):
+    class AngleRestraint(Constraint):
         def specific_weight_mod(self,atom_names):
             if SUPPRESS_CB_ANGLE and ("CB" in atom_names and ("C" in atom_names or "N" in atom_names)):
                 return 0.2
@@ -262,7 +262,7 @@ class ConstraintsHandler:
             return 1
 
     
-    class ClashConstraint(Constraint):
+    class ClashRestraint(Constraint):
         def specific_weight_mod(self,atom_names):
             return 1
         def __init__(self,atom_ids,outlier_ok,symmetries,weight=1):
@@ -300,7 +300,7 @@ class ConstraintsHandler:
                     return None
             
             r0,r0_sym = self.altlocs_vdw_dict[vdw_key]
-            r, r_sym_min = ConstraintsHandler.NonbondConstraint.symm_min_separation(a,b,self.symmetries)
+            r, r_sym_min = RestraintsHandler.NonbondRestraint.symm_min_separation(a,b,self.symmetries)
             assert any([r is not None for r in (r0,r0_sym)])
             dev_same=dev_symm=0
             if r0 is not None:
@@ -370,7 +370,7 @@ class ConstraintsHandler:
             return -1, -1, 99, self.altlocs_clash_dict[altlocs]*self.weight
 
 
-    class NonbondConstraint(Constraint):
+    class NonbondRestraint(Constraint):
         def specific_weight_mod(self,atom_names):
             return 1
         # TODO currently just looks at the smallest separation of all symmetries.
@@ -420,7 +420,7 @@ class ConstraintsHandler:
                 min_separation_symm = min(min_separation_symm,np.sqrt(np.sum((a.get_coord()-coord_b)**2)))
             assert min_separation_symm != np.inf, (coord_dict,symmetries)
             separation_nonsymm=np.sqrt(np.sum((a.get_coord()-b.get_coord())**2))
-            # if min_separation < ConstraintsHandler.BondConstraint.separation(a,b):
+            # if min_separation < RestraintsHandler.BondRestraint.separation(a,b):
             #     print(f"Symmetry nonbond found for {a,b}")
 
             return separation_nonsymm,min_separation_symm
@@ -439,7 +439,7 @@ class ConstraintsHandler:
             #return lj0(r,r0)-lj0(6,r0)
         @staticmethod  
         def badness(r,r0): # TODO implement properly as in untangle_score.csh. 
-            lj_energy = ConstraintsHandler.NonbondConstraint.lennard_jones(r,r0)
+            lj_energy = RestraintsHandler.NonbondRestraint.lennard_jones(r,r0)
             if CLIP_NEG_LJ and r>r0:
                 return 0
             if r > r0:
@@ -450,7 +450,7 @@ class ConstraintsHandler:
                     #return None
                     return 0
             return lj_energy+1
-            #return abs(max(neg_badness_limit,ConstraintsHandler.NonbondConstraint.lennard_jones(r,r0,E_min)))
+            #return abs(max(neg_badness_limit,RestraintsHandler.NonbondRestraint.lennard_jones(r,r0,E_min)))
         #@staticmethod
         # def lennard_jones(Rij,Rmin,EPSij):
         #     # ENERGY =  EPSij * ( (Rmin/Rij)**12 - 2 * (Rmin/Rij)**6 )  NB: Sign is flipped here since EPSij is negative... (ENERGY = -EPSij when Rij=Rmin) 
@@ -461,13 +461,13 @@ class ConstraintsHandler:
         # def badness(r,r0,E_min): # TODO implement properly as in untangle_score.csh. 
         #     # negative when separation is greater than ideal.
         #     assert E_min < 0
-        #     lj_energy = ConstraintsHandler.NonbondConstraint.lennard_jones(r,r0,E_min)
+        #     lj_energy = RestraintsHandler.NonbondRestraint.lennard_jones(r,r0,E_min)
         #     assert lj_energy <= 0
         #     # Logic: Expect atoms to be near bottom of potential if within a certain range. 
         #     if lj_energy>=0.0163169*E_min:  # R=2.5 sigma TODO look for a good value based on structures generated by phenix geometry refine etc. 
         #         return 0
         #     return lj_energy-E_min
-        #     #return abs(max(neg_badness_limit,ConstraintsHandler.NonbondConstraint.lennard_jones(r,r0,E_min)))
+        #     #return abs(max(neg_badness_limit,RestraintsHandler.NonbondRestraint.lennard_jones(r,r0,E_min)))
         def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float,float,float]:
             sorted_atoms = self.get_sorted_atoms(atoms)
             if sorted_atoms is None:
@@ -483,7 +483,7 @@ class ConstraintsHandler:
                     return None
             
             r0,r0_sym = self.altlocs_vdw_dict[vdw_key]
-            r, r_sym_min = ConstraintsHandler.NonbondConstraint.symm_min_separation(a,b,self.symmetries)
+            r, r_sym_min = RestraintsHandler.NonbondRestraint.symm_min_separation(a,b,self.symmetries)
 
             #if atoms_in_LO_variable_string("62.HD2_A|128.O_A",sorted_atoms):
 
@@ -491,9 +491,9 @@ class ConstraintsHandler:
             
             energy_same=energy_symm=0
             if r0 is not None:
-                 energy_same = ConstraintsHandler.NonbondConstraint.badness(r,r0)
+                 energy_same = RestraintsHandler.NonbondRestraint.badness(r,r0)
             if r0_sym is not None:
-                energy_symm = ConstraintsHandler.NonbondConstraint.badness(r_sym_min,r0_sym)
+                energy_symm = RestraintsHandler.NonbondRestraint.badness(r_sym_min,r0_sym)
             energy = energy_same+energy_symm
 
             if energy==0:
@@ -524,8 +524,8 @@ class ConstraintsHandler:
         
 
     def __init__(self,constraints:list[Constraint]=[]):
-        self.constraints:list[ConstraintsHandler.Constraint]=constraints
-        self.atom_constraints:dict[DisorderedTag,list[ConstraintsHandler.Constraint]]={}
+        self.constraints:list[RestraintsHandler.Constraint]=constraints
+        self.atom_constraints:dict[DisorderedTag,list[RestraintsHandler.Constraint]]={}
         self.atom_residuals:dict[DisorderedTag,float] = {}
 
     # def atom_in_constraints(self,atom_name,res_num):
@@ -538,10 +538,10 @@ class ConstraintsHandler:
     def get_constraints(self,site:'DisorderedTag',no_constraints_ok=False):
         if site not in self.atom_constraints:
             if no_constraints_ok:
-                return ConstraintsHandler([])
+                return RestraintsHandler([])
 
             raise Exception(f"No constraints found for {site}")
-        return ConstraintsHandler(self.atom_constraints[site])
+        return RestraintsHandler(self.atom_constraints[site])
 
     def add_two_atom_penalty(self,constraint:TwoAtomPenalty,residual,altlocs,badness): # TODO same function as add_nonbond_constraint
         constraint = self.add(constraint,residual)
@@ -552,7 +552,7 @@ class ConstraintsHandler:
                 constraint.add_ordered(altlocs,badness)
                 found+=1
         assert found == 1
-    def add_nonbond_constraint(self,constraint:Union[NonbondConstraint,ClashConstraint],residual,altlocs,vdw_sum:float,is_symm:bool): # or clash constraint.
+    def add_nonbond_constraint(self,constraint:Union[NonbondRestraint,ClashRestraint],residual,altlocs,vdw_sum:float,is_symm:bool): # or clash constraint.
         constraint = self.add(constraint,residual)
         found=0
         first_site = constraint.site_tags[0]
@@ -562,7 +562,7 @@ class ConstraintsHandler:
                 found+=1
         assert found == 1
     def scale_constraint_weight(self,pdb_ids:list[str],constraint_type:Type,weight_factor:float):
-        site_tags = ConstraintsHandler.Constraint.site_tags_from_pdb_ids(pdb_ids)
+        site_tags = RestraintsHandler.Constraint.site_tags_from_pdb_ids(pdb_ids)
         site = site_tags[0]
         found=0
         for constraint in self.atom_constraints[site]:
@@ -634,7 +634,7 @@ class ConstraintsHandler:
                     atom_strings.append(f"{name}_{resnum}")
                 return (kind,atom_strings) in outliers_to_ignore
 
-        self.constraints: list[ConstraintsHandler.Constraint]=[]
+        self.constraints: list[RestraintsHandler.Constraint]=[]
         bonds_added:list[DisorderedTag]=[]
         bonds_added_dict:dict[DisorderedTag,list[DisorderedTag]]={}
         AngleEnds_added:list[DisorderedTag]=[]
@@ -656,18 +656,18 @@ class ConstraintsHandler:
                     # resnum1 = int(pdb1.strip().split()[-1])
                     # resnum2 = int(pdb2.strip().split()[-1])
 
-                    sites =  ConstraintsHandler.Constraint.site_tags_from_pdb_ids((pdb1,pdb2))
+                    sites =  RestraintsHandler.Constraint.site_tags_from_pdb_ids((pdb1,pdb2))
                     bonds_added.append(frozenset(tuple(sites)))
                     for s in sites:
                         if s not in bonds_added_dict:
                             bonds_added_dict[s]=[]
                     bonds_added_dict[sites[0]].append(sites[1])
                     bonds_added_dict[sites[1]].append(sites[0])
-                    if ConstraintsHandler.BondConstraint in constraints_to_skip:
+                    if RestraintsHandler.BondRestraint in constraints_to_skip:
                         continue
-                    self.add(ConstraintsHandler.BondConstraint(pdb_ids,outlier_ok("BOND",pdb_ids),ideal,weight,sigma),residual)
+                    self.add(RestraintsHandler.BondRestraint(pdb_ids,outlier_ok("BOND",pdb_ids),ideal,weight,sigma),residual)
                 elif line.startswith("angle"):
-                    if ConstraintsHandler.AngleConstraint in constraints_to_skip:
+                    if RestraintsHandler.AngleRestraint in constraints_to_skip:
                         continue
                     constraint = lines[i:i+5]
                     pdb1=constraint[0].strip().split("\"")[1]
@@ -677,27 +677,27 @@ class ConstraintsHandler:
                     
                     pdb_ids = (pdb1,pdb2,pdb3)
 
-                    angle_end_sites= ConstraintsHandler.Constraint.site_tags_from_pdb_ids((pdb1,pdb3))
+                    angle_end_sites= RestraintsHandler.Constraint.site_tags_from_pdb_ids((pdb1,pdb3))
                     #AngleEnds_added.append( ((name1,resnum1),(name3,resnum3)) )
                     AngleEnds_added.append(frozenset(tuple(angle_end_sites)))
                     # TODO try reducing any angles that involve a "tip/end-point/dead-end" atom like O
                     name1 = pdb1[0:4].strip(); name2 = pdb2[0:4].strip(); name3 = pdb3[0:4].strip()
                     if "O" in (name1,name2,name3):
                         weight*=end_point_angle_scale_factor
-                    self.add(ConstraintsHandler.AngleConstraint(pdb_ids,outlier_ok("ANGLE",pdb_ids),ideal,weight,sigma),residual)
+                    self.add(RestraintsHandler.AngleRestraint(pdb_ids,outlier_ok("ANGLE",pdb_ids),ideal,weight,sigma),residual)
                 elif line.startswith("dihedral"):
-                    if ConstraintsHandler.Dihedral in constraints_to_skip:
+                    if RestraintsHandler.Dihedral in constraints_to_skip:
                         continue
                     constraint = lines[i:i+6]
 
                     pdb_ids = tuple(constraint[k].strip().split("\"")[1] for k in range(4))
 
                     ideal,  _,  _, harmonic, sigma,  weight, residual = [float(v) for v in constraint[5].strip().split()]
-                    self.add(ConstraintsHandler.Dihedral(pdb_ids,outlier_ok("DIHEDRAL",pdb_ids),harmonic,ideal,weight,sigma),residual)
+                    self.add(RestraintsHandler.Dihedral(pdb_ids,outlier_ok("DIHEDRAL",pdb_ids),harmonic,ideal,weight,sigma),residual)
                     
                 
                 elif line.startswith("plane"):
-                    if ConstraintsHandler.Planarity in constraints_to_skip:
+                    if RestraintsHandler.Planarity in constraints_to_skip:
                         continue
                     
                     num_lines=0
@@ -711,7 +711,7 @@ class ConstraintsHandler:
                     
                     values_string = constraint[0].strip().split("\"")[2]
                     _,  sigma,  weight, _, residual = [float(v) for v in values_string.strip().split()]
-                    self.add(ConstraintsHandler.Planarity(pdb_ids,outlier_ok("DIHEDRAL",pdb_ids),weight,sigma),residual)
+                    self.add(RestraintsHandler.Planarity(pdb_ids,outlier_ok("DIHEDRAL",pdb_ids),weight,sigma),residual)
                        
                 
        
@@ -747,7 +747,7 @@ class ConstraintsHandler:
         vdw_mon_lib_energy_name_dict:dict[dict[str]] = {}
         lj_mon_lib_energy_name_dict:dict[dict[str]] = {}
 
-        skip_nonbonds = not calc_nonbonds or all([constr in constraints_to_skip for constr in (ConstraintsHandler.NonbondConstraint,ConstraintsHandler.ClashConstraint)])
+        skip_nonbonds = not calc_nonbonds or all([constr in constraints_to_skip for constr in (RestraintsHandler.NonbondRestraint,RestraintsHandler.ClashRestraint)])
         if skip_nonbonds:
             pass
         elif MON_LIB_NONBOND:
@@ -759,9 +759,9 @@ class ConstraintsHandler:
             lj_params = mon_lib_read.read_lj_parameters()
         else:
             # TODO don't need to be storing info for every conformation. All that matters is atom "energy types" and whether it's a crystal-packing contact or same-ASU nonbond 
-            if ConstraintsHandler.NonbondConstraint not in constraints_to_skip:
+            if RestraintsHandler.NonbondRestraint not in constraints_to_skip:
                 for pdb1, pdb2, vdw_sum,is_symm in get_cross_conf_nonbonds(pdb_file,nonbonds=True,symmetries = not IGNORE_SYMMETRY_NONBONDS):
-                    conformer_tags = ConstraintsHandler.Constraint.ORDERED_site_tags_from_pdb_ids((pdb1,pdb2)) 
+                    conformer_tags = RestraintsHandler.Constraint.ORDERED_site_tags_from_pdb_ids((pdb1,pdb2)) 
                     key = tuple(conformer_tags)+(is_symm,) # NOTE Order matters
                     # if IGNORE_HYDROGEN_NONBOND and any([t.element()=="H" for t in conformer_tags]):
                     #     continue
@@ -769,11 +769,11 @@ class ConstraintsHandler:
                         phenix_vdw_distances_table[key]=vdw_sum
                     else:
                         assert phenix_vdw_distances_table[key]==vdw_sum, f"vdw sums differ for {key}, {phenix_vdw_distances_table[key]} != {vdw_sum}"
-            if ConstraintsHandler.ClashConstraint not in constraints_to_skip:
+            if RestraintsHandler.ClashRestraint not in constraints_to_skip:
                 num_entries_dict={}
                 for pdb1, pdb2, vdw_sum,is_symm in get_cross_conf_nonbonds(pdb_file,nonbonds=False,symmetries = not IGNORE_SYMMETRY_CLASHES):
                     # Generated by the `probe` program
-                    conformer_tags = ConstraintsHandler.Constraint.ORDERED_site_tags_from_pdb_ids((pdb1,pdb2)) 
+                    conformer_tags = RestraintsHandler.Constraint.ORDERED_site_tags_from_pdb_ids((pdb1,pdb2)) 
                     key = tuple(conformer_tags)+(is_symm,) # NOTE Order matters
                     # if IGNORE_HYDROGEN_NONBOND and any([t.element()=="H" for t in conformer_tags]):
                     #     continue
@@ -820,7 +820,7 @@ class ConstraintsHandler:
 
 
             def phenix_vdw_from_pdb_ids(pdb1:str,pdb2:str):
-                conformer_tags = ConstraintsHandler.Constraint.ORDERED_site_tags_from_pdb_ids((pdb1,pdb2)) 
+                conformer_tags = RestraintsHandler.Constraint.ORDERED_site_tags_from_pdb_ids((pdb1,pdb2)) 
                 key = tuple(conformer_tags)
                 if key not in phenix_vdw_distances_table:
                     return None
@@ -835,13 +835,13 @@ class ConstraintsHandler:
             last_num_found_LJ=last_num_found_clashes=0
             # TODO  XXX XXX CRITICAL !!!!!!!!!! Loop through the phenix_vdw_distances_table instead.
             for table_kind,table,interaction_str in zip(
-                (ConstraintsHandler.NonbondConstraint,ConstraintsHandler.ClashConstraint),
+                (RestraintsHandler.NonbondRestraint,RestraintsHandler.ClashRestraint),
                 (phenix_vdw_distances_table,phenix_clash_distances_table),
                 ("nonbonds","clashes")
             ):
-              if table_kind == ConstraintsHandler.NonbondConstraint and (ConstraintsHandler.NonbondConstraint in constraints_to_skip):
+              if table_kind == RestraintsHandler.NonbondRestraint and (RestraintsHandler.NonbondRestraint in constraints_to_skip):
                 continue
-              if table_kind == ConstraintsHandler.ClashConstraint and (not cross_conformation_clashes or (ConstraintsHandler.ClashConstraint in constraints_to_skip)):
+              if table_kind == RestraintsHandler.ClashRestraint and (not cross_conformation_clashes or (RestraintsHandler.ClashRestraint in constraints_to_skip)):
                 continue
               table_items=list(table.items())
               global pooled_method  
@@ -849,9 +849,9 @@ class ConstraintsHandler:
                 (confA,confB,is_symm),phenix_vdw_sum = table_items[i]
                 if i%50000==0:
                     # if i !=0:
-                    #     if table_kind == ConstraintsHandler.NonbondConstraint:
+                    #     if table_kind == RestraintsHandler.NonbondRestraint:
                     #         print(f"LJ potentials found: {NB_pairs_added-last_num_found_LJ}")
-                    #     if table_kind == ConstraintsHandler.ClashConstraint:
+                    #     if table_kind == RestraintsHandler.ClashRestraint:
                     #         print(f"Clashes found: {clashes_added-last_num_found_clashes}")
                     # last_num_found_LJ=NB_pairs_added
                     # last_num_found_clashes=clashes_added
@@ -891,7 +891,7 @@ class ConstraintsHandler:
                 for atomA_ordered in ordered_atom_lookup.better_dict[confA.resnum()][confA.atom_name()].values():
                     for atomB_ordered in ordered_atom_lookup.better_dict[confB.resnum()][confB.atom_name()].values():
 
-                        ordered_min_separation = ConstraintsHandler.NonbondConstraint.symm_min_separation(
+                        ordered_min_separation = RestraintsHandler.NonbondRestraint.symm_min_separation(
                             atomA_ordered,
                             atomB_ordered,
                             symmetries=symmetries if is_symm else symmetries[:1] # for speed...
@@ -943,7 +943,7 @@ class ConstraintsHandler:
                 conf_pair=(confA,confB)
                 # VDW overlap (clashes)
                 altlocs = (confA.altloc(),confB.altloc())
-                if table_kind==ConstraintsHandler.ClashConstraint:
+                if table_kind==RestraintsHandler.ClashRestraint:
                     # Must be more than three covalent bonds
                     # mch=["CB","CA","C","O"]
                     # if confA.resnum()==confB.resnum()\
@@ -997,7 +997,7 @@ class ConstraintsHandler:
                         nb_weight*=H2O_clash_weight
 
                     if vdw_gap - min_separation >= CLASH_OVERLAP_THRESHOLD:  
-                        return (ConstraintsHandler.ClashConstraint(conf_pair,outlier_ok("CLASH",conf_pair),symmetries,weight=nb_weight),
+                        return (RestraintsHandler.ClashRestraint(conf_pair,outlier_ok("CLASH",conf_pair),symmetries,weight=nb_weight),
                                                     None,altlocs,vdw_gap,is_symm)
 
                     # if all(c in [OrderedTag(26,"SG","A"),OrderedTag(34,"HA3","A")] for c in (confA,confB)):
@@ -1009,7 +1009,7 @@ class ConstraintsHandler:
                     return
 
                 # Lennard-Jones (nonbonded)
-                if table_kind==ConstraintsHandler.NonbondConstraint:
+                if table_kind==RestraintsHandler.NonbondRestraint:
                     # #if ((((B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)) and other_atom.name in ["C","N","CA","CB","O"])
                     # if ((confA.element() == "H" or confB.element() == "H") and IGNORE_HYDROGEN_NONBOND # Do not consider any LJ involving H.
                     # #or (B_A_check in AngleEnds_added) or (B_A_check_flipped in AngleEnds_added)): 
@@ -1017,7 +1017,7 @@ class ConstraintsHandler:
                     #     continue    
                     R_min = phenix_vdw_sum
 
-                    return (ConstraintsHandler.NonbondConstraint(conf_pair,outlier_ok("NONBOND",conf_pair),symmetries,weight=nb_weight),
+                    return (RestraintsHandler.NonbondRestraint(conf_pair,outlier_ok("NONBOND",conf_pair),symmetries,weight=nb_weight),
                                                 None,None,R_min,is_symm)
               
               with Pool(UntangleFunctions.NUM_THREADS) as p:
@@ -1030,9 +1030,9 @@ class ConstraintsHandler:
                     print(f"Registering cross-conformation {interaction_str} {i}/{len(nonbond_constraints_args_list)}")
 
                 self.add_nonbond_constraint(*nb_constr_args)
-              if table_kind == ConstraintsHandler.NonbondConstraint:
+              if table_kind == RestraintsHandler.NonbondRestraint:
                 NB_pairs_added = len(nonbond_constraints_args_list)
-              if table_kind == ConstraintsHandler.ClashConstraint:
+              if table_kind == RestraintsHandler.ClashRestraint:
                 clashes_added = len(nonbond_constraints_args_list)
         print(f"Added {clashes_added} clashes")
         num_nonbonded_general = NB_pairs_added
@@ -1040,7 +1040,7 @@ class ConstraintsHandler:
         
 
         # If clash was present at end of last loop, prioritise finding a solution without a clash and/or punish solution that does not assign differing altlocs to the conformers.
-        if ConstraintsHandler.TwoAtomPenalty not in constraints_to_skip:
+        if RestraintsHandler.TwoAtomPenalty not in constraints_to_skip:
             for name, res_num, badness, altloc in two_atom_penalty_tuples:
                 assert len(name)==len(res_num)==len(altloc)==2
                 for n, r, a in zip(name,res_num,altloc):
@@ -1048,6 +1048,6 @@ class ConstraintsHandler:
                         break
                 else:
                     pdb_ids = [f"{n}     ARES     A      {r}" for (n,r) in zip(name,res_num)]
-                    #self.scale_constraint_weight(pdb_ids,ConstraintsHandler.ClashConstraint,10*badness)
-                    self.add_two_atom_penalty(ConstraintsHandler.TwoAtomPenalty(pdb_ids,outlier_ok("PENALTY",pdb_ids)),None,altloc,100*badness)
+                    #self.scale_constraint_weight(pdb_ids,RestraintsHandler.ClashRestraint,10*badness)
+                    self.add_two_atom_penalty(RestraintsHandler.TwoAtomPenalty(pdb_ids,outlier_ok("PENALTY",pdb_ids)),None,altloc,100*badness)
 

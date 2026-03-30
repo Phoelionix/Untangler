@@ -1,7 +1,7 @@
 import sys,pathlib
 sys.path.append(str(pathlib.Path(__file__).parent.parent))
 from LinearOptimizer.Tag import *
-from LinearOptimizer.ConstraintsHandler import ConstraintsHandler
+from LinearOptimizer.RestraintsHandler import RestraintsHandler
 from LinearOptimizer.Input import LP_Input
 from LinearOptimizer.OrderedAtomLookup import OrderedAtomLookup
 from Bio.PDB import PDBParser,Structure,PDBIO

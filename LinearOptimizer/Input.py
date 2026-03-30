@@ -47,10 +47,11 @@ from statistics import NormalDist
 from LinearOptimizer.VariableID import *
 from LinearOptimizer.Tag import *
 from LinearOptimizer.OrderedAtomLookup import OrderedAtomLookup
-from LinearOptimizer.ConstraintsHandler import ConstraintsHandler, atoms_in_LO_variable_string
+from LinearOptimizer.RestraintsHandler import RestraintsHandler, atoms_in_LO_variable_string
 from Untwist import untwist
 
 #ALTERNATE_POSITIONS_FACTOR=1
+MAIN_CHAIN_WEIGHT=10
 ALTERNATE_POSITIONS_FACTOR=1
 ALTERNATE_POSITIONS_Z_SCORE_FACTOR=1
 #HYDROGEN_RESTRAINTS=False # If False, hydrogen restraints will be ignored.
@@ -154,8 +155,8 @@ class AtomChunk(OrderedResidue):
 
         self.echoed_altloc = echoed_altloc
         self._atm=atom
-    def generate_uninitialized_constraints(self,constraints_handler:ConstraintsHandler):
-        self.constraints_holder:ConstraintsHandler = \
+    def generate_uninitialized_constraints(self,constraints_handler:RestraintsHandler):
+        self.constraints_holder:RestraintsHandler = \
             constraints_handler.get_constraints(self.get_disordered_tag(),
                                                 no_constraints_ok=self.is_water or self.is_het)
     def has_alternate_coords(self):
@@ -191,184 +192,184 @@ class LP_Input:
         pass
     elif MODE=="TEST":
         # max_sigmas={
-        #     ConstraintsHandler.BondConstraint:6,
-        #     ConstraintsHandler.AngleConstraint:4,
-        #     #ConstraintsHandler.ClashConstraint:-99,
+        #     RestraintsHandler.BondRestraint:6,
+        #     RestraintsHandler.AngleRestraint:4,
+        #     #RestraintsHandler.ClashRestraint:-99,
         # }  
         if UntangleFunctions.NO_UNRESTRAINED:
             max_sigmas={
-                ConstraintsHandler.BondConstraint:5,
-                ConstraintsHandler.AngleConstraint:3,
-                ConstraintsHandler.ClashConstraint:-99,
+                RestraintsHandler.BondRestraint:5,
+                RestraintsHandler.AngleRestraint:3,
+                RestraintsHandler.ClashRestraint:-99,
             }       
         else:
             max_sigmas={
-                ConstraintsHandler.BondConstraint:3,
-                ConstraintsHandler.AngleConstraint:2,
-                ConstraintsHandler.ClashConstraint:-99,
+                RestraintsHandler.BondRestraint:3,
+                RestraintsHandler.AngleRestraint:2,
+                RestraintsHandler.ClashRestraint:-99,
             }    
     elif MODE=="NONBOND_RESTRICTIONS":
         max_sigmas={
-            ConstraintsHandler.NonbondConstraint:3,
+            RestraintsHandler.NonbondRestraint:3,
         }
         min_sigmas_where_anything_goes={
-            ConstraintsHandler.NonbondConstraint:2,
+            RestraintsHandler.NonbondRestraint:2,
         }
         min_tension_where_anything_goes={}
     elif MODE=="HIGH_TOL":
         max_sigmas={
-            ConstraintsHandler.BondConstraint:10,
-            ConstraintsHandler.AngleConstraint:4,
+            RestraintsHandler.BondRestraint:10,
+            RestraintsHandler.AngleRestraint:4,
         }    
         min_sigmas_where_anything_goes={
-            ConstraintsHandler.BondConstraint:2,
-            ConstraintsHandler.NonbondConstraint:2,
+            RestraintsHandler.BondRestraint:2,
+            RestraintsHandler.NonbondRestraint:2,
         } 
         min_tension_where_anything_goes={
-            ConstraintsHandler.BondConstraint:5,
-            ConstraintsHandler.AngleConstraint:5,
-            ConstraintsHandler.NonbondConstraint:5,
-            ConstraintsHandler.ClashConstraint:5,
-            # ConstraintsHandler.BondConstraint:7,
-            # ConstraintsHandler.AngleConstraint:7,
-            # ConstraintsHandler.NonbondConstraint:7,
-            # ConstraintsHandler.ClashConstraint:7,
+            RestraintsHandler.BondRestraint:5,
+            RestraintsHandler.AngleRestraint:5,
+            RestraintsHandler.NonbondRestraint:5,
+            RestraintsHandler.ClashRestraint:5,
+            # RestraintsHandler.BondRestraint:7,
+            # RestraintsHandler.AngleRestraint:7,
+            # RestraintsHandler.NonbondRestraint:7,
+            # RestraintsHandler.ClashRestraint:7,
         } 
     elif MODE=="MED_TOL":
         max_sigmas={
-            ConstraintsHandler.BondConstraint:8,
-            ConstraintsHandler.AngleConstraint:3,
+            RestraintsHandler.BondRestraint:8,
+            RestraintsHandler.AngleRestraint:3,
         }    
         min_sigmas_where_anything_goes={
-            #ConstraintsHandler.BondConstraint:99,
-            #ConstraintsHandler.AngleConstraint:99,
-            #ConstraintsHandler.NonbondConstraint:2,
+            #RestraintsHandler.BondRestraint:99,
+            #RestraintsHandler.AngleRestraint:99,
+            #RestraintsHandler.NonbondRestraint:2,
         } 
         min_tension_where_anything_goes={
-            ConstraintsHandler.BondConstraint:8,
-            ConstraintsHandler.AngleConstraint:4,
-            #ConstraintsHandler.BondConstraint:8,
-            #ConstraintsHandler.AngleConstraint:8,
-            ConstraintsHandler.NonbondConstraint:8,
-            ConstraintsHandler.ClashConstraint:8,
+            RestraintsHandler.BondRestraint:8,
+            RestraintsHandler.AngleRestraint:4,
+            #RestraintsHandler.BondRestraint:8,
+            #RestraintsHandler.AngleRestraint:8,
+            RestraintsHandler.NonbondRestraint:8,
+            RestraintsHandler.ClashRestraint:8,
         } 
     elif MODE=="LOW_TOL":
         max_sigmas={
-            ConstraintsHandler.BondConstraint:8,
-            ConstraintsHandler.AngleConstraint:2.5,
-            ConstraintsHandler.ClashConstraint:-99,
+            RestraintsHandler.BondRestraint:8,
+            RestraintsHandler.AngleRestraint:2.5,
+            RestraintsHandler.ClashRestraint:-99,
         }    
         min_sigmas_where_anything_goes={
-            #ConstraintsHandler.BondConstraint:99,
-            #ConstraintsHandler.AngleConstraint:99,
-            #ConstraintsHandler.NonbondConstraint:2,
+            #RestraintsHandler.BondRestraint:99,
+            #RestraintsHandler.AngleRestraint:99,
+            #RestraintsHandler.NonbondRestraint:2,
         } 
         # Unused at present
         min_tension_where_anything_goes={
-            ConstraintsHandler.BondConstraint:8,
-            ConstraintsHandler.AngleConstraint:4,
-            #ConstraintsHandler.BondConstraint:8,
-            #ConstraintsHandler.AngleConstraint:8,
-            ConstraintsHandler.NonbondConstraint:8,
-            ConstraintsHandler.ClashConstraint:8,
+            RestraintsHandler.BondRestraint:8,
+            RestraintsHandler.AngleRestraint:4,
+            #RestraintsHandler.BondRestraint:8,
+            #RestraintsHandler.AngleRestraint:8,
+            RestraintsHandler.NonbondRestraint:8,
+            RestraintsHandler.ClashRestraint:8,
         } 
     elif MODE=="V_LOW_TOL":
         max_sigmas={
-            ConstraintsHandler.BondConstraint:3.5,
-            ConstraintsHandler.AngleConstraint:2,
-            ConstraintsHandler.ClashConstraint:-99,
+            RestraintsHandler.BondRestraint:3.5,
+            RestraintsHandler.AngleRestraint:2,
+            RestraintsHandler.ClashRestraint:-99,
         }  
     elif MODE=="V_LOW_TOL2":
         max_sigmas={
-            ConstraintsHandler.BondConstraint:2,
-            ConstraintsHandler.AngleConstraint:1.5,
-            ConstraintsHandler.ClashConstraint:-99,
+            RestraintsHandler.BondRestraint:2,
+            RestraintsHandler.AngleRestraint:1.5,
+            RestraintsHandler.ClashRestraint:-99,
         } 
     elif MODE=="TENSIONS_TOL":
         max_sigmas={
-            ConstraintsHandler.BondConstraint:2.5,
-            ConstraintsHandler.AngleConstraint:2.5,
-            ConstraintsHandler.NonbondConstraint:2.5,
+            RestraintsHandler.BondRestraint:2.5,
+            RestraintsHandler.AngleRestraint:2.5,
+            RestraintsHandler.NonbondRestraint:2.5,
         }    
         min_sigmas_where_anything_goes={
         } 
         min_tension_where_anything_goes={
-            ConstraintsHandler.BondConstraint:2.5,
-            ConstraintsHandler.AngleConstraint:2.5,
-            ConstraintsHandler.NonbondConstraint:2.5,
-            ConstraintsHandler.ClashConstraint:2.5,
+            RestraintsHandler.BondRestraint:2.5,
+            RestraintsHandler.AngleRestraint:2.5,
+            RestraintsHandler.NonbondRestraint:2.5,
+            RestraintsHandler.ClashRestraint:2.5,
         } 
     elif MODE=="PHENIX":
         max_sigmas={
-            # ConstraintsHandler.BondConstraint:4,
-            # ConstraintsHandler.AngleConstraint:4,
-            #ConstraintsHandler.BondConstraint:6,
-            #ConstraintsHandler.AngleConstraint:3,
-            ConstraintsHandler.BondConstraint:4,
-            ConstraintsHandler.AngleConstraint:3,
-            # ConstraintsHandler.BondConstraint:2,
-            # ConstraintsHandler.AngleConstraint:2,
-            # ConstraintsHandler.BondConstraint:99,
-            # ConstraintsHandler.AngleConstraint:99,
+            # RestraintsHandler.BondRestraint:4,
+            # RestraintsHandler.AngleRestraint:4,
+            #RestraintsHandler.BondRestraint:6,
+            #RestraintsHandler.AngleRestraint:3,
+            RestraintsHandler.BondRestraint:4,
+            RestraintsHandler.AngleRestraint:3,
+            # RestraintsHandler.BondRestraint:2,
+            # RestraintsHandler.AngleRestraint:2,
+            # RestraintsHandler.BondRestraint:99,
+            # RestraintsHandler.AngleRestraint:99,
         } 
         min_sigmas_where_anything_goes={
-            ConstraintsHandler.BondConstraint:2.5,
-            ConstraintsHandler.AngleConstraint:2.5,
-            # ConstraintsHandler.BondConstraint:4,
-            # ConstraintsHandler.AngleConstraint:4,
-            # ConstraintsHandler.BondConstraint:99,
-            # ConstraintsHandler.AngleConstraint:99,
+            RestraintsHandler.BondRestraint:2.5,
+            RestraintsHandler.AngleRestraint:2.5,
+            # RestraintsHandler.BondRestraint:4,
+            # RestraintsHandler.AngleRestraint:4,
+            # RestraintsHandler.BondRestraint:99,
+            # RestraintsHandler.AngleRestraint:99,
         } 
         # min_tension_where_anything_goes={
-        #     ConstraintsHandler.BondConstraint:4,
-        #     ConstraintsHandler.AngleConstraint:5,
-        #     ConstraintsHandler.NonbondConstraint:4,
-        #     ConstraintsHandler.ClashConstraint:4,
+        #     RestraintsHandler.BondRestraint:4,
+        #     RestraintsHandler.AngleRestraint:5,
+        #     RestraintsHandler.NonbondRestraint:4,
+        #     RestraintsHandler.ClashRestraint:4,
         # } 
         min_tension_where_anything_goes={
-            ConstraintsHandler.BondConstraint:6,
-            ConstraintsHandler.AngleConstraint:6,
-            ConstraintsHandler.NonbondConstraint:6,
-            ConstraintsHandler.ClashConstraint:6,
-            # ConstraintsHandler.BondConstraint:7,
-            # ConstraintsHandler.AngleConstraint:7,
-            # ConstraintsHandler.NonbondConstraint:7,
-            # ConstraintsHandler.ClashConstraint:7,
+            RestraintsHandler.BondRestraint:6,
+            RestraintsHandler.AngleRestraint:6,
+            RestraintsHandler.NonbondRestraint:6,
+            RestraintsHandler.ClashRestraint:6,
+            # RestraintsHandler.BondRestraint:7,
+            # RestraintsHandler.AngleRestraint:7,
+            # RestraintsHandler.NonbondRestraint:7,
+            # RestraintsHandler.ClashRestraint:7,
         } 
     elif MODE == "REFMAC":
         max_sigmas={
-            # ConstraintsHandler.BondConstraint:4,
-            # ConstraintsHandler.AngleConstraint:4,
-            # ConstraintsHandler.BondConstraint:2.5,
-            # ConstraintsHandler.AngleConstraint:2.5,
-            ConstraintsHandler.BondConstraint:4,
-            ConstraintsHandler.AngleConstraint:4,
-            # ConstraintsHandler.BondConstraint:99,
-            # ConstraintsHandler.AngleConstraint:99,
+            # RestraintsHandler.BondRestraint:4,
+            # RestraintsHandler.AngleRestraint:4,
+            # RestraintsHandler.BondRestraint:2.5,
+            # RestraintsHandler.AngleRestraint:2.5,
+            RestraintsHandler.BondRestraint:4,
+            RestraintsHandler.AngleRestraint:4,
+            # RestraintsHandler.BondRestraint:99,
+            # RestraintsHandler.AngleRestraint:99,
         } 
         min_sigmas_where_anything_goes={
-            # ConstraintsHandler.BondConstraint:2.5,
-            # ConstraintsHandler.AngleConstraint:2.5,
-            ConstraintsHandler.BondConstraint:2,
-             ConstraintsHandler.AngleConstraint:3,
-            # ConstraintsHandler.BondConstraint:99,
-            # ConstraintsHandler.AngleConstraint:99,
+            # RestraintsHandler.BondRestraint:2.5,
+            # RestraintsHandler.AngleRestraint:2.5,
+            RestraintsHandler.BondRestraint:2,
+             RestraintsHandler.AngleRestraint:3,
+            # RestraintsHandler.BondRestraint:99,
+            # RestraintsHandler.AngleRestraint:99,
         } 
         # min_tension_where_anything_goes={
-        #     ConstraintsHandler.BondConstraint:4,
-        #     ConstraintsHandler.AngleConstraint:5,
-        #     ConstraintsHandler.NonbondConstraint:4,
-        #     ConstraintsHandler.ClashConstraint:4,
+        #     RestraintsHandler.BondRestraint:4,
+        #     RestraintsHandler.AngleRestraint:5,
+        #     RestraintsHandler.NonbondRestraint:4,
+        #     RestraintsHandler.ClashRestraint:4,
         # } 
         min_tension_where_anything_goes={
-            ConstraintsHandler.BondConstraint:6,
-            ConstraintsHandler.AngleConstraint:6,
-            ConstraintsHandler.NonbondConstraint:6,
-            ConstraintsHandler.ClashConstraint:6,
-            # ConstraintsHandler.BondConstraint:5,
-            # ConstraintsHandler.AngleConstraint:5,
-            # ConstraintsHandler.NonbondConstraint:5,
-            # ConstraintsHandler.ClashConstraint:5,
+            RestraintsHandler.BondRestraint:6,
+            RestraintsHandler.AngleRestraint:6,
+            RestraintsHandler.NonbondRestraint:6,
+            RestraintsHandler.ClashRestraint:6,
+            # RestraintsHandler.BondRestraint:5,
+            # RestraintsHandler.AngleRestraint:5,
+            # RestraintsHandler.NonbondRestraint:5,
+            # RestraintsHandler.ClashRestraint:5,
         } 
     else:
         raise Exception(f"Invalid MODE {MODE}")
@@ -433,14 +434,14 @@ class LP_Input:
                 return self.echo_is_of_original
             return self.single_altloc() and not self.involves_position_changes()
         def get_disordered_connection_id(self):
-            kind = ConstraintsHandler.Constraint.kind(self.connection_type)
+            kind = RestraintsHandler.Constraint.kind(self.connection_type)
             return f"{kind}{self.hydrogen_tag}_{'_'.join([str(a_chunk.get_disordered_tag()) for a_chunk in self.atom_chunks])}"
 
         # TODO TEMPORARY XXX
         # TODO Change get_disordered_connection_id() to call on construct_disordered_connection_id()
         @staticmethod
         def construct_disordered_connection_id(connection_type,disordered_tags:list[DisorderedTag],hydrogen_names=None):
-            kind = ConstraintsHandler.Constraint.kind(connection_type)
+            kind = RestraintsHandler.Constraint.kind(connection_type)
             hydrogen_tag = LP_Input.make_hydrogen_tag(hydrogen_names)
             return f"{kind}{hydrogen_tag}_{'_'.join([str(dtag) for dtag in disordered_tags])}"
 
@@ -628,13 +629,13 @@ class LP_Input:
             constraint_weights={}
         
         for key in [
-            ConstraintsHandler.BondConstraint,
-            ConstraintsHandler.AngleConstraint,
-            ConstraintsHandler.NonbondConstraint,
-            ConstraintsHandler.ClashConstraint,
-            ConstraintsHandler.TwoAtomPenalty,
-            ConstraintsHandler.Dihedral,
-            ConstraintsHandler.Planarity,
+            RestraintsHandler.BondRestraint,
+            RestraintsHandler.AngleRestraint,
+            RestraintsHandler.NonbondRestraint,
+            RestraintsHandler.ClashRestraint,
+            RestraintsHandler.TwoAtomPenalty,
+            RestraintsHandler.Dihedral,
+            RestraintsHandler.Planarity,
         ]:
             if key not in constraint_weights:
                 constraint_weights[key]=1
@@ -740,10 +741,10 @@ class LP_Input:
             for altloc in self.ordered_atom_lookup.get_altlocs():
                 unflipped_water_dict[altloc]=altloc
             #clashes =  get_clashes(model_handle) 
-            if constraint_weights[ConstraintsHandler.TwoAtomPenalty]>0 or UntangleFunctions.ALWAYS_PRINT_CURRENT_CLASHES:
+            if constraint_weights[RestraintsHandler.TwoAtomPenalty]>0 or UntangleFunctions.ALWAYS_PRINT_CURRENT_CLASHES:
                 original_clashes = get_clashes(UntangleFunctions.model_handle(self.restrained_model_path))
                 print(f"Original structure has {len(original_clashes)} clashes")
-            if constraint_weights[ConstraintsHandler.TwoAtomPenalty]>0:
+            if constraint_weights[RestraintsHandler.TwoAtomPenalty]>0:
                 if len(original_clashes) <= 5:
                     for clash in original_clashes:
                         print(clash)
@@ -752,7 +753,7 @@ class LP_Input:
 
 
         
-        constraints_handler=ConstraintsHandler()
+        constraints_handler=RestraintsHandler()
         constraints_to_skip=[]
         constraints_to_skip = [kind for kind,value in constraint_weights.items() if value <= 0]
 
@@ -863,13 +864,13 @@ class LP_Input:
         #################################################################
         print("Computing connection costs")
         possible_connections:list[LP_Input.Geomection]=[]
-        constraints_that_include_H=[ConstraintsHandler.TwoAtomPenalty]  # Since the purpose of two atom penalty is to say "the current thing is wrong", in which case using the hydrogens is fine.
+        constraints_that_include_H=[RestraintsHandler.TwoAtomPenalty]  # Since the purpose of two atom penalty is to say "the current thing is wrong", in which case using the hydrogens is fine.
         # Apply when constraints don't involve water
-        protein_constraints_that_include_H=[ConstraintsHandler.TwoAtomPenalty,ConstraintsHandler.ClashConstraint]  # Since the purpose of two atom penalty is to say "the current thing is wrong", in which case using the hydrogens is fine.
-        #protein_constraints_that_include_H=[ConstraintsHandler.TwoAtomPenalty]  # Since the purpose of two atom penalty is to say "the current thing is wrong", in which case using the hydrogens is fine.
+        protein_constraints_that_include_H=[RestraintsHandler.TwoAtomPenalty,RestraintsHandler.ClashRestraint]  # Since the purpose of two atom penalty is to say "the current thing is wrong", in which case using the hydrogens is fine.
+        #protein_constraints_that_include_H=[RestraintsHandler.TwoAtomPenalty]  # Since the purpose of two atom penalty is to say "the current thing is wrong", in which case using the hydrogens is fine.
         # Apply when constraints involve water
-        water_constraints_that_include_H=[ConstraintsHandler.TwoAtomPenalty,ConstraintsHandler.ClashConstraint,ConstraintsHandler.NonbondConstraint]
-        #water_constraints_that_include_H=[ConstraintsHandler.TwoAtomPenalty]
+        water_constraints_that_include_H=[RestraintsHandler.TwoAtomPenalty,RestraintsHandler.ClashRestraint,RestraintsHandler.NonbondRestraint]
+        #water_constraints_that_include_H=[RestraintsHandler.TwoAtomPenalty]
         error_lines=[]
         for c, constraint in enumerate(constraints_handler.constraints):
             if c%1000 == 0: 
@@ -1013,6 +1014,10 @@ class LP_Input:
                     if contains_H:
                         weight_mod*=hydrogen_restraint_scale
 
+                    if (MAIN_CHAIN_WEIGHT is not None and
+                        any((ch.name in ["N","CA","C","O"] and not ch.is_water) for ch in atom_chunks_selection)):
+                        weight_mod*=MAIN_CHAIN_WEIGHT
+
 
 
                     distances=[distance]
@@ -1135,7 +1140,7 @@ class LP_Input:
                         num_connections_re_enabled[conn.connection_type]+=1
                     conn.forbidden=False
                     if conn.original():
-                        if conn_type == ConstraintsHandler.AngleConstraint:
+                        if conn_type == RestraintsHandler.AngleRestraint:
                             conn.ts_distance*=high_tension_penalty
             print(f"Number of high tension disordered connections detected: {num_bad_current_disordered_connections}") 
             print(f"Ordered connections re-enabled: {num_connections_re_enabled}")
@@ -1202,7 +1207,7 @@ class LP_Input:
                 child_tags = [ch.get_disordered_tag() for ch in disordered_conn[0].atom_chunks if (ch.get_disordered_tag() in all_child_site_tags)]
                 if len(child_tags)==0:
                     continue
-                    if disordered_conn[0].connection_type == ConstraintsHandler.BondConstraint: 
+                    if disordered_conn[0].connection_type == RestraintsHandler.BondRestraint: 
                         pass 
                     else:
                         continue
@@ -1226,7 +1231,7 @@ class LP_Input:
                 child_tags = [ch.get_disordered_tag() for ch in disordered_conn[0].atom_chunks if (ch.get_disordered_tag() in all_child_site_tags)]
                 if len(child_tags)==0:
                     continue
-                    if disordered_conn[0].connection_type == ConstraintsHandler.BondConstraint: 
+                    if disordered_conn[0].connection_type == RestraintsHandler.BondRestraint: 
                         pass 
                     else:
                         continue
@@ -1250,7 +1255,7 @@ class LP_Input:
                 original_geomection_was_added=False
                 for conn in disordered_conn:
                     # if child_altloc not in conn.from_altlocs:
-                    #     if disordered_conn[0].connection_type == ConstraintsHandler.BondConstraint: 
+                    #     if disordered_conn[0].connection_type == RestraintsHandler.BondRestraint: 
                     #         # TODO continue if not involved in echoed angle 
                     #         pass 
                     #     else:
@@ -1282,11 +1287,11 @@ class LP_Input:
                     disordered_conn_echo.append(conn.create_echo(new_atom_chunks,is_original_geomection,is_link=False)) 
                     if is_original_geomection:
                         original_geomection_was_added=True
-                assert original_geomection_was_added or (disordered_conn[0].connection_type in [ConstraintsHandler.NonbondConstraint,ConstraintsHandler.ClashConstraint])
+                assert original_geomection_was_added or (disordered_conn[0].connection_type in [RestraintsHandler.NonbondRestraint,RestraintsHandler.ClashRestraint])
                     
                 # NOTE If nonbond constraint or clash constraint, possible that no geomection involving a (or any) parent from_altloc exists. 
                 try:
-                    assert len(disordered_conn_echo)>0 or (disordered_conn[0].connection_type in [ConstraintsHandler.NonbondConstraint,ConstraintsHandler.ClashConstraint]), (disordered_conn[0].connection_type,child_tags,"|",non_child_tags,child_altloc,parent_altlocs)
+                    assert len(disordered_conn_echo)>0 or (disordered_conn[0].connection_type in [RestraintsHandler.NonbondRestraint,RestraintsHandler.ClashRestraint]), (disordered_conn[0].connection_type,child_tags,"|",non_child_tags,child_altloc,parent_altlocs)
                 # try:
                 #      assert len(disordered_conn_echo)>0
                 except Exception as e:
@@ -1313,7 +1318,7 @@ class LP_Input:
             if (ch.get_altloc() in child_parent_altloc_dict and ch.echoed_altloc is None) or len(child_parent_altloc_dict)==0])
         )
         for disordered_conn in disordered_connections.values():
-            if disordered_conn[0].connection_type != ConstraintsHandler.BondConstraint:
+            if disordered_conn[0].connection_type != RestraintsHandler.BondRestraint:
                 continue
 
 
