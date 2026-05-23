@@ -134,7 +134,9 @@ def construct_backbone_highways(LD_geomections:list[LP_Input.Geomection],constr_
     composition_dictionary:dict[OrderedTag,dict[OrderedTag,tuple[pl.LpVariable,pl.LpConstraint]]]= {}
 
     composite_highways:dict[OrderedTag,dict[OrderedTag,tuple[pl.LpVariable,pl.LpConstraint]]]={} 
-    protein_residues=[1,]
+    protein_residues=[1,]  # TODO exclude ligands
+    print("TODO exclude ligands")
+    CA_altlocs:dict[int,list[str]]={1:[]}
     for i in range(1,max_resnum): # NOTE 1 iteration for each N-C bond. 
         # 1. Create the 3-atom highways. 
 
@@ -161,10 +163,18 @@ def construct_backbone_highways(LD_geomections:list[LP_Input.Geomection],constr_
             protein_residues.append(i+1)
         
         N_to_CA_bonds[i]={}
+        CA_altlocs[i+1]=[]
         for bond_geomection, var in bond_var_dict[N_to_CA_id].values():
             LH_tag=OrderedTag(bond_geomection.res_nums[0],bond_geomection.atom_names[0],bond_geomection.from_altlocs[0])
             RH_tag=OrderedTag(bond_geomection.res_nums[-1],bond_geomection.atom_names[-1],bond_geomection.from_altlocs[-1])
-            
+            CA_altlocs[i+1].append(RH_tag.altloc())
+            if i==1: #XXX
+                CA_altlocs[i].append(LH_tag.altloc())
+                assert LH_tag.altloc() in [bond_var[0].from_altlocs[0] for bond_var in bond_var_dict[LP_Input.Geomection.construct_disordered_connection_id(
+                RestraintsHandler.BondRestraint,
+                [DisorderedTag(i,"CA"),DisorderedTag(i,"C")]
+                )].values()], f"{LH_tag.altloc()} does not appear to be present for first CA"
+
             if LH_tag not in N_to_CA_bonds[i]:
                 N_to_CA_bonds[i][LH_tag]={}
             
@@ -204,10 +214,192 @@ def construct_backbone_highways(LD_geomections:list[LP_Input.Geomection],constr_
     print(linked_residues)
 
         
-    raise NotImplementedError()
 
     # 5. Construct highways composed from CB_to_CB highways. 
+    
 
+
+
+    # "It'll do for now" binary search method
+    # Create binary search tree
+    # Construct highways for each connection as needed
+    def make_tree(parent_node, segment,tree=None):
+        if tree is None:
+            tree = {}
+        if parent_node not in tree:
+            tree[parent_node]=[]
+        if len(segment)==1:
+            tree[parent_node].append(segment[0])
+            return tree
+        split=int(len(segment)/2)
+        split_point = segment[split]
+        child_segments = segment[:split], segment[split+1:]
+        tree[parent_node].append(split_point)
+        assert len(tree[parent_node])<=2, tree
+        for child_segment in child_segments:
+            if len(child_segment)>0:
+                tree = make_tree(split_point,child_segment,tree)
+    
+        return tree
+    
+    tree={}
+    segment=list(range(1, max_resnum+1))
+    try:
+        tree = make_tree(None,segment,tree) 
+    except Exception as e:
+        print(tree)
+        raise e
+
+    
+    def find_smallest_subtree(val1,val2,x=None):
+        if x is None:
+            assert len(tree[None])==1
+            x=tree[None][0]
+        if x <val1 and x < val2:
+            return find_smallest_subtree(val1,val2,max(tree[x]))
+        elif x > val1 and x> val2:
+            return find_smallest_subtree(val1,val2,min(tree[x]))
+        else:
+            return make_subtree(x,val1),make_subtree(x,val2)
+    def make_subtree(x,val,tree_path=None):
+        if tree_path is None:
+            tree_path = []
+        tree_path.append(x)
+        if x == val:
+            return tree_path
+        if x < val:
+            return make_subtree(max(tree[x]),val,tree_path) 
+        if x > val:
+            return make_subtree(min(tree[x]),val,tree_path) 
+
+
+    def add_CA_highway(left_num,right_num,left_altlocs=None,right_altlocs=None):
+        nonlocal composite_highways
+        nonlocal composition_dictionary
+        # NB: Whole thing with specifying left and right altlocs is redundant and makes things much more complex. We are adding all. (Though the approach could be useful when connecting to sidechains. )
+        assert right_num > left_num, (right_num,left_num)
+        if left_altlocs is None:
+            left_altlocs = CA_altlocs[left_num]
+        if right_altlocs is None:
+            right_altlocs = CA_altlocs[right_num]
+        for altloc_left in left_altlocs:
+          for altloc_right in right_altlocs:
+            left_tag=OrderedTag(left_num,"CA",altloc_left)
+            right_tag=OrderedTag(right_num,"CA",altloc_right)
+            if  get_highway(left_tag,right_tag) is not None:
+                continue
+            else:
+                start_with_left_resnum= [tag.resnum() for tag in composite_highways[left_tag] if tag.atom_name()=="CA"]
+                # Find the longest highway constructed between left num and right num.   left_num ---- longest_left -- longest_right ---- right_num
+                try:
+                    longest_left= max(num for num in start_with_left_resnum if num < right_num)
+                except Exception as e:
+                    print(start_with_left_resnum)
+                    print(left_tag)
+                    print([ tag for tag in composite_highways[left_tag] if tag.atom_name()=="CA"])
+                    raise(e)
+
+                # and from right to left (but past longest left):
+                end_with_right_resnum= []
+                for longest_right in range(longest_left,right_num):
+                    if get_highway(OrderedTag(longest_right, "CA",CA_altlocs[longest_right][0]), right_tag) is not None:
+                        break
+                else:
+                    print(left_tag,right_tag,longest_left)
+                    print(composite_highways[OrderedTag(right_num-1,"CA",CA_altlocs[right_num-1][0])])
+                    assert False 
+
+                #longest_right=  min(num for num in end_with_right_resnum if num > longest_left) 
+
+                # XXX Disgusting!
+                left_highways= {
+                    left_tag:{OrderedTag(longest_left,"CA",alt):get_highway(left_tag,  OrderedTag(longest_left,"CA",alt)) for alt in CA_altlocs[longest_left]}
+                }
+                right_highways={
+                    OrderedTag(longest_right,"CA",alt): {right_tag: get_highway(OrderedTag(longest_right,"CA",alt),right_tag) } 
+                    for alt in CA_altlocs[longest_right] }
+                ###
+                if longest_right==longest_left:
+                    # Join! 
+                    CA_to_CA,CA_to_CA_composition=highway_from_highways(left_highways,right_highways)
+                    print(f"Joined {left_num} - {right_num} at {longest_right}")
+                    
+                    for key in CA_to_CA:
+                        composite_highways[key] |= CA_to_CA[key]
+                        composition_dictionary[key] |= CA_to_CA_composition[key]
+                else:
+                    # Try to join up
+                    if abs(left_num-longest_right) <= abs(right_num-longest_left):  # left_num ----- longest_right | longest_right ---- right_num
+                        add_CA_highway(left_num,longest_right,left_altlocs,CA_altlocs[longest_right])
+                    else:
+                        add_CA_highway(longest_left,right_num,CA_altlocs[longest_left],right_altlocs) # left_num ----- longest_left  | longest_left ---- right_num
+                    print(f"Joining {left_num} - {right_num}")
+                    add_CA_highway(left_num,right_num,(altloc_left,),(altloc_right,))
+                  
+            #return CA_to_CA
+            #return CA_to_CA
+            
+
+            
+            #add_CA_highway(left_num,right_num)
+            #highway_from_highways()
+
+    def get_highway(left_tag,right_tag)->tuple:
+        if left_tag in composite_highways and right_tag in composite_highways[left_tag]:
+            return composite_highways[left_tag][right_tag]
+        elif  right_tag in composite_highways and  left_tag  in composite_highways[right_tag]:
+            return composite_highways[right_tag][left_tag]
+        return None
+
+    for resnum, linked_resnums in linked_residues.items():
+        print(f"Adding CA-CA highways to {resnum}")
+        for linked_resnum in linked_resnums: 
+            if abs(linked_resnum-resnum)>1:
+                tree_paths = find_smallest_subtree(linked_resnum,resnum)
+                for tree_path in tree_paths:
+                    for i in reversed(range(len(tree_path)-1)):
+                        num_prior=tree_path[i]; num_next = tree_path[i+1]
+                        if not all(r in  CA_altlocs for r in [num_prior,num_next]):
+                            continue
+                        if num_next>(num_prior+1):
+                            add_CA_highway(num_prior,num_next)
+                        elif num_prior>(num_next+1):
+                            add_CA_highway(num_next,num_prior)
+    #print("Non-adjacent CA highways:")
+    min_gap_print=2
+    print(f"CA highways longer than {min_gap_print+1}:")
+    print("-------------------------")
+    total_adjacent_disordered=0
+    total_non_adjacent_disordered=0
+    for resnum in CA_altlocs:
+        key=OrderedTag(resnum,"CA",CA_altlocs[resnum][0])
+        if key not in composition_dictionary:
+            continue
+        for other_key in composition_dictionary[key].keys():
+            if other_key.altloc()==CA_altlocs[other_key.resnum()][0]:
+                if abs(other_key.resnum()-key.resnum())>1:
+                    total_non_adjacent_disordered+=1
+                else:
+                    total_adjacent_disordered+=1
+                    
+                if abs(other_key.resnum()-key.resnum())>min_gap_print:
+                    print(key.disordered_tag(),"<-->",other_key.disordered_tag())
+    print(f"Total non-adjacent (single altloc): {total_non_adjacent_disordered}, (adjacent: {total_adjacent_disordered})")
+    print("-------------------------")
+
+
+
+    # Recursive-Tree-Search(x, key)
+    #     if x = NIL or key = x.key then
+    #         return x
+    #     if key < x.key then
+    #         return Recursive-Tree-Search(x.left, key)
+    #     else
+    #         return Recursive-Tree-Search(x.right, key)
+    #     end if
+
+
+    raise NotImplementedError()
 
     ### Remove highways that do not connect residues linked by a LD_geomection AND are not used to compose a highway that IS. ###
     # (This is effectively done by tracking the composite variables. We will choose to add all variables/constraints that a necessary highway is composed of, 
