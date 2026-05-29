@@ -539,7 +539,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     geometries_forbidden_from_changing:list[str]=[]
 
     initial_badness=0
-    def add_constraints_from_disordered_connection(constraint_type:VariableKind,disordered_connection: list[LP_Input.Geomection],global_score_tolerate_threshold=0):
+    #highways:dict[OrderedTag,dict[OrderedTag,tuple[pl.LpVariable,pl.LpConstraint]]]
+    def add_constraints_from_disordered_connection(constraint_type:VariableKind,disordered_connection: list[LP_Input.Geomection],highways:dict[OrderedTag,dict[OrderedTag,tuple[pl.LpVariable,pl.LpConstraint]]],global_score_tolerate_threshold=0):
+        # The tuple for a highway is the highway variable and the constraints that enforce it.
+        
         # Rule: If all atom assignments corresponding to a connection are active,
         # then all those atoms must be swapped to the same assignment.
         nonlocal lp_problem  
@@ -858,8 +861,16 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             # Geomections contain ordered atoms from any (and likely multiple) from_altloc labels that 
             # *are to be assigned to the same conformation (to_altloc label)*
             assignment_vars:list[LpVariable]=[]
-            if len(geomection.atom_chunks)==2:                   
-                    pass
+            if len(geomection.atom_chunks)==2:
+                if geomection.connection_type != RestraintsHandler.BondRestraint:  
+                    tag_A,tag_B = geomection.atom_chunks[0].get_ordered_tag(), geomection.atom_chunks[-1].get_ordered_tag()                 
+                    if tag_A in highways:
+                        if tag_B in highways[tag_A]:
+                            assignment_vars.append(highways[tag_A][tag_B][0])
+                    if tag_B in highways:
+                        if tag_A in highways[tag_B]:
+                            assignment_vars.append(highways[tag_B][tag_A][0])
+                     
             else:
                 # Angle geomection is active if 2 specific bond geomections are active.
                 assert geomection.connection_type in [RestraintsHandler.AngleRestraint,] # Can add other 3+ site constraints later
@@ -1024,19 +1035,28 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     ALL_mega_geomection_var_dict:dict[str,dict[str,tuple[LP_Input.Geomection,LpVariable]]]={}
     added_highways=False
     impossible_long_distance_geomections:list[LP_Input.Geomection]=None
+    highways=None
     for i, (connection_id, ordered_connection_choices) in enumerate(disordered_connections.items()):
         if i % 250 == 0:
             print(f"Adding constraints {i}/{len(disordered_connections)} ({connection_id})")
         constraint_type = VariableKind[connection_id.split('_')[0]]  #XXX ?????
 
         # TODO need bridges and rings to be done too
+        # TODO position changes need to be made to work
+          
         if constraint_type not in [VariableKind.Angle,VariableKind.Bond]:
             if not added_highways:
                 highways, impossible_long_distance_geomections = construct_highways(disordered_connections,mega_geomection_var_dict)
                 added_highways=True
+                for LH_tag in highways:
+                    for RH_tag, (var, constraints) in highways[LH_tag].items():
+                        if constraints is not None:
+                            for constr in constraints:
+                                lp_problem+=constr
+
         else:
-            assert not added_highways
-        result = add_constraints_from_disordered_connection(constraint_type,ordered_connection_choices,global_score_tolerate_threshold=global_score_tolerate_threshold)
+            assert not added_highways #XXX
+        result = add_constraints_from_disordered_connection(constraint_type,ordered_connection_choices,highways,global_score_tolerate_threshold=global_score_tolerate_threshold)
         if result is not None:
             #XXX
             disordered_geomection_var_dict,disordered_geomection_var_dict_including_forbidden=result
@@ -1292,7 +1312,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         shutil.rmtree(log_out_dir,ignore_errors=True)
     os.makedirs(log_out_dir)
 
-    log_file = f"{log_out_dir}/HighLevelLog.Log"
+    log_file = f"{log_out_dir}/HighLevelLog.log"
     if not os.path.exists(log_file):
         with open(log_file,'w') as f:
             f.write(f"{out_handle} altloc optimizer log\n")
@@ -2222,11 +2242,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
         return z_scores_dict
 
-    SKIP_SCORE_DIAGNOSTICS=True
     def score_diagnostics(loop_idx,altloc_subset):
         # TODO CRITICAL split into generating data for each individual conformation. Store the information.
-        if SKIP_SCORE_DIAGNOSTICS:
-            return
         print("***********")
         print("Running score diagnostics")
         if reference_pdb_file is not None:
@@ -2289,8 +2306,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
 
     def clash_validation_changes(reference_clash_file_handle,comparison_clash_file_handle,out_handle):
-        reference=[]; comparison=[] # without altloc
-        reference_og=[]; comparison_og=[] # with altloc
+        reference=[]; comparison=[] # clash lines without altlocs
+        reference_og=[]; comparison_og=[] # unmodified lines
         clash_scores = []
         for handle, entry_list, unmodified_entry_list in ((reference_clash_file_handle,reference,reference_og), (comparison_clash_file_handle,comparison,comparison_og)):
             with open(get_clash_validation_file_path(handle)) as f:
@@ -2305,7 +2322,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     entry[2]=entry[2][1:]; entry[6]=entry[6][1:] # Remove conformation label
 
                     entry_list.append(' '.join(entry))
-                    unmodified_entry_list.append(line)
+                    unmodified_entry_list.append(line.strip('\n'))
         
         removed_clashes = [entry_og for entry, entry_og in zip(reference,reference_og) if entry not in comparison]
         new_clashes =  [entry_og for entry, entry_og in zip(comparison,comparison_og) if entry not in reference]
@@ -2318,6 +2335,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             f.write(f"New clashes:\n{'\n'.join(new_clashes)}\n")
 
 
+    SKIP_IN_LOOP_SCORE_DIAGNOSTICS=False
     def log_geometry_changes(site_assignments:dict[VariableID,dict[str,str]]):
         if PLOTTING:
             all_sigma_costs:list[list[tuple[float]]]=[]
@@ -2666,7 +2684,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 update_swaps_file(distances,site_assignment_arrays)  #,record_notable_improvements_threshold=0.03)
                 
                 log_geometry_changes(site_assignments)
-                score_diagnostics(l,altlocs_in_problem)
+                if not SKIP_IN_LOOP_SCORE_DIAGNOSTICS:
+                    score_diagnostics(l,altlocs_in_problem)
 
 
 
@@ -2680,7 +2699,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             print(f"WARNING: Finding solution {l+1} was infeasible! Ending solution search")
             break
 
-       
+        if SKIP_IN_LOOP_SCORE_DIAGNOSTICS:
+            # Score the last solution
+            score_diagnostics(l,altlocs_in_problem)
 
 
                 
