@@ -127,7 +127,7 @@ def add_sos2(lp_problem:LpProblem,sos2_name,sos2_rule):
 
 
 def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
-          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=5,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=3,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
           inert_water_sites=False,
           #gapRel=0.001,
           #gapRel=0,
@@ -539,8 +539,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     geometries_forbidden_from_changing:list[str]=[]
 
     initial_badness=0
-    #highways:dict[OrderedTag,dict[OrderedTag,tuple[pl.LpVariable,pl.LpConstraint]]]
-    def add_constraints_from_disordered_connection(constraint_type:VariableKind,disordered_connection: list[LP_Input.Geomection],highways:dict[OrderedTag,dict[OrderedTag,tuple[pl.LpVariable,pl.LpConstraint]]],global_score_tolerate_threshold=0):
+    #highways:dict[OrderedTag,dict[OrderedTag,tuple[pl.LpVariable,list[pl.LpConstraint]]]]
+    def add_constraints_from_disordered_connection(constraint_type:VariableKind,disordered_connection: list[LP_Input.Geomection],highways:dict[OrderedTag,dict[OrderedTag,tuple[pl.LpVariable,list[pl.LpConstraint]]]],global_score_tolerate_threshold=0):
         # The tuple for a highway is the highway variable and the constraints that enforce it.
         
         # Rule: If all atom assignments corresponding to a connection are active,
@@ -1052,8 +1052,15 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     for RH_tag, (var, constraints) in highways[LH_tag].items():
                         if constraints is not None:
                             for constr in constraints:
-                                lp_problem+=constr
-
+                                try:
+                                    lp_problem+=constr
+                                except Exception as e:
+                                    print(constr)
+                                    print(type(constr))
+                                    print(RH_tag)
+                                    print(var)
+                                    print(constraints)
+                                    raise(e)
         else:
             assert not added_highways #XXX
         result = add_constraints_from_disordered_connection(constraint_type,ordered_connection_choices,highways,global_score_tolerate_threshold=global_score_tolerate_threshold)
