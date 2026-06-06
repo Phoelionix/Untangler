@@ -100,7 +100,7 @@ DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS=99999
 
 
 ALTLOC_RUN_SUBSET_SIZES=[3,3,3,4,4,4] # None 
-MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS=3
+MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS=3 # CEMENT must be True
 MIN_ALTLOCS_TO_FIX_RANDOM=3
 
 # TODO cplex solution pool
@@ -301,7 +301,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         #improvement_factors_to_tolerate=np.array([2,0.8]) 
         improvement_factors_to_tolerate=np.array([20,5,3,2,1.01,0.8,0.6,0.4,0.2,0.1]) 
         #start_of_round_altloc_subset_size=max(2,math.ceil(len(all_altlocs)/2))
-        start_of_round_altloc_subset_size=6
+        start_of_round_altloc_subset_size=4
+        improvement_factors_to_tolerate=np.array([1.01]) 
+
         ALTLOC_RUN_SUBSET_SIZES=[start_of_round_altloc_subset_size,]*num_subset_runs
 
     #TODO limit alternatives to consider to the top N alternatives. Otherwise when have really bad outliers, introduce a huge number of branches.
@@ -1709,6 +1711,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         altlocs_to_restrict=[]
         #DEBUG_ALWAYS_HAVE_ALTLOCS=["B"] # TODO always have worst conformation. (sum up distance terms for each to_altloc)
         DEBUG_ALWAYS_HAVE_ALTLOCS=[] 
+        #DEBUG_ALWAYS_HAVE_ALTLOCS=["A","B","D","F"] 
         while len(altlocs_to_restrict)<len(all_altlocs)-altloc_subset_size:
             if len(altloc_pool)==0:
                 altloc_pool = [a for a in all_altlocs if a not in altlocs_to_restrict]
@@ -1808,7 +1811,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         preprocessing_on_relaxation=True #TODO Try disabling
         #extra_args["path"]='/home/speno/ibm/ILOG/CPLEX_STUDIO2211/cplex/bin/x86-64_linux/cplex'
         extra_args["maxMemory"]=MEMORYLIMITGB*1e3
-        extra_args["options"]=solver_options
+        #extra_args["options"]=solver_options
 
         #### Perturbations https://www.ibm.com/docs/en/icos/22.1.1?topic=problems-numeric-difficulties
         always_perturb=True
