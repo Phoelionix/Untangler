@@ -1046,7 +1046,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
           
         if constraint_type not in [VariableKind.Angle,VariableKind.Bond]:
             if not added_highways:
-                highways, impossible_long_distance_geomections = construct_highways(disordered_connections,mega_geomection_var_dict)
+                #highways, impossible_long_distance_geomections = construct_highways(disordered_connections,mega_geomection_var_dict)
+                highways, impossible_long_distance_geomections = construct_highways(disordered_connections,ALL_mega_geomection_var_dict)
                 added_highways=True
                 for LH_tag in highways:
                     for RH_tag, (var, constraints) in highways[LH_tag].items():
@@ -1619,7 +1620,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         #         for other_geomection in active_geomections:
         
         # To speed up search, make a dict mapping chunks to the geomections they are involved in.
-        chunk_active_geomections_dict={ch.get_ordered_tag():[] for ch in chunk_sites}
+        chunk_active_geomections_dict:dict[OrderedTag,list[LP_Input.Geomection]]={ch.get_ordered_tag():[] for ch in chunk_sites}
         for g in active_geomections:
             for ch in g.atom_chunks:
                 chunk_active_geomections_dict[ch.get_ordered_tag()].append(g) 
@@ -1636,6 +1637,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             if len(connected_chunks)>len(chunk_sites):
                 raise Exception(f"Something went wrong, linked more than {len(chunk_sites)} chunks together")
             for geomection in chunk_active_geomections_dict[chunk.get_ordered_tag()]:
+                
+                ## TEMPORARY REMOVE AFTER IMPLEMENT NON-INTRA-PROTEIN CLASHES!!!##
+                if geomection.connection_type == RestraintsHandler.ClashRestraint and not (geomection.atom_chunks[0].is_water or geomection.atom_chunks[1].is_water):
+                    continue
+                #####################################
                 if geomection in connected_geomections:
                     continue
                 assert chunk in geomection.atom_chunks, (chunk, geomection,chunk_active_geomections_dict[chunk.get_ordered_tag()],chunk.get_ordered_tag())
