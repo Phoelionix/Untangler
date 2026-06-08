@@ -301,8 +301,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         #improvement_factors_to_tolerate=np.array([2,0.8]) 
         improvement_factors_to_tolerate=np.array([20,5,3,2,1.01,0.8,0.6,0.4,0.2,0.1]) 
         #start_of_round_altloc_subset_size=max(2,math.ceil(len(all_altlocs)/2))
-        start_of_round_altloc_subset_size=4
-        improvement_factors_to_tolerate=np.array([1.01]) 
+        start_of_round_altloc_subset_size=6
+        #improvement_factors_to_tolerate=np.array([1.01]) 
 
         ALTLOC_RUN_SUBSET_SIZES=[start_of_round_altloc_subset_size,]*num_subset_runs
 
@@ -801,7 +801,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             altlocs_key=get_altlocs_key(geomection.from_altlocs,
                                         geomection.position_option_indices if geomection.involves_position_changes() else None)
 
-            assert altlocs_key not in geomection_var_dict, (geomection.get_disordered_connection_id(),altlocs_key,list(geomection_var_dict.keys()))
+            assert altlocs_key not in geomection_var_dict, (geomection.connection_type,geomection.get_disordered_connection_id(),altlocs_key,list(geomection_var_dict.keys()))
             geomection_var_dict[altlocs_key]=(geomection,var_active)
         del tag
 
@@ -864,7 +864,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             # *are to be assigned to the same conformation (to_altloc label)*
             assignment_vars:list[LpVariable]=[]
             if len(geomection.atom_chunks)==2:
-                if geomection.connection_type != RestraintsHandler.BondRestraint:  
+                if not issubclass(geomection.connection_type,RestraintsHandler.BondRestraint):  
                     tag_A,tag_B = geomection.atom_chunks[0].get_ordered_tag(), geomection.atom_chunks[-1].get_ordered_tag()                 
                     if tag_A in highways:
                         if tag_B in highways[tag_A]:
@@ -1640,10 +1640,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 raise Exception(f"Something went wrong, linked more than {len(chunk_sites)} chunks together")
             for geomection in chunk_active_geomections_dict[chunk.get_ordered_tag()]:
                 
-                ## TEMPORARY REMOVE AFTER IMPLEMENT NON-INTRA-PROTEIN CLASHES!!!##
-                if geomection.connection_type == RestraintsHandler.ClashRestraint and not (geomection.atom_chunks[0].is_water or geomection.atom_chunks[1].is_water):
-                    continue
-                #####################################
+                # ## TEMPORARY REMOVE AFTER IMPLEMENT NON-INTRA-PROTEIN CLASHES!!!##
+                # if geomection.connection_type == RestraintsHandler.ClashRestraint and not (geomection.atom_chunks[0].is_water or geomection.atom_chunks[1].is_water):
+                #     continue
+                # #####################################
                 if geomection in connected_geomections:
                     continue
                 assert chunk in geomection.atom_chunks, (chunk, geomection,chunk_active_geomections_dict[chunk.get_ordered_tag()],chunk.get_ordered_tag())
@@ -1780,6 +1780,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     #solver = solver_class(timeLimit=timeLimit,threads=THREADS,logPath=logPath,warmStart=warmStart,gapRel=gapRel,path=path)
     extra_args={}
     if pulp_solver==Solver.CPLX_CMD:
+        FORCE_DEFAULT_CPLEX_OPTIONS=True
+
         disable_probe=False
         aggressive_probe=False
         #### Options to speed up root node relaxation: https://www.ibm.com/docs/en/icos/22.1.2?topic=problems-too-much-time-node-0
@@ -1811,7 +1813,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         preprocessing_on_relaxation=True #TODO Try disabling
         #extra_args["path"]='/home/speno/ibm/ILOG/CPLEX_STUDIO2211/cplex/bin/x86-64_linux/cplex'
         extra_args["maxMemory"]=MEMORYLIMITGB*1e3
-        #extra_args["options"]=solver_options
+        if not FORCE_DEFAULT_CPLEX_OPTIONS:
+            extra_args["options"]=solver_options
 
         #### Perturbations https://www.ibm.com/docs/en/icos/22.1.1?topic=problems-numeric-difficulties
         always_perturb=True
@@ -2585,11 +2588,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
                 remove_random_fixed()
                 if len(altlocs_in_problem)>=MIN_ALTLOCS_TO_FIX_RANDOM:
-                    start_timer()
                     if PEPPER_FIXED_GEOMECTIONS:
+                        start_timer()
                         pepper_fixed_geomections(0.2,Z_min=0,Z_max=2)
                         pepper_fixed_geomections(0.1,Z_min=2,Z_max=3)
-                    end_timer("Pepper fixed")
+                        end_timer("Pepper fixed")
                                 
                 def run_solve():
                     nonlocal dynamic_subset_size_mod

@@ -89,6 +89,7 @@ USE_DYNAMIC_ALTLOC_SUBSET_SIZE = True # Dynamically modify the number of conform
 
 PEPPER_FIXED_SITES=True
 PEPPER_FIXED_GEOMECTIONS=True
+CEMENT=True
 
 
 #ALTLOC_RUN_SUBSET_SIZES=[2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,None] # None 
@@ -106,7 +107,7 @@ DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS=np.inf # TODO remove this since dynamic s
 
 #ALTLOC_RUN_SUBSET_SIZES=[9,9,9,9,9,9] # None 
 #ALTLOC_RUN_SUBSET_SIZES=[3,4,4,4,4,4] # None 
-MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS=3
+MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS=3 # CEMENT must be True
 MIN_ALTLOCS_TO_FIX_RANDOM=3
 
 # TODO cplex solution pool
@@ -257,9 +258,12 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     # Track which are which based on original altloc.
 
     all_altlocs:list[str]=[]
+    protein_altlocs:list[str]=[]
     for ch in chunk_sites:
         if ch.altloc not in all_altlocs:
             all_altlocs.append(ch.altloc)
+        if not ch.is_water and ch.altloc not in protein_altlocs:
+            protein_altlocs.append(ch.altloc)
     # def site_variable_name(site: VariableID, from_altloc:str, to_altloc:str):
     #     return f"atomState_{site}_{from_altloc}.{to_altloc}"
     disordered_atom_sites:list[VariableID] = []
@@ -312,7 +316,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         #improvement_factors_to_tolerate=np.array([2,0.8]) 
         improvement_factors_to_tolerate=np.array([20,4,2,1.01,0.8]) 
         #start_of_round_altloc_subset_size=max(2,math.ceil(len(all_altlocs)/2))
-        start_of_round_altloc_subset_size=3
+        start_of_round_altloc_subset_size=3 #2 # 3
+        # TEMPORARY NEW FORM. TESTING
+        #improvement_factors_to_tolerate=np.array([1.01]) 
+        start_of_round_altloc_subset_size=6
+        ###################
         ALTLOC_RUN_SUBSET_SIZES=[start_of_round_altloc_subset_size,]*num_subset_runs
 
     #TODO limit alternatives to consider to the top N alternatives. Otherwise when have really bad outliers, introduce a huge number of branches.
@@ -399,13 +407,18 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         site_altlocs = []
         for possible_altloc in site_var_dict[site]:
             site_altlocs.append(possible_altloc)
-        if site.is_water and ASSIGN_TO_ANY_ALTLOC: 
-            if set(site_altlocs)!=set(all_altlocs):
+        # if site.is_water and ASSIGN_TO_ANY_ALTLOC: 
+        #     if set(site_altlocs)!=set(all_altlocs):
+        #         sticky_site=STICKY_SITES
+        #     allowed_to_altlocs=all_altlocs #TODO Implement option to only add protein altlocs to the allowed_to_altlocs.
+        # else:
+        #     allowed_to_altlocs=site_altlocs
+        if ASSIGN_TO_ANY_ALTLOC:
+            if set(protein_altlocs+site_altlocs)!=set(all_altlocs):
                 sticky_site=STICKY_SITES
-            allowed_to_altlocs=all_altlocs #TODO Implement option to only add protein altlocs to the allowed_to_altlocs.
+            allowed_to_altlocs = list(set(protein_altlocs+site_altlocs))
         else:
             allowed_to_altlocs=site_altlocs
-
 
             
         if len(all_altlocs)>2: #TODO optimize
@@ -1502,7 +1515,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         shutil.rmtree(log_out_dir,ignore_errors=True)
     os.makedirs(log_out_dir)
 
-    log_file = f"{log_out_dir}/HighLevelLog.Log"
+    log_file = f"{log_out_dir}/HighLevelLog.log"
     if not os.path.exists(log_file):
         with open(log_file,'w') as f:
             f.write(f"{out_handle} altloc optimizer log\n")
@@ -1811,6 +1824,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         altlocs_to_restrict=[]
         #DEBUG_ALWAYS_HAVE_ALTLOCS=["B"] # TODO always have worst conformation. (sum up distance terms for each to_altloc)
         DEBUG_ALWAYS_HAVE_ALTLOCS=[] 
+        #DEBUG_ALWAYS_HAVE_ALTLOCS=["A","B","D","F"] 
         while len(altlocs_to_restrict)<len(all_altlocs)-altloc_subset_size:
             if len(altloc_pool)==0:
                 altloc_pool = [a for a in all_altlocs if a not in altlocs_to_restrict]
@@ -2712,11 +2726,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
 
             for j in range(num_altloc_subset_runs):
-                if altloc_subset_sizes[j] is not None and altloc_subset_sizes[j]<len(all_altlocs):
+                dynamic_subset_size = None
+                if altloc_subset_sizes[j] is not None:
                     if USE_DYNAMIC_ALTLOC_SUBSET_SIZE:
                         dynamic_subset_size = max(2, altloc_subset_sizes[j] + math.floor(dynamic_subset_size_mod))
                     else:
                         dynamic_subset_size=altloc_subset_sizes[j]
+                if dynamic_subset_size is not None and dynamic_subset_size<len(all_altlocs):
                     altlocs_in_problem = set_up_altloc_subset_restrictions(dynamic_subset_size)
                     restricted_text=f"Altlocs restricted to {altlocs_in_problem}"
                     # is_subset_run = False
@@ -2728,21 +2744,24 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
                 remove_cement()
                 if len(altlocs_in_problem)>= MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS:
-                    start_timer()
-                    clear_cement_constraints()
-                    generate_cement_constraints(ignored_altlocs = [a for a in all_altlocs if a not in altlocs_in_problem])
-                    apply_cement()
-                    end_timer("cement")
+                    if CEMENT:
+                        start_timer()
+                        clear_cement_constraints()
+                        generate_cement_constraints(ignored_altlocs = [a for a in all_altlocs if a not in altlocs_in_problem])
+                        apply_cement()
+                        end_timer("cement")
 
                 remove_random_fixed()
                 if len(altlocs_in_problem)>=MIN_ALTLOCS_TO_FIX_RANDOM:
-                    start_timer()
+                    if PEPPER_FIXED_SITES or PEPPER_FIXED_GEOMECTIONS:
+                        start_timer()
                     if PEPPER_FIXED_SITES:
                         pepper_fixed_sites()
                     if PEPPER_FIXED_GEOMECTIONS:
                         pepper_fixed_geomections(0.2,Z_min=0,Z_max=2)
                         pepper_fixed_geomections(0.1,Z_min=2,Z_max=3)
-                    end_timer("Pepper fixed")
+                    if PEPPER_FIXED_SITES or PEPPER_FIXED_GEOMECTIONS:
+                        end_timer("Pepper fixed")
 
                                 
                 def run_solve():

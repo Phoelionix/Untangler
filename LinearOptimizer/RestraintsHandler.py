@@ -183,6 +183,9 @@ class RestraintsHandler:
         @staticmethod
         def separation(a:Atom,b:Atom):
             return np.sqrt(np.sum((a.get_coord()-b.get_coord())**2))
+        @staticmethod
+        def make_faux_bond_restraint(atom_ids):
+            return RestraintsHandler.BondRestraint(atom_ids,True,0,0,9999)
         def get_cost(self,atoms:list[Atom],scoring_function)->tuple[float,float,float,float]:
             sorted_atoms = self.get_sorted_atoms(atoms)
             if sorted_atoms is None:
@@ -203,8 +206,6 @@ class RestraintsHandler:
             return self.ideal, sep, z_score, scoring_function(dev,self.sigma,self.ideal,self.num_bound_e) * self.weight
             # badness = (self.ideal-self.separation(a,b))**2/self.ideal
             # return 0, badness
-    
-
         
     class AngleRestraint(Constraint):
         def specific_weight_mod(self,atom_names):
@@ -214,6 +215,9 @@ class RestraintsHandler:
         def __init__(self,atom_ids,outlier_ok,ideal,weight,sigma):
             assert len (atom_ids)==3
             super().__init__(atom_ids,outlier_ok,ideal,weight,sigma)
+        @staticmethod
+        def make_faux_angle_restraint(atom_ids):
+            return RestraintsHandler.AngleRestraint(atom_ids,True,0,0,9999)
         @staticmethod
         def angle(a:Atom,b:Atom,c:Atom):
             v1 = a.get_coord() - b.get_coord()
@@ -640,6 +644,8 @@ class RestraintsHandler:
         AngleEnds_added:list[DisorderedTag]=[]
         end_point_angle_scale_factor=1
         local_nb_scale_factor=1
+
+        ####### BONDED GEOMETRY #######
         with open(constraints_file,"r") as f:
             lines = f.readlines()
             for i, line in enumerate(lines):
@@ -712,16 +718,59 @@ class RestraintsHandler:
                     values_string = constraint[0].strip().split("\"")[2]
                     _,  sigma,  weight, _, residual = [float(v) for v in values_string.strip().split()]
                     self.add(RestraintsHandler.Planarity(pdb_ids,outlier_ok("DIHEDRAL",pdb_ids),weight,sigma),residual)
-                       
-                
+       ####### INTERMOLECULAR CONNECTORS #######
+        # for new (geomection + highway, no site) formulation, add single faux bond from ligands to protein, 
+        # and TODO between chains/macromolecules
        
-        # Add nonbonds that are flagged as issues for current structure AND when waters are swapped
+        # for resnum, resname in ordered_atom_lookup.res_names.items():
+        #     if resname not in (["ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE", "LEU", 
+        #                 "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL"] + ["HOH","SOL"]):
+        for resnum in ordered_atom_lookup.other_residue_nums:
+                closest_distance=np.inf
+                ligand_atom = ordered_atom_lookup.select_atoms_by(res_nums=[resnum,])[0]
+                assert resnum >= 160, (resnum,ordered_atom_lookup.res_names[resnum])
+
+                for atom in ordered_atom_lookup.select_atoms_by(
+                  exclude_H=True,
+                  res_nums=[n for n in ordered_atom_lookup.residue_nums
+                  if n not in (ordered_atom_lookup.water_residue_nums + ordered_atom_lookup.other_residue_nums)]):
+                    dist = self.BondRestraint.separation(ligand_atom, atom)
+                    if dist < closest_distance:
+                        closest_distance=dist
+                        closest_protein_atom=atom
+
+
+                prot_dtag=DisorderedTag.from_atom(closest_protein_atom)
+                lig_dtag=DisorderedTag.from_atom(ligand_atom)
+                protein_side_bonded=bonds_added_dict[prot_dtag] if prot_dtag in bonds_added_dict else []
+                ligand_side_bonded=bonds_added_dict[lig_dtag] if lig_dtag in bonds_added_dict else []
+                pdb_ids = [f"{a.get_name()}     A{OrderedAtomLookup.atom_res_name(a)}     A      {OrderedAtomLookup.atom_res_seq_num(a)}" for a in (closest_protein_atom,ligand_atom)]
+                self.add(RestraintsHandler.BondRestraint.make_faux_bond_restraint(pdb_ids),0)
+                print(f"Added faux bond: {lig_dtag} to {prot_dtag}")
+                
+                # For easy compatibility with highway methods, make faux angles too (used for making highway variables).
+                for other_prot_dtag in protein_side_bonded:
+                    tags=(other_prot_dtag,prot_dtag,lig_dtag)
+                    pdb_ids = [f"{t.atom_name()}     A{ordered_atom_lookup.res_names[t.resnum()]}     A      {t.resnum()}" for t in tags]
+                    self.add(RestraintsHandler.AngleRestraint.make_faux_angle_restraint(pdb_ids),0)
+                    print(f"Added faux angle: {tags}")
+                for other_lig_dtag in ligand_side_bonded:
+                    tags=(prot_dtag,lig_dtag,other_lig_dtag)
+                    pdb_ids = [f"{t.atom_name()}     A{ordered_atom_lookup.res_names[t.resnum()]}     A      {t.resnum()}" for t in tags]
+                    self.add(RestraintsHandler.AngleRestraint.make_faux_angle_restraint(pdb_ids),0)
+                    print(f"Added faux angle: {tags}")
+                    
+
+
+                
+        ####### NONBONDED GEOMETRY #######
 
         print("WARNING: assuming residue numbers are all unique")
         print("WARNING: assuming elements all single character")
 
 
         def within_n_bonds(n,disordered_tag_A:DisorderedTag,disordered_tag_B:DisorderedTag,already_checked=None,debug_print=False):
+            # already_checked tracks the atom that we are coming from 
             if type(disordered_tag_A) is OrderedTag:
                 disordered_tag_A=disordered_tag_A.disordered_tag()
             if type(disordered_tag_B) is OrderedTag:
@@ -817,23 +866,8 @@ class RestraintsHandler:
             #TODO can speed up a lot by generating symmetric grid and assigning atoms to voxels and checking if in same or neighbouring voxels,
             # rather than calculating distances between every single atom and checking if within max_nonbond_sep...
 
+          
 
-
-            def phenix_vdw_from_pdb_ids(pdb1:str,pdb2:str):
-                conformer_tags = RestraintsHandler.Constraint.ORDERED_site_tags_from_pdb_ids((pdb1,pdb2)) 
-                key = tuple(conformer_tags)
-                if key not in phenix_vdw_distances_table:
-                    return None
-                return phenix_vdw_distances_table[key]
-            def phenix_vdw(confA:OrderedTag,confB:OrderedTag,is_symm:bool,table):
-                key = (confA,confB,is_symm)
-                if key not in table:
-                    return None
-                return table[key]
-            
-
-            last_num_found_LJ=last_num_found_clashes=0
-            # TODO  XXX XXX CRITICAL !!!!!!!!!! Loop through the phenix_vdw_distances_table instead.
             for table_kind,table,interaction_str in zip(
                 (RestraintsHandler.NonbondRestraint,RestraintsHandler.ClashRestraint),
                 (phenix_vdw_distances_table,phenix_clash_distances_table),
@@ -898,22 +932,6 @@ class RestraintsHandler:
                         )[sep_idx]
                         min_separation=min(ordered_min_separation,min_separation)
                     
-                        # if atoms_in_LO_variable_string("Clash_160.HG1_E|1573.O_B",(atomA,atomB)):
-                        #     print(atomA_ordered.get_altloc(),atomB_ordered.get_altloc())
-                        #     print(confA,confB)
-                        #     print(confA.resnum(),confA.atom_name())
-                        #     print(confB.resnum(),confB.atom_name())
-                        #     print(ordered_atom_lookup.better_dict[confA.resnum()][confA.atom_name()])
-                        #     print(ordered_atom_lookup.better_dict[confB.resnum()][confB.atom_name()])
-                        #     print(ordered_min_separation)
-                        #     print(min_separation)
-                        # if atoms_in_LO_variable_string("Clash_160.HG1_B|1573.O_B",(atomA_ordered,atomB_ordered)):
-                        #     print("=====")
-                        #     print(ordered_min_separation)
-                        #     print(min_separation)
-                        #     print(atomA_ordered.get_coord())
-                        #     print(atomB_ordered.get_coord())
-                        #     asdads
 
 
                 #if atoms_in_LO_variable_string("Nonbond_30.C_B|31.CA_B",(atomA,atomB)):

@@ -32,6 +32,7 @@ class OrderedAtomLookup: #TODO pandas?
         self.chain_dict:dict[str,str] = {}  # res_num, chain id
         self.alt_pos_options:dict[DisorderedTag,list[dict[str,Atom]]]={}
         self.water_residue_nums:list[int]=[]
+        self.other_residue_nums:list[int]=[]
 
         self.waters_allowed=waters
 
@@ -88,6 +89,9 @@ class OrderedAtomLookup: #TODO pandas?
                 #self.residue_sources.append(disorderedAtom.get_parent())
                 if is_water:
                     self.water_residue_nums.append(res_num)
+                elif self.res_names[res_num] not in ["ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE",
+                                                     "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL"] + ["CSD",]:
+                    self.other_residue_nums.append(res_num)
             else: 
                 if is_water:
                     assert res_num in self.water_residue_nums, f"Waters cannot reuse residue sequence numbers used in protein (res {res_num}) , {DisorderedTag.from_atom(disorderedAtom)}"

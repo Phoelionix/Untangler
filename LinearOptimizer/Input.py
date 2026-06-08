@@ -51,7 +51,7 @@ from LinearOptimizer.RestraintsHandler import RestraintsHandler, atoms_in_LO_var
 from Untwist import untwist
 
 #ALTERNATE_POSITIONS_FACTOR=1
-MAIN_CHAIN_WEIGHT=10
+MAIN_CHAIN_WEIGHT=1
 ALTERNATE_POSITIONS_FACTOR=1
 ALTERNATE_POSITIONS_Z_SCORE_FACTOR=1
 #HYDROGEN_RESTRAINTS=False # If False, hydrogen restraints will be ignored.
@@ -954,7 +954,7 @@ class LP_Input:
                                     a.get_name(),
                                     [p.get_fullname() for p in possible_parents]
                                 ).strip()
-                            except:
+                            except Exception as e:
                                 error_line=f"Could not find parent atom of {DisorderedTag(res_num,a.get_name())}"
                                 if error_line not in error_lines:
                                     error_lines.append(error_line)
@@ -1195,6 +1195,7 @@ class LP_Input:
         disordered_connection_echoes:dict[str,list[LP_Input.Geomection]]={}
 
         if len(child_parent_altloc_dict)==0:
+            # Model does not have splits in conformations
             return chunk_echoes,disordered_connection_echoes
         
 

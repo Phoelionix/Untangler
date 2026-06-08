@@ -13,3 +13,5 @@ untwist_moves_*.txt
 *.png
 *coot-history.*
 *.log
+4PSS_*/
+*LIG_TMP/

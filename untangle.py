@@ -35,7 +35,7 @@ CLEAR_SOLVENT_AROUND_SIDECHAINS_BEFORE_SWAP=False
 DISABLE_WATER_ALTLOC_OPTIM=False
 TURN_OFF_BULK_SOLVENT=False
 CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=False
-PHENIX_ORDERED_SOLVENT=False
+PHENIX_ORDERED_SOLVENT=True
 PHENIX_filter_ordered_solvent_FIRST=False
 PHENIX_ORDERED_SOLVENT_APPLIED_ONCE=False # Apply in a single macro cycle each loop
 PHENIX_SAME_OCC_ORDERED_SOLVENT=False
@@ -47,22 +47,23 @@ PHENIX_DISABLE_NQH=True
 ILP_IGNORES_WATERS=False
 
 REFINE_ADP_WHEN_REFINING_POSITIONS=True
-WU_MULT_WHEN_REFINING_POSITIONS=1.2
 
-REFINE_FOR_POSITIONS_UNTIL_WORSE=True
+
+REFINE_FOR_POSITIONS_UNTIL_WORSE=False; WU_MULT_WHEN_REFINING_POSITIONS=1.0
+#REFINE_FOR_POSITIONS_UNTIL_WORSE=True; WU_MULT_WHEN_REFINING_POSITIONS=1.2
 
 
 FORCE_DIVVY_REFINE_INTO_SINGLE_LOOPS_PHENIX=False
 
 DISABLE_ALTLOC_SUBSET_REFINE=True
 
-EVEN_SPLIT_PROTEIN_OCCUPANCIES=True
+EVEN_SPLIT_PROTEIN_OCCUPANCIES=False
 
-TIMEOUT_MINS_FACTOR=30
+TIMEOUT_MINS_FACTOR=30 # 1
 
 
 
-SITES_FORMULATION=True
+SITES_FORMULATION=False
 
 DISABLE_UNTANGLE_FOR_CONTROL=False
 
@@ -80,6 +81,7 @@ else:
 class Untangler():
     output_dir = os.path.join(UNTANGLER_WORKING_DIRECTORY,"output","")
     refine_shell_file=os.path.join(UNTANGLER_WORKING_DIRECTORY,"Refinement","Refine.sh")
+    #refine_shell_file=os.path.join(UNTANGLER_WORKING_DIRECTORY,"Refinement","TmpRefine.sh")
     refine_refmac_shell_file=os.path.join(UNTANGLER_WORKING_DIRECTORY,"Refinement","Refine_refmac.sh")
     ####
     # Skip stages. Requires files to already have been generated (up to the point you are debugging).
@@ -107,9 +109,7 @@ class Untangler():
     #default_scoring_function = staticmethod(RestraintsHandler.log_chi)
     debug_skip_to_loop=0
     debug_force_subsets=None # ["BDEF"] # None
-    #debug_force_subsets=["BDEF"] # None
     num_loops_not_refine_H=0
-    #untwist_moves_enabled=True
     untwist_moves_enabled=False
     untwist_moves_enabled_on_mainch_only_loop=False
     num_loops_not_untwist=0 
@@ -260,6 +260,8 @@ class Untangler():
         # pdb_file_path: path to starting model
         # hkl_file_path: path to reflection data.
         # TODO Currently assume in data folder.
+        if UntangleFunctions.QUICK_TEST_MODE:
+            print("######## QUICK TEST MODE ########")
         assert hkl_file_path[-4:]==".mtz", f"hkl path doesn't end in '.mtz': {hkl_file_path}"
         self.hkl_path = os.path.abspath(hkl_file_path) 
         #assert os.path.dirname(hkl_file_path)[-5:-1]=="data", hkl_file_path    
@@ -841,7 +843,7 @@ class Untangler():
         #strategy=Untangler.Strategy.SwapManyPairs
 
         working_model = self.current_model
- 
+        #prepare_pdb(self.current_model,self.current_model+"_fmtd")
         
         if not self.never_do_unrestrained:        
             # Do we skip unrestrained refinement this loop?
@@ -2012,21 +2014,22 @@ def main():
             RestraintsHandler.AngleRestraint: 80,
             #RestraintsHandler.NonbondRestraint: 0.1,
             RestraintsHandler.NonbondRestraint: 0,
-            #RestraintsHandler.ClashRestraint: 1e8,
-            #RestraintsHandler.ClashRestraint: 1e7,#1e2,
-            RestraintsHandler.ClashRestraint: 1e7,
+            RestraintsHandler.ClashRestraint: 1e6,
+            #RestraintsHandler.ClashRestraint: 1e7,
+            #RestraintsHandler.ClashRestraint: 0,
             RestraintsHandler.TwoAtomPenalty: 0,
             RestraintsHandler.Dihedral: 0,
             RestraintsHandler.Planarity: 0,
         }
-    end_loop_cycles=6
+    #end_loop_cycles=6
+    end_loop_cycles=10
     if PHENIX_ORDERED_SOLVENT and not PHENIX_ORDERED_SOLVENT_APPLIED_ONCE:
-        end_loop_cycles=10
+        end_loop_cycles=12
     Untangler(
         # max_num_best_swaps_considered=5,
         #default_wc=2,endloop_wc=2,refine_for_positions_geo_weight=0.4,
-        #default_wc=0.5,endloop_wc=0.5,refine_for_positions_geo_weight=0, 
-        default_wc=1,endloop_wc=1,refine_for_positions_geo_weight=0, 
+        default_wc=0.5,endloop_wc=0.5,refine_for_positions_geo_weight=0, 
+        #default_wc=1,endloop_wc=1,refine_for_positions_geo_weight=0, 
         default_wu=1,
         num_end_loop_refine_cycles=end_loop_cycles,
         #endloop_wc=3, num_end_loop_refine_cycles=1,

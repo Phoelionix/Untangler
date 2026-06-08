@@ -211,7 +211,7 @@ def add_CA_highway(left_num,right_num,composite_highways, composition_dictionary
     # NB: Whole thing with specifying left and right altlocs is redundant and makes things much more complex. We are adding all. (Though the approach could be useful when connecting to sidechains. )
     same_args=(composite_highways, composition_dictionary,CA_altlocs)
     
-    assert right_num > left_num+1, (right_num,left_num)
+    assert right_num > left_num+1, (left_num,right_num)
     if left_altlocs is None:
         left_altlocs = CA_altlocs[left_num]
     if right_altlocs is None:
@@ -292,11 +292,13 @@ def angles_from_dict(triplet:list[DisorderedTag],constr_var_dictionary:dict[str,
 
     assert not must_exist,triplet
 
-ALL_ALTLOCS="ABCD" # FIXME
 # stupidity
 def build_highway(atom_chain:list[DisorderedTag],composite_highways:dict[OrderedTag,dict[OrderedTag,tuple[pl.LpVariable,list[pl.LpConstraint]]]], composition_dictionary,constr_var_dictionary:dict[str, dict[str, tuple[LP_Input.Geomection,pl.LpVariable]]],left_altlocs=None,right_altlocs=None,first_call=True,join_only=False):
     # Recursively build highways and their composite highways as necessary
     # NB: Whole thing with specifying left and right altlocs is redundant and makes things much more complex. We are adding all. (Though the approach could be useful when connecting to sidechains. )
+    
+    
+    ALL_ALTLOCS=list(set(tag.altloc() for tag in composite_highways)) # FIXME want to get the (from-)altlocs of the atoms directly.
     
 
     assert len(set(atom_chain))==len(atom_chain),atom_chain
@@ -394,7 +396,7 @@ def build_highway(atom_chain:list[DisorderedTag],composite_highways:dict[Ordered
             ###
             if abs(right_node_idx-left_node_idx)==1:
                 # 1 bond away! Extend left side to connect with right
-                print(f"Bond-joined {right_node} - {left_node}")
+                #print(f"Bond-joined {right_node} - {left_node}")
                 bond_hw=bond_as_highway(left_node,right_node,constr_var_dictionary)
                 extended_from_left,extended_from_left_composition=highway_from_highways(left_highways,bond_hw)
                 left_highways=extended_from_left
@@ -436,7 +438,7 @@ def build_highway(atom_chain:list[DisorderedTag],composite_highways:dict[Ordered
                         composition_dictionary[key]={}
                     composite_highways[key] |= bridge[key]
                     composition_dictionary[key] |= bridge_composition[key]
-                print(f"Joined at {right_node}")
+                #print(f"Joined at {right_node}")
             else:
                 assert not join_only
                 # Build into the smallest gap
@@ -731,17 +733,8 @@ def construct_remaining_highways(LD_geomections:list[LP_Input.Geomection],constr
             indiv_bonded_atom_tags.extend([t for t in bond_tags_list[-1]])
     
     
-    class recursionlimit:
-        def __init__(self, limit):
-            self.limit = limit
-
-        def __enter__(self):
-            self.old_limit = sys.getrecursionlimit()
-            sys.setrecursionlimit(self.limit)
-
-        def __exit__(self, type, value, tb):
-            sys.setrecursionlimit(self.old_limit)
-    def make_atom_chain(disordered_tag_A:DisorderedTag,disordered_tag_B:DisorderedTag,sequence=None,max_depth=4000,debug_print=False,must_find=True):
+    def make_atom_chain(disordered_tag_A:DisorderedTag,disordered_tag_B:DisorderedTag,sequence=None,max_depth=4000,debug_print=False,must_find=True,intra_protein_search=True,max_depth_fatal=True):
+        #FIXME this isn't working properly, only goes one way!
         
         if type(disordered_tag_A) is OrderedTag:
             disordered_tag_A=disordered_tag_A.disordered_tag()
@@ -752,6 +745,8 @@ def construct_remaining_highways(LD_geomections:list[LP_Input.Geomection],constr
             
         
         if disordered_tag_A not in indiv_bonded_atom_tags or disordered_tag_B not in indiv_bonded_atom_tags:
+            print(disordered_tag_A,disordered_tag_A in indiv_bonded_atom_tags)
+            print(disordered_tag_B,disordered_tag_B in indiv_bonded_atom_tags) 
             assert False, (disordered_tag_A,disordered_tag_B)
         
         if frozenset((disordered_tag_A,disordered_tag_B)) in bond_tags_list:
@@ -759,25 +754,45 @@ def construct_remaining_highways(LD_geomections:list[LP_Input.Geomection],constr
             return sequence+[disordered_tag_B,]
         
         if max_depth>1:
-            tags_to_search=[list(tags) for tags in bond_tags_list if (disordered_tag_A in tags) and all(t not in tags for t in sequence[:-1])] # since sequence[-1] is disordered_tag_A
-            if len(tags_to_search)==0:
+            def search(from_tag:DisorderedTag, # Searching from
+                       to_tag:DisorderedTag, # Searching for 
+                       sequence:list[DisorderedTag]):
+                assert from_tag==sequence[-1]
+                tags_to_search=[list(tags) for tags in bond_tags_list if (from_tag in tags) and all(t not in tags for t in sequence[:-1])] # since sequence[-1] is disordered_tag_A
+                if len(tags_to_search)==0:
+                    return None
+                for tags in tags_to_search:
+                    next_tag=tags[1-tags.index(from_tag)]
+                    if abs(next_tag.resnum()-to_tag.resnum()) > abs(from_tag.resnum()-to_tag.resnum()) and intra_protein_search:
+                        # This is the wrong direction (ignoring crosslinks)
+                        continue  
+                    returned_sequence = make_atom_chain(next_tag,to_tag,sequence+[next_tag,],
+                                                        max_depth=max_depth-1,debug_print=debug_print,must_find=False,
+                                                        intra_protein_search=intra_protein_search,max_depth_fatal=max_depth_fatal)
+                    if returned_sequence is not None:
+                        return returned_sequence
+                if debug_print: print(f"Dead end at {from_tag} -> {to_tag}. Sequence: {sequence}")
                 return None
-            for tags in tags_to_search:
-                next_tag=tags[1-tags.index(disordered_tag_A)]
-                if abs(next_tag.resnum()-disordered_tag_B.resnum()) > abs(disordered_tag_A.resnum()-disordered_tag_B.resnum()):
-                    # This is the wrong direction (ignoring crosslinks)
-                    continue  
-                returned_sequence = make_atom_chain(next_tag,disordered_tag_B,sequence+[next_tag,],
-                                                    max_depth=max_depth-1,debug_print=debug_print,must_find=False)
-                if returned_sequence is not None:
-                    return returned_sequence
-        if max_depth <= 1 or must_find:
-            assert False, f"Not found, {disordered_tag_A},{disordered_tag_B}, " + (f"{sequence}\ndepth limit reached!" if max_depth<=1 else tags_to_search.__repr__())
+                    
+                    
+            returned_sequence = search(disordered_tag_A,disordered_tag_B,sequence)
+
+            if returned_sequence is not None:
+                return returned_sequence
+            
+        if must_find or (max_depth <= 1 and max_depth_fatal):
+            tags_to_search_A = [list(tags) for tags in bond_tags_list if (disordered_tag_A in tags) and all(t not in tags for t in sequence[:-1])]
+            tag_search_str = tags_to_search_A.__repr__()
+            assert False, f"Not found, {disordered_tag_A},{disordered_tag_B}, " + (f"{sequence}\ndepth limit reached!" if max_depth<=1 else tag_search_str)
     
-    for geom in LD_geomections:
+    print("Constructing remaining highways")
+    for i, geom in enumerate(LD_geomections):
+        if i%500==0:
+            print(f"{i}/{len(LD_geomections)} long-distance geomections processed")
         end_tags=(geom.atom_chunks[0].get_ordered_tag(),geom.atom_chunks[-1].get_ordered_tag())
         skip=False
-        if any(t.resnum() not in CA_altlocs for t in end_tags): # XXX # i.e. not protein...
+        #if any(t.resnum() not in CA_altlocs for t in end_tags): # XXX # i.e. not protein...
+        if any(ch.is_water for ch in geom.atom_chunks): 
             skip=True 
         if end_tags[0].resnum()==end_tags[-1].resnum():
             print(f"Skipping {end_tags}")
@@ -786,32 +801,61 @@ def construct_remaining_highways(LD_geomections:list[LP_Input.Geomection],constr
             #print(f"Skipping {end_tags}")
             continue
 
+        CA_resnums=[end_tags[0].resnum(),end_tags[1].resnum()]
+        # If a CA isn't in this "residue" it's a ligand. Find shortest chain to a protein CA (through faux bond restraint).
+
+        # FIXME extremely stupid and takes ages.
+        make_chain_kwargs=[{},{}]
+        for i, resnum in enumerate(CA_resnums): 
+            if resnum not in CA_altlocs:
+                shortest_chain_length=1e10
+                #for CA_resnum in CA_altlocs:
+                make_chain_kwargs[i]=dict(intra_protein_search=True,max_depth=20,max_depth_fatal=False)
+                for protein_CA_resnum in (54,62,149,154):# TEMP FIXME
+                    try:
+                        chain = make_atom_chain(DisorderedTag(protein_CA_resnum,"CA"),end_tags[i],must_find=True,**make_chain_kwargs[i]) # debug_print=(CA_resnum==149 and end_tags[i].resnum()==161) 
+                    except Exception as e:
+                        print(e) 
+                        continue
+                    if len(chain) < shortest_chain_length:
+                        shortest_chain_length=len(chain)
+                        CA_resnums[i]=protein_CA_resnum
+                assert CA_resnums[i] in CA_altlocs, (resnum, CA_resnums[i])
+
         # Construct a chain from each atom to its residue's CA. 
         LH_highways=None
         if end_tags[0].atom_name()!="CA":
-            atom_chain_left = make_atom_chain(DisorderedTag(end_tags[0].resnum(),"CA"),end_tags[0],must_find=True) 
-            assert (atom_chain_left[0],atom_chain_left[-1]==DisorderedTag(end_tags[0].resnum(),"CA"),end_tags[0]), (DisorderedTag(end_tags[0].resnum(),"CA"),end_tags[0], atom_chain_left)
+            atom_chain_left = make_atom_chain(DisorderedTag(CA_resnums[0],"CA"),end_tags[0],must_find=True,**make_chain_kwargs[0]) 
+            assert (atom_chain_left[0],atom_chain_left[-1])==(DisorderedTag(CA_resnums[0],"CA"),end_tags[0].disordered_tag()), (DisorderedTag(CA_resnums[0],"CA"),end_tags[0], atom_chain_left)
             LH_highways = build_highway(atom_chain_left,composite_highways,composition_dictionary,constr_var_dict)
             
         RH_highways=None
         if end_tags[-1].atom_name()!="CA":
-            atom_chain_right=make_atom_chain(DisorderedTag(end_tags[1].resnum(),"CA"),end_tags[1],must_find=True) 
-            assert (atom_chain_right[0],atom_chain_right[-1]==DisorderedTag(end_tags[1].resnum(),"CA"),end_tags[1]), (DisorderedTag(end_tags[1].resnum(),"CA"),end_tags[1], atom_chain_right)
+            atom_chain_right=make_atom_chain(DisorderedTag(CA_resnums[1],"CA"),end_tags[1],must_find=True,**make_chain_kwargs[1]) 
+            assert (atom_chain_right[0],atom_chain_right[-1])==(DisorderedTag(CA_resnums[1],"CA"),end_tags[1].disordered_tag()), (DisorderedTag(CA_resnums[1],"CA"),end_tags[1], atom_chain_right)
             RH_highways = build_highway(atom_chain_right,composite_highways,composition_dictionary,constr_var_dict)
 
 
         central_highways={}
         # TODO we need a highway object. Could then go LH_highways.right_tag.resnum() or even 
         # LH_highways.tag("CA").resnum() which throws error if not a highway with CA at one and only one end.
-        for LH_altloc in CA_altlocs[end_tags[0].resnum()]:  
-            LH_tag=OrderedTag(end_tags[0].resnum(),"CA",LH_altloc)
+        if CA_resnums[0]==CA_resnums[1]:
+            if LH_highways is not None and RH_highways is not None:
+                add_highway_from_highways(LH_highways,RH_highways, composite_highways,composition_dictionary)
+            else:
+                # Already built!
+                pass
+            continue
+
+        for LH_altloc in CA_altlocs[CA_resnums[0]]:  
+            LH_tag=OrderedTag(CA_resnums[0],"CA",LH_altloc)
             central_highways[LH_tag]={}
-            for RH_altloc in CA_altlocs[end_tags[-1].resnum()]:
-                RH_tag=OrderedTag(end_tags[1].resnum(),"CA",RH_altloc)
+            for RH_altloc in CA_altlocs[CA_resnums[1]]:
+                RH_tag=OrderedTag(CA_resnums[1],"CA",RH_altloc)
                 central_highways[LH_tag][RH_tag] = get_highway(LH_tag,RH_tag,composite_highways)
                 if central_highways[LH_tag][RH_tag] is None:
                     print(f"ERROR [ remaining highways ]: missing highway between {LH_tag} and {RH_tag}. (Needed for {geom.connection_type}, {[ch.get_ordered_tag() for ch in geom.atom_chunks]}). Constructing ad hoc.")
-                    add_CA_highway(LH_tag.resnum(),RH_tag.resnum(),composite_highways,composition_dictionary,CA_altlocs)
+                    add_CA_highway(*sorted((LH_tag.resnum(),RH_tag.resnum())),composite_highways,composition_dictionary,CA_altlocs)
                     central_highways[LH_tag][RH_tag] = get_highway(LH_tag,RH_tag,composite_highways)
                     assert central_highways[LH_tag][RH_tag] is not None
 

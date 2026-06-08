@@ -1,7 +1,6 @@
 
 
 
-#%%
 from Bio.PDB.Structure import Structure#, parse_pdb_header
 from Bio.PDB.PDBIO import PDBIO
 from Bio.PDB import PDBParser
@@ -19,7 +18,9 @@ NUM_THREADS=20
 
 
 NO_UNRESTRAINED=False
-NO_INDIV_WEIGHTS=True
+NO_INDIV_WEIGHTS=False
+
+QUICK_TEST_MODE=True
 
 RING_NAME_GROUPING=False # Note argument forbid_CECD12_changes in LinearOptimizer.solve()
 TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY=True # Because generating data is incredibly slow with multiple altlocs.  # TODO replace with generating for each altloc in parallel then taking average.
@@ -38,7 +39,8 @@ for symbol in ATOMS:
     i+=1
     NUM_E[symbol] = i
 
-UNTANGLER_WORKING_DIRECTORY= os.path.join(os.path.abspath(os.getcwd()),"")
+UNTANGLER_WORKING_DIRECTORY=os.path.join(os.path.dirname(os.path.abspath(__file__)),"")
+
 
 def model_handle(model_handle_or_path):
     assert type(model_handle_or_path)==str
@@ -374,7 +376,52 @@ NAP  P2B  O1X   DOUB  N  N  76
 NAP  P2B  O2X   SING  N  N  77  
 NAP  P2B  O3X   SING  N  N  78  
 NAP  O2X  HOP2  SING  N  N  79  
-NAP  O3X  HOP3  SING  N  N  80"""
+NAP  O3X  HOP3  SING  N  N  80
+1CX   C1      C2    single        1.528 0.020
+1CX   C2      C3    single        1.530 0.020
+1CX   C2      C4    single        1.528 0.020
+1CX   N6      C16   triple        1.133 0.020
+1CX   C5      C4    single        1.526 0.020
+1CX   C5      O1    single        1.400 0.020
+1CX   C4      N1    single        1.452 0.020
+1CX   N1      C6    single        1.453 0.020
+1CX   C16     C15   single        1.527 0.020
+1CX   C6      C9    aromatic      1.375 0.020
+1CX   C6      N2    aromatic      1.324 0.020
+1CX   C10     C9    aromatic      1.371 0.020
+1CX   C10     C11   aromatic      1.366 0.020
+1CX   C15     N5    aromatic      1.329 0.020
+1CX   C15     C12   aromatic      1.366 0.020
+1CX   C9      C8    aromatic      1.346 0.020
+1CX   N5      N4    aromatic      1.387 0.020
+1CX   N2      C7    aromatic      1.358 0.020
+1CX   C11     C12   single        1.526 0.020
+1CX   C11     N7    aromatic      1.346 0.020
+1CX   C12     C13   aromatic      1.366 0.020
+1CX   C8      N7    aromatic      1.379 0.020
+1CX   C8      N3    aromatic      1.341 0.020
+1CX   N4      C13   aromatic      1.329 0.020
+1CX   N4      C14   single        1.451 0.020
+1CX   C7      N3    aromatic      1.355 0.020
+1CX   C3      H5    single        1.086 0.020
+1CX   C3      H7    single        1.085 0.020
+1CX   C3      H6    single        1.086 0.020
+1CX   C14     H18   single        1.086 0.020
+1CX   C14     H17   single        1.086 0.020
+1CX   C14     H16   single        1.086 0.020
+1CX   C1      H3    single        1.086 0.020
+1CX   C1      H1    single        1.087 0.020
+1CX   C1      H2    single        1.086 0.020
+1CX   C10     H14   single        1.083 0.020
+1CX   C13     H15   single        1.083 0.020
+1CX   C2      H4    single        1.083 0.020
+1CX   C4      H8    single        1.083 0.020
+1CX   C5      H10   single        1.084 0.020
+1CX   C5      H9    single        1.084 0.020
+1CX   C7      H13   single        1.083 0.020
+1CX   N1      H12   single        1.001 0.020
+1CX   N7      H19   single        1.001 0.020
+1CX   O1      H11   single        0.944 0.020"""
 
         residueSpecific_dict={}
         for line in extra_cif_restraints.split("\n"):
