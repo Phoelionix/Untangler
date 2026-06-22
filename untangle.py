@@ -39,10 +39,15 @@ PHENIX_DISABLE_CDL=False # Disables the conformation-dependent library for pheni
 
 TIMEOUT_MINS_FACTOR=4
 
-# TODO:
-# down weight swaps that were previously made but need to be made again (i.e. cases where it's not tangled and the density is pushing it a different way.)
-# Try forbid connection changes in sidechain. 
-# Make flag in swap options that says what the altlocs were swapped around. So that on debug reruns the same altlocs can be used.
+
+try:
+    # Test if importing works
+    global cplex
+    import cplex        
+except Exception as e:
+    print(e)
+    print("Note: CPLEX not found.") # If you have an install, check PYTHONPATH has e.g. '~/cplex_install/ILOG/CPLEX_STUDIO2211/cplex/python/3.9/x86-64_linux/' (replace 3.9 with your Python version)"
+
 
 class Untangler():
     output_dir = os.path.join(UNTANGLER_WORKING_DIRECTORY,"output","")

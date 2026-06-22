@@ -1013,6 +1013,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     non_original_variable_history = []
     previously_used_variable_names=[]
 
+    logPath=log_out_dir+"solver_log.txt"
+    print(f"Solver progress will be logged at {logPath}")
+
     for l in range(num_solutions):
         if l > 0 and l <= len(forced_swap_solutions):
             lp_problem.constraints.pop("forcedSwap")
@@ -1022,14 +1025,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 f"forcedSwap"
             )
         
-        print()
         print(f"------- Start loop {l+1} of {num_solutions} ---------")
         if l == 0:
             print("Solving best solution")
         elif l == 1:
-            print("Solving next-best solution")
+            print("Solving next-best solution.")
         else:
-            print(f"Solving {l+1}th-best solution")
+            print("Solving {l+1}th-best solution")
         print(f"-----------------------------------------------------")
         print()
 
@@ -1050,8 +1052,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         elif mins_extra_per_loop != 0:
             print("Warning: extra time per loop is not 0, but there is no time limit")
         #timeLimit=None
-        logPath=log_out_dir+"solver_log.txt"
-        #logPath=None
         #pulp_solver = Solver.CPLX_PY
         pulp_solver = Solver.COIN
         warmStart=True
@@ -1085,6 +1085,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             #path='~/ibm/ILOG/CPLEX_STUDIO2211/cplex'
         elif pulp_solver == Solver.CPLX_PY:
             solver_class = CPLEX_PY
+            try:
+                # Test if importing works
+                global cplex
+                import cplex        
+            except Exception as e:
+                print(e)
+                raise Exception("Importing CPLEX failed, check PYTHONPATH has e.g. '~/cplex_install/ILOG/CPLEX_STUDIO2211/cplex/python/3.9/x86-64_linux/' (replace 3.9 with your Python version)")
         else:
             raise Exception("not implemented")
         #solver = solver_class(timeLimit=timeLimit,threads=THREADS,logPath=logPath,warmStart=warmStart,path=path)
