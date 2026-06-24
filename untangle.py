@@ -1505,8 +1505,11 @@ class Untangler():
                 handle = os.path.basename(out_path)[:-4]
                 tmp_refine_subdir=f"{UntangleFunctions.UNTANGLER_WORKING_DIRECTORY}/Refinement/tmp_refinement/{handle}/"
                 if os.path.isdir(tmp_refine_subdir):
-                    shutil.rmtree(tmp_refine_subdir)
-
+                    try:
+                        shutil.rmtree(tmp_refine_subdir)
+                    except Exception as e:
+                        print(e)
+                        print("Ignoring...")
             # NOTE if somethin goes wrong here, the out_path is a file copied from Refinement/tmp_refinement/, so it can be recovered.
             self.prepare_pdb_and_read_altlocs(out_path,out_path+"tmp",sep_chain_format=False) 
             shutil.move(out_path+"tmp",out_path)
