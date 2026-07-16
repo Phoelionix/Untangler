@@ -144,7 +144,7 @@ refinement {
                  *individual_adp group_adp tls occupancies group_anomalous \
                  den
     sites {
-      individual = water
+      individual = water or resname SOL or resname MN or resname CL
       torsion_angles = None
       rigid_body = None
     }
@@ -754,7 +754,7 @@ refinement {
       validate_user_supplied_groups = True
     }
     clash_guard {
-      nonbonded_distance_threshold = 0.5
+      nonbonded_distance_threshold = None
       max_number_of_distances_below_threshold = 100
       max_fraction_of_distances_below_threshold = 0.1
     }

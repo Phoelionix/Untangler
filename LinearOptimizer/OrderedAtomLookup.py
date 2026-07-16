@@ -31,6 +31,7 @@ class OrderedAtomLookup: #TODO pandas?
         self.better_dict:dict[str,dict[str,dict[str,Atom]]] = {}  # res_num, atom name, altloc
         self.chain_dict:dict[str,str] = {}  # res_num, chain id
         self.alt_pos_options:dict[DisorderedTag,list[dict[str,Atom]]]={}
+        self.protein_residue_nums:list[int]=[]
         self.water_residue_nums:list[int]=[]
         self.other_residue_nums:list[int]=[]
 
@@ -89,8 +90,10 @@ class OrderedAtomLookup: #TODO pandas?
                 #self.residue_sources.append(disorderedAtom.get_parent())
                 if is_water:
                     self.water_residue_nums.append(res_num)
-                elif self.res_names[res_num] not in ["ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE",
-                                                     "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL"] + ["CSD",]:
+                elif self.res_names[res_num] in ["ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE",
+                                                 "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL"] + ["CSD",]:
+                    self.protein_residue_nums.append(res_num)
+                else:
                     self.other_residue_nums.append(res_num)
             else: 
                 if is_water:
