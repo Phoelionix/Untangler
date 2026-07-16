@@ -578,7 +578,7 @@ class RestraintsHandler:
             print(f"Warning: could not scale non-existent constraint: {constraint_type} {site_tags}")
         
     # For constraints that have same ideal and weight regardless of order of from conformer labels. (maybe this should never be used due to conformation-dependent library) 
-    def add(self,constraint:Constraint,residual,debug=False):
+    def add(self,constraint:Constraint,residual,debug=False,at_index=None):
         constraint_object_to_use = None
         first_site = constraint.site_tags[0]
         if first_site in self.atom_constraints:
@@ -590,7 +590,10 @@ class RestraintsHandler:
                     if not debug:
                         break
         if constraint_object_to_use is None:
-            self.constraints.append(constraint)
+            if at_index is None:
+                at_index = len(self.constraints)
+            self.constraints.insert(at_index, constraint)
+            #self.constraints.append(constraint)
             constraint_object_to_use=constraint
         # For each disordered atom site, track constraints it must use
             for site in constraint.site_tags:
@@ -646,6 +649,7 @@ class RestraintsHandler:
         local_nb_scale_factor=1
 
         ####### BONDED GEOMETRY #######
+        last_bond_index=last_angle_index=None
         with open(constraints_file,"r") as f:
             lines = f.readlines()
             for i, line in enumerate(lines):
@@ -672,6 +676,7 @@ class RestraintsHandler:
                     if RestraintsHandler.BondRestraint in constraints_to_skip:
                         continue
                     self.add(RestraintsHandler.BondRestraint(pdb_ids,outlier_ok("BOND",pdb_ids),ideal,weight,sigma),residual)
+                    last_bond_index=len(self.constraints)-1 
                 elif line.startswith("angle"):
                     if RestraintsHandler.AngleRestraint in constraints_to_skip:
                         continue
@@ -691,6 +696,7 @@ class RestraintsHandler:
                     if "O" in (name1,name2,name3):
                         weight*=end_point_angle_scale_factor
                     self.add(RestraintsHandler.AngleRestraint(pdb_ids,outlier_ok("ANGLE",pdb_ids),ideal,weight,sigma),residual)
+                    last_angle_index=len(self.constraints)-1 
                 elif line.startswith("dihedral"):
                     if RestraintsHandler.Dihedral in constraints_to_skip:
                         continue
@@ -718,57 +724,14 @@ class RestraintsHandler:
                     values_string = constraint[0].strip().split("\"")[2]
                     _,  sigma,  weight, _, residual = [float(v) for v in values_string.strip().split()]
                     self.add(RestraintsHandler.Planarity(pdb_ids,outlier_ok("DIHEDRAL",pdb_ids),weight,sigma),residual)
-        ####### INTERMOLECULAR CONNECTORS #######
-        # for new (geomection + highway, no site) formulation, add single faux bond from ligands to protein, 
-        # and TODO between chains/macromolecules
-       
-        # for resnum, resname in ordered_atom_lookup.res_names.items():
-        #     if resname not in (["ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE", "LEU", 
-        #                 "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL"] + ["HOH","SOL"]):
-        for resnum in ordered_atom_lookup.other_residue_nums + ordered_atom_lookup.water_residue_nums:
-            if UntangleFunctions.SITES_FORMULATION:
-                # Don't need this for sites formulation.
-                break
-            closest_distance=np.inf
-            ligand_atom = ordered_atom_lookup.select_atoms_by(res_nums=[resnum,])[0]
-            assert resnum >= 160, (resnum,ordered_atom_lookup.res_names[resnum])
 
-            for atom in ordered_atom_lookup.select_atoms_by(
-                exclude_H=True,
-                res_nums=ordered_atom_lookup.protein_residue_nums):
-                dist = self.BondRestraint.separation(ligand_atom, atom)
-                if dist < closest_distance:
-                    closest_distance=dist
-                    closest_protein_atom=atom
-
-
-            prot_dtag=DisorderedTag.from_atom(closest_protein_atom)
-            lig_dtag=DisorderedTag.from_atom(ligand_atom)
-            protein_side_bonded=bonds_added_dict[prot_dtag] if prot_dtag in bonds_added_dict else []
-            ligand_side_bonded=bonds_added_dict[lig_dtag] if lig_dtag in bonds_added_dict else []
-            pdb_ids = [f"{a.get_name()}     A{OrderedAtomLookup.atom_res_name(a)}     A      {OrderedAtomLookup.atom_res_seq_num(a)}" for a in (closest_protein_atom,ligand_atom)]
-            self.add(RestraintsHandler.BondRestraint.make_faux_bond_restraint(pdb_ids),0)
-            print(f"Added faux bond: {lig_dtag} to {prot_dtag}")
-            
-            # For easy compatibility with highway methods, make faux angles too (used for making highway variables).
-            for other_prot_dtag in protein_side_bonded:
-                tags=(other_prot_dtag,prot_dtag,lig_dtag)
-                pdb_ids = [f"{t.atom_name()}     A{ordered_atom_lookup.res_names[t.resnum()]}     A      {t.resnum()}" for t in tags]
-                self.add(RestraintsHandler.AngleRestraint.make_faux_angle_restraint(pdb_ids),0)
-                print(f"Added faux angle: {tags}")
-            for other_lig_dtag in ligand_side_bonded:
-                tags=(prot_dtag,lig_dtag,other_lig_dtag)
-                pdb_ids = [f"{t.atom_name()}     A{ordered_atom_lookup.res_names[t.resnum()]}     A      {t.resnum()}" for t in tags]
-                self.add(RestraintsHandler.AngleRestraint.make_faux_angle_restraint(pdb_ids),0)
-                print(f"Added faux angle: {tags}")
-                
 
 
                 
         ####### NONBONDED GEOMETRY #######
 
         print("WARNING: assuming residue numbers are all unique")
-        print("WARNING: assuming elements all single character")
+        print("WARNING: may be assuming elements all single character")
 
 
         def within_n_bonds(n,disordered_tag_A:DisorderedTag,disordered_tag_B:DisorderedTag,already_checked=None,debug_print=False):
@@ -1071,3 +1034,74 @@ class RestraintsHandler:
                     #self.scale_constraint_weight(pdb_ids,RestraintsHandler.ClashRestraint,10*badness)
                     self.add_two_atom_penalty(RestraintsHandler.TwoAtomPenalty(pdb_ids,outlier_ok("PENALTY",pdb_ids)),None,altloc,100*badness)
 
+
+
+        ####### INTERMOLECULAR CONNECTORS #######
+        # for new (geomection + highway, no site) formulation, add single faux bond from ligands to protein, 
+        # and TODO between chains/macromolecules
+       
+        resnums_connected_to_protein=[]
+        self.faux_bond_dict:dict[int,tuple[DisorderedTag,DisorderedTag]]={} 
+        for resnum in ordered_atom_lookup.other_residue_nums + ordered_atom_lookup.water_residue_nums:
+            if UntangleFunctions.SITES_FORMULATION:
+                # Don't need this for sites formulation.
+                break
+            assert resnum>=160
+            
+            ligand_atom = ordered_atom_lookup.select_atoms_by(res_nums=[resnum,],only_protein_altlocs=False)[0]
+
+            lig_dtag=DisorderedTag.from_atom(ligand_atom) # or water
+            skip_water_water_connectors=False
+            if  (resnum in ordered_atom_lookup.water_residue_nums 
+              and (((lig_dtag not in self.atom_constraints) or (len(self.atom_constraints[lig_dtag])<=1) ) # trivial - entirely determined by best choice for one geometry. No need to encode.
+              #or (len(self.atom_constraints[lig_dtag])<=2 and  all(all(t.resnum() in ordered_atom_lookup.water_residue_nums for t in constr.site_tags) for constr in self.atom_constraints[lig_dtag])) )   # Not producing a loop with protein. (If it's loop with water, well, too bad.)
+              or (skip_water_water_connectors and all(all(t.resnum() in ordered_atom_lookup.water_residue_nums for t in constr.site_tags) for constr in self.atom_constraints[lig_dtag]) ))   # Not producing a loop with protein. (If it's loop with water, well, too bad.)
+              # TODO not working?
+              ):
+                assert lig_dtag.atom_name()=="O" # Assuming no hydrogen...
+                continue 
+            
+            closest_distance=np.inf
+            for atom in ordered_atom_lookup.select_atoms_by(
+                exclude_H=True,
+                res_nums=ordered_atom_lookup.protein_residue_nums + resnums_connected_to_protein):
+                dist = self.BondRestraint.separation(ligand_atom, atom)
+                if dist < closest_distance:
+                    closest_distance=dist
+                    closest_protein_atom=atom
+
+
+            prot_dtag=DisorderedTag.from_atom(closest_protein_atom)
+
+
+
+            protein_side_bonded=bonds_added_dict[prot_dtag] if prot_dtag in bonds_added_dict else []
+            ligand_side_bonded=bonds_added_dict[lig_dtag] if lig_dtag in bonds_added_dict else []
+            pdb_ids = [f"{a.get_name()}     A{OrderedAtomLookup.atom_res_name(a)}     A      {OrderedAtomLookup.atom_res_seq_num(a)}" for a in (closest_protein_atom,ligand_atom)]
+            self.add(RestraintsHandler.BondRestraint.make_faux_bond_restraint(pdb_ids),0,at_index=last_bond_index+1)
+            last_bond_index+=1 # XXX
+            last_angle_index+=1 # XXX
+            print(f"Added faux bond: {lig_dtag} to {prot_dtag}")
+            
+            # For easy compatibility with highway methods, make faux angles too (used for making highway variables).
+            for other_prot_dtag in protein_side_bonded:
+                tags=(other_prot_dtag,prot_dtag,lig_dtag)
+                pdb_ids = [f"{t.atom_name()}     A{ordered_atom_lookup.res_names[t.resnum()]}     A      {t.resnum()}" for t in tags]
+                self.add(RestraintsHandler.AngleRestraint.make_faux_angle_restraint(pdb_ids),0,at_index=last_angle_index+1)
+                last_angle_index+=1 # XXX
+                print(f"Added faux angle: {tags}")
+            for other_lig_dtag in ligand_side_bonded:
+                tags=(prot_dtag,lig_dtag,other_lig_dtag)
+                pdb_ids = [f"{t.atom_name()}     A{ordered_atom_lookup.res_names[t.resnum()]}     A      {t.resnum()}" for t in tags]
+                self.add(RestraintsHandler.AngleRestraint.make_faux_angle_restraint(pdb_ids),0,at_index=last_angle_index+1)
+                last_angle_index+=1 # XXX
+                print(f"Added faux angle: {tags}")
+            
+            for s in (prot_dtag,lig_dtag):
+                if s not in bonds_added_dict:
+                    bonds_added_dict[s]=[]
+            bonds_added_dict[prot_dtag].append(lig_dtag)
+            bonds_added_dict[lig_dtag].append(prot_dtag)
+            self.faux_bond_dict[resnum]=(prot_dtag,lig_dtag)
+            resnums_connected_to_protein.append(resnum)
+            

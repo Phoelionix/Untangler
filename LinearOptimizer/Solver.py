@@ -126,7 +126,8 @@ def add_sos2(lp_problem:LpProblem,sos2_name,sos2_rule):
 
 
 
-def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
+def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]], faux_bond_dict:dict[int,tuple[DisorderedTag,DisorderedTag]],
+          out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
           inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=3,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
           inert_water_sites=False,
           #gapRel=0.001,
@@ -297,12 +298,18 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 improvement_factors_to_tolerate=np.array([100,4,2,1.5,1,0.75]) 
 
         # TODO remove altloc_run_subset_size variable, replace
-        num_subset_runs=1
         #improvement_factors_to_tolerate=np.array([2,0.8]) 
-        improvement_factors_to_tolerate=np.array([20,5,3,2,1.01,0.8,0.6,0.4,0.2,0.1]) 
         #start_of_round_altloc_subset_size=max(2,math.ceil(len(all_altlocs)/2))
-        start_of_round_altloc_subset_size=6
         #improvement_factors_to_tolerate=np.array([1.01]) 
+
+
+        # num_subset_runs=1
+        # improvement_factors_to_tolerate=np.array([20,5,3,2,1.01,0.8,0.6,0.4,0.2,0.1]) 
+        # start_of_round_altloc_subset_size=6
+
+        num_subset_runs=1
+        improvement_factors_to_tolerate=np.array([100,50,20,5,3,2,1.01,0.8]) 
+        start_of_round_altloc_subset_size=6
 
         ALTLOC_RUN_SUBSET_SIZES=[start_of_round_altloc_subset_size,]*num_subset_runs
 
@@ -601,7 +608,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                             and ch.name not in ["CG"]:
                                 return True
                         elif ch.get_resname()=="FOL":
-                            if ch.name in ["C12","C13","C14","C15","C16"
+                            if ch.name in ["C11","C12","C13","C14","C15","C16"
                                            "C7","N5","C4A","N8","C8A",
                                            "N1","C2","N3",]:
                                 return True
@@ -817,6 +824,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         allowed_geomection_var_dict:dict[str,tuple[LP_Input.Geomection,LpVariable]]={} # indexed by from_altloc
         for altlocs_key, (geomection, var_active) in geomection_var_dict.items():
 
+            #TEMPORARY ####
+            if geomection.ts_distance==0:
+                geomection.ts_distance=0.1
+            ###############
+
             is_flexible=False
             is_bad_original_constraint=False
             allowed_sequence:list[bool]=None
@@ -929,8 +941,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 allowed_geomection_var_dict[altlocs_key]=(geomection, var_active)
                 # if not involves_link:
                 #     no_link_geoms.append(geomection)
-                if geomection not in small_fry:
-                    assert geomection.ts_distance>=0, (geomection,geomection.ts_distance)
+                if geomection not in small_fry and geomection.ts_distance>0:
+                    #assert geomection.ts_distance>=0, (geomection,geomection.ts_distance)
                     #if geomection.connection_type == RestraintsHandler.ClashRestraint:
                     distance_vars.append(geomection.ts_distance*var_active)
             # TODO change "not (is_flexible or is_bad_original_constraint or allowed)" to "always_forbidden" variable.
@@ -1049,18 +1061,22 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         if constraint_type not in [VariableKind.Angle,VariableKind.Bond]:
             if not added_highways:
                 #highways, impossible_long_distance_geomections = construct_highways(disordered_connections,mega_geomection_var_dict)
-                highways, impossible_long_distance_geomections = construct_highways(disordered_connections,ALL_mega_geomection_var_dict)
+                highways, impossible_long_distance_geomections = construct_highways(disordered_connections,ALL_mega_geomection_var_dict,faux_bond_dict)
                 added_highways=True
                 for LH_tag in highways:
                     for RH_tag, (var, constraints) in highways[LH_tag].items():
                         if constraints is not None:
                             for constr in constraints:
+                                # if constr[-1]=='HighwayConstraint_18.CA.A;45.CA.A;45.CB.B':
+                                #     print('===xx===')
+                                #     print(constr,LH_tag,RH_tag)
+                                #     print('===xx===')
                                 try:
                                     lp_problem+=constr
                                 except Exception as e:
                                     print(constr)
                                     print(type(constr))
-                                    print(RH_tag)
+                                    print(LH_tag,RH_tag)
                                     print(var)
                                     print(constraints)
                                     raise(e)
@@ -1643,6 +1659,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 # ## TEMPORARY REMOVE AFTER IMPLEMENT NON-INTRA-PROTEIN CLASHES!!!##
                 # if geomection.connection_type == RestraintsHandler.ClashRestraint and not (geomection.atom_chunks[0].is_water or geomection.atom_chunks[1].is_water):
                 #     continue
+                # #####################################
+                # TEMPORARY REMOVE AFTER FIX WATER!!##
+                # TODO change to ignoring faux bond/angle connector geomections including with ligands.
+                if geomection.connection_type in [RestraintsHandler.BondRestraint,RestraintsHandler.AngleRestraint] and any(ch.is_water for ch in geomection.atom_chunks): 
+                    continue
                 # #####################################
                 if geomection in connected_geomections:
                     continue
@@ -2261,10 +2282,12 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
         return z_scores_dict
 
-    def score_diagnostics(loop_idx,altloc_subset):
+    def score_diagnostics(loop_idx,altloc_subset,site_assignments:dict[VariableID, dict[str, str]]):
         # TODO CRITICAL split into generating data for each individual conformation. Store the information.
         print("***********")
         print("Running score diagnostics")
+
+
         if reference_pdb_file is not None:
             swapped_model=get_swapped_file(reference_pdb_file,swaps_file,loop_idx)
             
@@ -2291,7 +2314,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     UntangleFunctions.assess_geometry_wE(pdb)
                 else:
                     pass
-            clash_validation_changes(out_handle,out_handle+"_swapped",out_handle)
+            clash_validation_changes(out_handle,out_handle+"_swapped",out_handle,site_assignments)
 
         print("***********")
         return
@@ -2324,10 +2347,32 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         print(out_handle, clash_score_line)
 
 
-    def clash_validation_changes(reference_clash_file_handle,comparison_clash_file_handle,out_handle):
+    def clash_validation_changes(reference_clash_file_handle,comparison_clash_file_handle,out_handle,site_assignments:dict[VariableID, dict[str, str]]):
         reference=[]; comparison=[] # clash lines without altlocs
         reference_og=[]; comparison_og=[] # unmodified lines
         clash_scores = []
+
+
+        # Riding H dict
+        riding_H_dict:dict[DisorderedTag,DisorderedTag]={} # key, value = H, parent #  XXX
+        for disordered_geomection_var_dict in mega_geomection_var_dict.values():
+            if len(disordered_geomection_var_dict)==0:
+                continue
+            reference_constraint:LP_Input.Geomection = list(disordered_geomection_var_dict.values())[0][0]
+            if reference_constraint.hydrogen_names is None:
+                continue
+            
+            idxes=[]
+            for H_name, ch in zip(reference_constraint.hydrogen_names,reference_constraint.atom_chunks):
+                if H_name=="x":
+                    continue
+                dtag=ch.get_disordered_tag()
+                H_dtag = DisorderedTag(dtag.resnum(),H_name)
+                if H_dtag not in riding_H_dict:
+                    riding_H_dict[H_dtag]=dtag
+                else:
+                    assert riding_H_dict[H_dtag] == dtag, (H_dtag, riding_H_dict[H_dtag], dtag,reference_constraint.hydrogen_names,reference_constraint.hydrogen_tag,idxes)
+
         for handle, entry_list, unmodified_entry_list in ((reference_clash_file_handle,reference,reference_og), (comparison_clash_file_handle,comparison,comparison_og)):
             with open(get_clash_validation_file_path(handle)) as f:
                 for line in f:
@@ -2343,8 +2388,39 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     entry_list.append(' '.join(entry))
                     unmodified_entry_list.append(line.strip('\n'))
         
-        removed_clashes = [entry_og for entry, entry_og in zip(reference,reference_og) if entry not in comparison]
-        new_clashes =  [entry_og for entry, entry_og in zip(comparison,comparison_og) if entry not in reference]
+        removed_clashes = [full_line for entry, full_line in zip(reference,reference_og) if entry not in comparison]
+        new_clashes =  [full_line for entry, full_line in zip(comparison,comparison_og) if entry not in reference]
+
+        # Note the from altlocs of the new clashes
+        from_altlocs=[]
+        for entry, line in zip(comparison,comparison_og):
+            if line not in new_clashes:
+                continue
+            from_altlocs.append("")
+            
+            for site_str in line[:17],line[17:34]:
+                res_num=int(site_str[2:6])
+                altloc = site_str[7]
+                atom_name=site_str[12:16].strip()
+                
+                dtag=DisorderedTag(res_num,atom_name)
+                var_id=VariableID(dtag,VariableKind.Atom)
+                if var_id not in site_assignments:
+                    if dtag not in riding_H_dict:
+                        from_altlocs[-1]+="*"
+                        continue
+                    var_id = VariableID(riding_H_dict[dtag],VariableKind.Atom)
+                for from_altloc, to_altloc in site_assignments[var_id].items():
+                    if to_altloc==altloc:
+                        from_altlocs[-1]+=from_altloc
+                        break
+                else:
+                    from_altlocs[-1]+="?"
+           
+        #new_clashes = [f"{line}, {', '.join(c for c in from_altloc_pair)}" for (line, from_altloc_pair) in zip(new_clashes,from_altlocs)]
+        new_clashes = [(line[:7]+from_altloc_pair[0]+line[8:14]+from_altloc_pair[1]+line[15:]) for (line, from_altloc_pair) in zip(new_clashes,from_altlocs)]
+
+
 
         out_file_path =  os.path.join(log_out_dir,f"Clash_changes_{out_handle}.txt")
         with open(out_file_path, 'w') as f:
@@ -2686,6 +2762,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 site_assignment_arrays[-1]=site_assignments
                 distances[-1]= value(lp_problem.objective)
 
+
+
                     #for from_altloc in site_var_dict[site]:
                 for to_altloc, chunks in construct_conformations_from_solution()[0].items():
                     for ch in chunks:
@@ -2704,7 +2782,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 
                 log_geometry_changes(site_assignments)
                 if not SKIP_IN_LOOP_SCORE_DIAGNOSTICS:
-                    score_diagnostics(l,altlocs_in_problem)
+                    score_diagnostics(l,altlocs_in_problem,site_assignments)
 
 
 
