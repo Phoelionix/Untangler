@@ -1,6 +1,6 @@
-# Untangler
+# Untangle - Altloc optimization
 
-An algorithm to address the confusion of conformer labels in ensemble refinement (i.e. "tangling"), identified in James Holton's [Untangle Challenge](https://bl831.als.lbl.gov/~jamesh/challenge/twoconf/).
+An algorithm to address the confusion of altloc conformation labels in ensemble refinement (i.e. "tangling"), identified in James Holton's [Untangle Challenge](https://bl831.als.lbl.gov/~jamesh/challenge/twoconf/).
 
 ## Requirements
 `phenix`, `python3.9` or later, `tcsh`, `gnuplot`, 
@@ -16,7 +16,7 @@ Install required packages
 
 `pip install -r requirements.txt` 
 
-Tested with python 3.9.
+Tested with python 3.9, Phenix ver. 2.0-5793.
 
 ## Run
 
