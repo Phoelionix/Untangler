@@ -38,4 +38,4 @@ electron density represented by X-ray data (using `phenix.refine`), while
 simultaneously freeing the models from local minima traps that occur when 
 the conformers of a single model conformation are "fitting" the electron density 
 of multiple true conformations. The goal is to reallot conformer labels to "reconnect"
-them in conformations with better geometries and which better fit the X-ray data.
+them in conformations with better geometries, relieving tension in fitting the X-ray data.
