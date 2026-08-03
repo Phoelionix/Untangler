@@ -46,13 +46,18 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
         occ=f"{occ:.3f}"
         occ = ' '*(6-len(occ))+occ
         return line[:54] + occ + line[60:]
-    def add_shake(line,shake):
+    def add_shake(line,shake,max_sigma=5):
+        assert shake>=0
+        if shake == 0:
+            return line
         P = PDB_Atom_Entry(line)
-        dev=[]
-        while len(dev)<3:
-            v=np.random.normal(scale=shake)
-            if v < 5*shake:
-                dev.append(v)
+        rand_unit_vector=np.random.normal(size=(3,))
+        rand_unit_vector/=np.linalg.norm(rand_unit_vector)
+
+        scale=np.inf
+        while scale > max_sigma*shake:
+            scale=np.random.normal(scale=shake)
+        dev=scale*rand_unit_vector
         return P.new_line(new_coord=P.coord+np.array(dev))
         
     #solvent_altlocs = []
@@ -65,7 +70,7 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
         atom_dict:dict[int,dict[str,dict[str,str]]] = {}  
         atom_name_dict:dict[int,list[str]]={}
         last_chain=None
-        solvent_res_names=UntangleFunctions.WATER_RESNAMES
+        solvent_res_names=UntangleFunctions.SOLVENT_RESNAMES
         solvent_chain_id = "z"
         warned_collapse=False
 
@@ -95,7 +100,8 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
                 if len(atom_dict)==0:
                     start_lines+=line
                 else:
-                    end_lines += line
+                    if not line.startswith("CONECT"):
+                        end_lines += line
                 continue
 
             # Modifying
@@ -169,6 +175,7 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
                     del atom_dict[resnum][altlocs[0]][atom_name]
                     #print(resnum,atom_name,altlocs[0],">>",force_lone_altloc_label)
         # Missing parent altlocs from child altlocs
+        single_confs_to_replace=[]
         for atom_name in atom_names:
             for parent_altloc,child_altlocs in nonexistent_parent_from_child_priority_dict.items():
                 if parent_altloc not in atom_dict[resnum] or atom_name not in atom_dict[resnum][parent_altloc]:
@@ -186,11 +193,21 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
                             #if resnum==62:
                                 #print(resnum,atom_name,altloc_to_use,">>",parent_altloc)
                         else:
+                            if altloc_to_use==' ': 
+                                single_confs_to_replace.append(atom_name)
                             # Halve child occupancy
                             new_occupancy = float(og_child_line[54:60])/2
                             atom_dict[resnum][altloc_to_use][atom_name]=replace_occupancy(og_child_line,new_occupancy)
                             # Add missing parent
                             atom_dict[resnum][parent_altloc][atom_name]=replace_altloc(atom_dict[resnum][altloc_to_use][atom_name],parent_altloc)
+                            if shake_new is not None:
+                                # Since we are keeping both, this is a new conformation
+                                atom_dict[resnum][parent_altloc][atom_name]=add_shake(atom_dict[resnum][parent_altloc][atom_name],shake_new)
+        for atom_name in single_confs_to_replace:
+            # Handle case where nonexistent parent is an altloc coming from a single-conformation atom 
+            assert not nonexistent_parents_replace_child
+            del atom_dict[resnum][' '][atom_name]
+
         # Split conformers
         for parent_altloc, altloc_atom_dict in res_atom_dict.items(): 
             child_altlocs=[k for k,v in child_parent_altlocs_dict.items() if parent_altloc in v]
