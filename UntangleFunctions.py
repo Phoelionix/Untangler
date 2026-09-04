@@ -14,13 +14,14 @@ import shutil
 import itertools
 from time import time
 
-NUM_THREADS=20
+NUM_THREADS=24
 
 
 NO_UNRESTRAINED=False
 NO_INDIV_WEIGHTS=False
+SITES_FORMULATION=True
 
-QUICK_TEST_MODE=True
+QUICK_TEST_MODE=False
 
 RING_NAME_GROUPING=False # Note argument forbid_CECD12_changes in LinearOptimizer.solve()
 TEMP_SCORE_WITH_FIRST_PROTEIN_ALTLOC_ONLY=True # Because generating data is incredibly slow with multiple altlocs.  # TODO replace with generating for each altloc in parallel then taking average.
@@ -203,6 +204,7 @@ def assess_geometry_wE(pdb_file_path,turn_off_cdl=False):
 
             
 WATER_RESNAMES = ["HOH"]
+SOLVENT_RESNAMES = ["HOH"," NA", " CL"," MN"]
 def res_is_water(res):
     #return res.get_id()[0]!= " " or res.get_resname() in WATER_RESNAMES
     return res.get_resname() in WATER_RESNAMES
@@ -421,7 +423,29 @@ NAP  O3X  HOP3  SING  N  N  80
 1CX   C7      H13   single        1.083 0.020
 1CX   N1      H12   single        1.001 0.020
 1CX   N7      H19   single        1.001 0.020
-1CX   O1      H11   single        0.944 0.020"""
+1CX   O1      H11   single        0.944 0.020
+PEG C1 O1  SING N N 1  
+PEG C1 C2  SING N N 2  
+PEG C1 H11 SING N N 3  
+PEG C1 H12 SING N N 4  
+PEG O1 HO1 SING N N 5  
+PEG C2 O2  SING N N 6  
+PEG C2 H21 SING N N 7  
+PEG C2 H22 SING N N 8  
+PEG O2 C3  SING N N 9  
+PEG C3 C4  SING N N 10 
+PEG C3 H31 SING N N 11 
+PEG C3 H32 SING N N 12 
+PEG C4 O4  SING N N 13 
+PEG C4 H41 SING N N 14 
+PEG C4 H42 SING N N 15 
+PEG O4 HO4 SING N N 16
+ACT C   O   DOUB N N 1 
+ACT C   OXT SING N N 2 
+ACT C   CH3 SING N N 3 
+ACT CH3 H1  SING N N 4 
+ACT CH3 H2  SING N N 5 
+ACT CH3 H3  SING N N 6"""
 
         residueSpecific_dict={}
         for line in extra_cif_restraints.split("\n"):
@@ -518,7 +542,7 @@ def parse_symmetries_from_pdb(pdb_file_path):
                     sym_factor[x,y] = element
                 sym_trans[x] = entries[-1]
                 if x == 2:
-                    sym_mtces_parsed.append([sym_factor.copy(),sym_trans.copy()])
+                    sym_mtces_parsed.append((sym_factor.copy(),sym_trans.copy()))
 
 
             # symmetry matrices
@@ -526,6 +550,68 @@ def parse_symmetries_from_pdb(pdb_file_path):
                 at_symmetry_xformations = True
     assert len(sym_mtces_parsed)!=0, f"Remark 290 symmetries appear to be missing from {pdb_file_path}"
     return sym_mtces_parsed
+
+
+
+def get_supercell_symmetries(pdb_file_path,symmetry_factor,symmetry_translation,supercell_scale=3):
+    '''
+    Takes in the symmetry factor and translation of the unit cell, and translates them across each unit cell
+    TODO XXX EXTREMELY INEFFICIENT. Should not be doing this
+    Triclinic only
+    '''
+
+    def get_triclinic_basis(primitive_angles): # angles in degrees
+        A,B,C = np.deg2rad(primitive_angles)
+
+        c_1 =  np.cos(B)
+        c_2 = (np.cos(A)-np.cos(B)*np.cos(C))/np.sin(C)
+        c_3 = np.sqrt(1-c_1**2-c_2**2)
+
+        return np.array(
+            [[1,0,0],
+            [np.cos(C),np.sin(C),0],
+            [c_1,c_2,c_3]]
+        )
+
+
+    with open(pdb_file_path) as f:
+        for line in f:
+            if line[0:6] == "CRYST1":
+                entries = line.split()[1:]
+                cell_dim = np.array([float(a) for a in entries[0:3]])
+                cell_angles = np.array([float(a) for a in entries[3:6]])
+                break
+
+
+
+
+
+    orthogonal = np.all(cell_angles==90)
+
+
+    # Generate the coordinates of the cube (performance: defining scaling matrix/cube coords outside of here would be more efficient). But only runs once  \_( '_')_/ ¯\_(ツ)_/¯.
+    x, y, z= np.meshgrid(np.arange(0, supercell_scale), np.arange(0, supercell_scale), np.arange(0, supercell_scale))
+    cube_coords = np.stack([ x.flatten(), y.flatten(), z.flatten()], axis = -1)
+    # Construct the cube by adding the "unit cell translation" to the symmetry translation. 
+    # (e.g. if crystal is centred on origin, in fractional crystallographic coordinates the index of the unit cell is equal to the unit cell's translation from the origin.) 
+    
+
+    if not orthogonal:
+        a = get_triclinic_basis(cell_angles)
+        
+    symmetries = []
+    for coord in cube_coords:
+        if orthogonal:
+            translation = coord*cell_dim + symmetry_translation
+        else:
+            coord_scaled = (coord*cell_dim)@a
+            assert(coord.shape == (3,))
+            translation = coord_scaled + symmetry_translation
+
+        symmetries.append((symmetry_factor,translation))
+
+    return symmetries
+
 
 def get_sym_xfmed_point(R,symmetry):
     sym_rot, sym_trans = symmetry
@@ -702,7 +788,7 @@ def relabel_ring(pdb_path):
 
 def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False,ring_name_grouping=False,altlocs_allowed=None,
                 even_split_protein_occupancies=False,allow_no_altloc=False,treat_solvent_identically_to_protein=False,
-                single_altloc_solvent=False):
+                single_altloc_solvent=False,no_altloc_solvent_to_random_altloc=False):
         # Gets into format we expect. !!!!!!Assumes single chain!!!!!
         # Relabels ring atoms CE1/CE2, CD1/CD2 so that all with same label are closest         
         def replace_occupancy(line,occ):
@@ -807,7 +893,8 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                     warned_collapse=True
                 if resnum not in atom_dict:
                     atom_dict[resnum] = {}
-                
+
+
                 if not allow_no_altloc:
                     assert (altloc != ' '), line 
 
@@ -859,6 +946,8 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
         #     min_solvent_resnum = min(solvent_resnum,min_solvent_resnum)
         #shift = max_resnum-min_solvent_resnum + 1
         #new_solvent_resnum_dict = {}
+        if "X" in protein_altlocs:
+            print("Warning: X in protein altlocs.")
         for line in solvent_lines:
             n+=1
             #solvent_resnum=int(line[22:26])
@@ -871,15 +960,21 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                 # max_resnum = shift+solvent_resnum
                 #new_solvent_resnum_dict[solvent_resnum]=max_resnum
             
-            
+
             #modified_line = replace_res_num(line,new_solvent_resnum_dict[solvent_resnum])
             modified_line = replace_serial_num(line,n)
-            if single_altloc_solvent:
-                # TODO do NOT do this if the atoms are all within clash range diameter sphere (2.4 angstroms for water).
+            if single_altloc_solvent: # What is this?
                 if "last_resnum" not in vars():
                     last_resnum =max(resnum for resnum in atom_dict) 
                 last_resnum +=1 
-                modified_line=replace_res_num(line,last_resnum)
+                modified_line=replace_res_num(modified_line,last_resnum)
+            altloc=modified_line[16]
+            if altloc==' ' and no_altloc_solvent_to_random_altloc:
+                modified_line=replace_altloc(modified_line,np.random.choice(protein_altlocs))
+                altloc=modified_line[16]
+
+            if not allow_no_altloc:
+                assert (altloc != ' '), line 
             start_lines.append(modified_line)
         
         if os.path.dirname(out_path)!='':
@@ -893,7 +988,7 @@ def get_altlocs_from_pdb(pdb_path):
         protein_altlocs = []
         solvent_altlocs = []
         with open(pdb_path) as I:
-            solvent_res_names=WATER_RESNAMES
+            solvent_res_names=SOLVENT_RESNAMES
 
             for line in I:
                 if line.startswith("TER") or line.startswith("ANISOU"):
