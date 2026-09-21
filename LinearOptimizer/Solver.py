@@ -145,7 +145,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
           forbid_ring_changes=True,
           forbid_solutions_composed_of_better_solutions=False,
           forbid_CECD12_changes=False, # Leaving true until fix bug from missing interchangability of C[E/D]1 and C[E/D]2 when reading geometry restraints 
-          reference_pdb_file=None
+          reference_pdb_file=None,
+          force_one_round=False,
           ):  
           #max_bond_changes=None):  
     print("****************\nConstructing ILP problem\n****************")
@@ -275,43 +276,48 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     sidechain_improvement_factor_requirement_mult_bond=1
     sidechain_improvement_factor_requirement_mult_angle=1
     #TODO try a round where everything costs zero except clashes?
-    if True:
-        if len(all_altlocs)==2:
-            improvement_factors_to_tolerate=np.array([100,2,1]) 
-        elif len(all_altlocs)<=4:
-            #improvement_factors_to_tolerate=np.array([100,12,10,4,3,2,1.5,1.2,1.1,1,0.95]) 
-            improvement_factors_to_tolerate=np.array([2,1]) 
+    ###################
+    if len(all_altlocs)==2:
+        improvement_factors_to_tolerate=np.array([100,2,1]) 
+    elif len(all_altlocs)<=4:
+        #improvement_factors_to_tolerate=np.array([100,12,10,4,3,2,1.5,1.2,1.1,1,0.95]) 
+        improvement_factors_to_tolerate=np.array([2,1]) 
+    else:
+        #improvement_factors_to_tolerate=np.array([100,12,10,8,6,5,4.5,4,3.5,3,2.5,2.25,2,1.75,1.5,1.35,1.2,1.1,1,0.95,0.90]) 
+        #improvement_factors_to_tolerate=np.array([100,12,6,4,3,2,1.5,1,0.95,0.90,0.85]) 
+        #improvement_factors_to_tolerate=np.array([5,1.75,1.2,1,0.90,0.85,0.80]) 
+        #improvement_factors_to_tolerate=np.array([1.75,1.5,1.25,1,0.9,0.8]) 
+        #improvement_factors_to_tolerate=np.array([1,0.8]) 
+        #improvement_factors_to_tolerate=np.array([10,5,4,3,2,1.5,1]) 
+        #improvement_factors_to_tolerate=np.array([1]) 
+        #improvement_factors_to_tolerate=np.array([5,2,1,0.8,0.6,0.5]) 
+        #improvement_factors_to_tolerate=np.array([5,3,2,1,0.8,0.6,0.5]) 
+        if UntangleFunctions.NO_UNRESTRAINED:
+            improvement_factors_to_tolerate=np.array([5,2,1,0.5,0.25]) 
         else:
-            #improvement_factors_to_tolerate=np.array([100,12,10,8,6,5,4.5,4,3.5,3,2.5,2.25,2,1.75,1.5,1.35,1.2,1.1,1,0.95,0.90]) 
-            #improvement_factors_to_tolerate=np.array([100,12,6,4,3,2,1.5,1,0.95,0.90,0.85]) 
-            #improvement_factors_to_tolerate=np.array([5,1.75,1.2,1,0.90,0.85,0.80]) 
-            #improvement_factors_to_tolerate=np.array([1.75,1.5,1.25,1,0.9,0.8]) 
-            #improvement_factors_to_tolerate=np.array([1,0.8]) 
-            #improvement_factors_to_tolerate=np.array([10,5,4,3,2,1.5,1]) 
-            #improvement_factors_to_tolerate=np.array([1]) 
-            #improvement_factors_to_tolerate=np.array([5,2,1,0.8,0.6,0.5]) 
-            #improvement_factors_to_tolerate=np.array([5,3,2,1,0.8,0.6,0.5]) 
-            if UntangleFunctions.NO_UNRESTRAINED:
-                improvement_factors_to_tolerate=np.array([5,2,1,0.5,0.25]) 
-            else:
+            improvement_factors_to_tolerate=np.array([100,4,2,1.5,1,0.75]) 
 
-                improvement_factors_to_tolerate=np.array([100,4,2,1.5,1,0.75]) 
-
-        # TODO remove altloc_run_subset_size variable, replace
-        #improvement_factors_to_tolerate=np.array([2,0.8]) 
-        #start_of_round_altloc_subset_size=max(2,math.ceil(len(all_altlocs)/2))
-        #improvement_factors_to_tolerate=np.array([1.01]) 
+    # TODO remove altloc_run_subset_size variable, replace
+    #improvement_factors_to_tolerate=np.array([2,0.8]) 
+    #start_of_round_altloc_subset_size=max(2,math.ceil(len(all_altlocs)/2))
+    #improvement_factors_to_tolerate=np.array([1.01]) 
 
 
-        # num_subset_runs=1
-        # improvement_factors_to_tolerate=np.array([20,5,3,2,1.01,0.8,0.6,0.4,0.2,0.1]) 
-        # start_of_round_altloc_subset_size=6
+    # num_subset_runs=1
+    # improvement_factors_to_tolerate=np.array([20,5,3,2,1.01,0.8,0.6,0.4,0.2,0.1]) 
+    # start_of_round_altloc_subset_size=6
 
+    num_subset_runs=1
+    improvement_factors_to_tolerate=np.array([100,50,20,5,3,2,1.01,0.8]) 
+    start_of_round_altloc_subset_size=6
+
+    if force_one_round:
+        improvement_factors_to_tolerate=np.array([1])
         num_subset_runs=1
-        improvement_factors_to_tolerate=np.array([100,50,20,5,3,2,1.01,0.8]) 
-        start_of_round_altloc_subset_size=6
 
-        ALTLOC_RUN_SUBSET_SIZES=[start_of_round_altloc_subset_size,]*num_subset_runs
+    ###################
+
+    ALTLOC_RUN_SUBSET_SIZES=[start_of_round_altloc_subset_size,]*num_subset_runs
 
     #TODO limit alternatives to consider to the top N alternatives. Otherwise when have really bad outliers, introduce a huge number of branches.
     # TODO dynamical solution space size. Stop solve if taking too long, and increase the required improvement_factor, then retry. 
@@ -587,7 +593,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                                 return True
             if constraint_type==VariableKind.Bond: 
                 # XXX this allows water to change. But necessary.
-                other_things=["MN", "NAP", "FOL"] # XXX
+                other_things=["MN", "NAP", "FOL","NA","CL","ACT"] # XXX
                 if MAIN_CHAIN_ONLY and not in_main_chain and (any(ch.get_resname().strip() not in (["CYS","HOH"] + other_things) for ch in chunks)):  # XXX tidy up and put in a separate python file for specifying what to optimize
                     return True
                 if SIDE_CHAIN_ONLY and in_main_chain and (any(ch.get_resname().strip() not in (["HOH",] + other_things) for ch in chunks)):
@@ -2276,7 +2282,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 log("==============")
                 log("All conformations:")
                 for kind,vals in totals_dict.items():
-                    log(f"{kind}: {rms(vals):.5f} (min/max conf.{' RMSZ' if kind not in [VariableKind.Clash.value,VariableKind.Penalty.value] else ''}: {min(vals)},{max(vals)})") # TODO worst z values of conformations or histogram.
+                    log(f"{kind}: {rms(vals):.3f} (min/max conf.{' RMSZ' if kind not in [VariableKind.Clash.value,VariableKind.Penalty.value] else ''}: {min(vals):.3f},{max(vals):.3f})") # TODO worst z values of conformations or histogram.
                 log("==============")
             
 
@@ -2798,7 +2804,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
         if SKIP_IN_LOOP_SCORE_DIAGNOSTICS:
             # Score the last solution
-            score_diagnostics(l,altlocs_in_problem)
+            score_diagnostics(l,altlocs_in_problem,site_assignments)
 
 
                 

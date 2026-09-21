@@ -26,6 +26,7 @@ from LinearOptimizer.VariableID import VariableID
 from LinearOptimizer.RestraintsHandler import RestraintsHandler
 import sys
 from collections import defaultdict
+import traceback
 
 
 def angle_to_highways(disordered_angles:dict[str,tuple[LP_Input.Geomection,pl.LpVariable]],
@@ -88,7 +89,6 @@ def angle_to_highways(disordered_angles:dict[str,tuple[LP_Input.Geomection,pl.Lp
             highway_var_lpConstr_dict[LH_tag][RH_tag]=(var_active,[constr,])
 
 
-
     if apply_to_dictionary is not None:
         for key in highway_var_lpConstr_dict:
             if key not in apply_to_dictionary:
@@ -124,27 +124,27 @@ def highway_from_highways(LH_highways:dict[OrderedTag,dict[OrderedTag,tuple[pl.L
     RH_dtag_l = list(RH_highways.keys())[0].disordered_tag()
     RH_dtag_r = list(RH_highways[list(RH_highways.keys())[0]].keys())[0].disordered_tag()
     assert (LH_dtag_l==RH_dtag_l) + (LH_dtag_l==RH_dtag_r) + (LH_dtag_r==RH_dtag_l) + (LH_dtag_r==RH_dtag_r)==1, (LH_dtag_l,LH_dtag_r,RH_dtag_l,RH_dtag_r)
+
+    def flipped_dict(dict_to_flip:dict):
+        flipped = defaultdict(dict) # this means default value of dictionary element is dict() i.e. {}. So don't need to go "if x not in dict, dict[x] = {}". TODO consider using this for composite_highways. 
+        for key, val in dict_to_flip.items():
+            for subkey, subval in val.items():
+                flipped[subkey][key]=subval
+        return dict(flipped)
+
     if LH_dtag_l==RH_dtag_l:
         # invert LH 
-        flipped = defaultdict(dict) # this means default value of dictionary element is dict() i.e. {}. So don't need to go "if x not in dict, dict[x] = {}". TODO consider using this for composite_highways. 
-        for key, val in LH_highways.items():
-            for subkey, subval in val.items():
-                flipped[subkey][key]=subval
-        LH_highways=dict(flipped)
+        LH_highways = flipped_dict(LH_highways)
     elif LH_dtag_r==RH_dtag_r:
         # invert RH
-        flipped = defaultdict(dict) 
-        for key, val in RH_highways.items():
-            for subkey, subval in val.items():
-                flipped[subkey][key]=subval
-        RH_highways=dict(flipped)
+        RH_highways=flipped_dict(RH_highways)
         
 
     highway_var_lpConstr_dict:dict[OrderedTag,dict[OrderedTag,tuple[pl.LpVariable,list[pl.LpConstraint]]]] = {LH_tag:{} for LH_tag in LH_highways}
     composite_highway_joint_dict:dict[OrderedTag,dict[OrderedTag,DisorderedTag]] = {LH_tag:{} for LH_tag in LH_highways} # gives the joining (disordered) atom. The composite highways are then [LH_tag][ordered_center_tag] and [ordered_center_tag][RH_tag] for every ordered_center_tag of the disordered atom
     
         
-
+    need_reverse=False # whether need to reverse to match order in already_constructed_highway_dict. So that we don't accidentally duplicate entries!
     for LH_tag in LH_highways:
         for center_tag, RH_tags in RH_highways.items():
             for RH_tag in RH_tags:
@@ -152,6 +152,9 @@ def highway_from_highways(LH_highways:dict[OrderedTag,dict[OrderedTag,tuple[pl.L
                     continue 
                 already_constructed_highway = get_highway(LH_tag,RH_tag,already_constructed_highway_dict)
                 if already_constructed_highway is not None:
+                    if (LH_tag not in already_constructed_highway_dict) or (RH_tag not in already_constructed_highway_dict[LH_tag]):
+                        need_reverse=True
+                        
                     highway_var_lpConstr_dict[LH_tag][RH_tag]=already_constructed_highway
                     continue
 
@@ -187,14 +190,19 @@ def highway_from_highways(LH_highways:dict[OrderedTag,dict[OrderedTag,tuple[pl.L
                 var_active=highway_var_lpConstr_dict[LH_tag][RH_tag][0]
                 constr = (var_active>=pl.lpSum(ILP_vars) - len(ILP_vars)+1,
                         f"HighwayConstraint_{tag}")
+
+
                 highway_var_lpConstr_dict[LH_tag][RH_tag][1].append(constr)
     
+    if need_reverse: # XXX
+        highway_var_lpConstr_dict=flipped_dict(highway_var_lpConstr_dict)
+        composite_highway_joint_dict=flipped_dict(composite_highway_joint_dict)
 
     return highway_var_lpConstr_dict,composite_highway_joint_dict
 
 
 # TODO Put in a class for holding highways
-def get_highway(left_tag:OrderedTag,right_tag:OrderedTag,composite_highways:dict[OrderedTag,dict[OrderedTag,tuple[pl.LpVariable,list[pl.LpConstraint]]]],must_exist=False)->dict[OrderedTag,dict[OrderedTag,tuple]]:
+def get_highway(left_tag:OrderedTag,right_tag:OrderedTag,composite_highways:dict[OrderedTag,dict[OrderedTag,tuple[pl.LpVariable,list[pl.LpConstraint]]]],must_exist=False)->tuple[pl.LpVariable,list[pl.LpConstraint]]:
     if left_tag in composite_highways and right_tag in composite_highways[left_tag]:
         return composite_highways[left_tag][right_tag]
     elif  right_tag in composite_highways and  left_tag  in composite_highways[right_tag]:
@@ -204,7 +212,6 @@ def get_highway(left_tag:OrderedTag,right_tag:OrderedTag,composite_highways:dict
             print(list(composite_highways[left_tag].keys()))
         assert False, (left_tag,right_tag, left_tag in composite_highways, right_tag in composite_highways)
     return None
-
 
 
 def add_CA_highway(left_num,right_num,composite_highways, composition_dictionary,CA_altlocs,left_altlocs=None,right_altlocs=None):
@@ -255,7 +262,7 @@ def add_CA_highway(left_num,right_num,composite_highways, composition_dictionary
             ###
             if longest_right==longest_left:
                 # Join! 
-                CA_to_CA,CA_to_CA_composition=highway_from_highways(left_highways,right_highways)
+                CA_to_CA,CA_to_CA_composition=highway_from_highways(left_highways,right_highways,already_constructed_highway_dict=composite_highways)
                 #print(f"Joined {left_num} - {right_num} at {longest_right}")
                 
                 for key in CA_to_CA:
@@ -293,12 +300,15 @@ def angles_from_dict(triplet:list[DisorderedTag],constr_var_dictionary:dict[str,
     assert not must_exist,triplet
 
 # stupidity
+ALL_ALTLOCS=None
 def build_highway(atom_chain:list[DisorderedTag],composite_highways:dict[OrderedTag,dict[OrderedTag,tuple[pl.LpVariable,list[pl.LpConstraint]]]], composition_dictionary,constr_var_dictionary:dict[str, dict[str, tuple[LP_Input.Geomection,pl.LpVariable]]],left_altlocs=None,right_altlocs=None,first_call=True,join_only=False):
     # Recursively build highways and their composite highways as necessary
     # NB: Whole thing with specifying left and right altlocs is redundant and makes things much more complex. We are adding all. (Though the approach could be useful when connecting to sidechains. )
     
+    global ALL_ALTLOCS
+    if ALL_ALTLOCS is None:
+        ALL_ALTLOCS=list(set(tag.altloc() for tag in composite_highways)) # FIXME want to get the (from-)altlocs of the atoms directly.
     
-    ALL_ALTLOCS=list(set(tag.altloc() for tag in composite_highways)) # FIXME want to get the (from-)altlocs of the atoms directly.
     
 
     assert len(set(atom_chain))==len(atom_chain),atom_chain
@@ -315,9 +325,9 @@ def build_highway(atom_chain:list[DisorderedTag],composite_highways:dict[Ordered
     left_num,right_num=atom_chain[0].resnum(),atom_chain[-1].resnum()
     assert right_num >= left_num, (right_num,left_num)
     if left_altlocs is None:
-        left_altlocs = ALL_ALTLOCS
+        left_altlocs = full_altlocs_dict[atom_chain[0]]
     if right_altlocs is None:
-        right_altlocs = ALL_ALTLOCS
+        right_altlocs = full_altlocs_dict[atom_chain[-1]]
     for altloc_left in left_altlocs:
       for altloc_right in right_altlocs:
         left_tag=atom_chain[0].ordered_tag(altloc_left)
@@ -349,8 +359,8 @@ def build_highway(atom_chain:list[DisorderedTag],composite_highways:dict[Ordered
             ## and from right to left (but at or past longest left):
             right_highways=None
             for right_node in atom_chain[left_node_idx:]:
-                if get_highway(right_node.ordered_tag(ALL_ALTLOCS[0]), right_tag,composite_highways) is not None: #XXX checking the first altloc
-                    assert all(get_highway(right_node.ordered_tag(alt),right_tag,composite_highways) is not None for alt in ALL_ALTLOCS)
+                if get_highway(right_node.ordered_tag(full_altlocs_dict[right_node][0]), right_tag,composite_highways) is not None: #XXX checking the first altloc
+                    assert all(get_highway(right_node.ordered_tag(alt),right_tag,composite_highways) is not None for alt in full_altlocs_dict[right_node])
                     right_node_idx=atom_chain.index(right_node)
                     break
             # for right_node_idx in range(left_node_idx+1,len(atom_chain)):
@@ -368,7 +378,7 @@ def build_highway(atom_chain:list[DisorderedTag],composite_highways:dict[Ordered
                     
 
                     right_highways = angle_to_highways(angles_from_dict(atom_chain[-3:],constr_var_dictionary),apply_to_dictionary=composite_highways) 
-                    print(f"Made highway for {atom_chain[-3:]}")
+                    print(f"Made 3-highway for {atom_chain[-3:]}")
                 else:
                     # Bond
                     assert left_node_idx==len(atom_chain)-2
@@ -384,12 +394,12 @@ def build_highway(atom_chain:list[DisorderedTag],composite_highways:dict[Ordered
 
             # XXX Disgusting!
             left_highways= {
-                left_tag:{left_node.ordered_tag(alt):get_highway(left_tag,left_node.ordered_tag(alt),composite_highways,must_exist=True) for alt in ALL_ALTLOCS}
+                left_tag:{left_node.ordered_tag(alt):get_highway(left_tag,left_node.ordered_tag(alt),composite_highways,must_exist=True) for alt in full_altlocs_dict[left_node]}
             }
             if right_highways is None:
                 right_highways={
                     right_node.ordered_tag(alt): {right_tag: get_highway(right_node.ordered_tag(alt),right_tag,composite_highways,must_exist=True) } 
-                    for alt in ALL_ALTLOCS}
+                    for alt in full_altlocs_dict[right_node]}
 
             # Remove forbidden highways # XXX this sucks since if there is a bug we won't notice. Consider changing the input to construct_highways to be ALL geomections
             #  Ended up changing the input..
@@ -398,15 +408,8 @@ def build_highway(atom_chain:list[DisorderedTag],composite_highways:dict[Ordered
                 # 1 bond away! Extend left side to connect with right
                 #print(f"Bond-joined {right_node} - {left_node}")
                 bond_hw=bond_as_highway(left_node,right_node,constr_var_dictionary)
-                extended_from_left,extended_from_left_composition=highway_from_highways(left_highways,bond_hw)
+                extended_from_left=add_highway_from_highways(left_highways,bond_hw,composite_highways,composition_dictionary)
                 left_highways=extended_from_left
-                for key in extended_from_left:
-                    if key not in composite_highways:
-                        composite_highways[key]={}
-                    if key not in composition_dictionary:  # separate in case added as angle
-                        composition_dictionary[key]={}
-                    composite_highways[key] |= extended_from_left[key]
-                    composition_dictionary[key] |= extended_from_left_composition[key]
                 left_node=right_node
                 # except: # FIXME
                 #     # ??? Why need this?
@@ -428,24 +431,19 @@ def build_highway(atom_chain:list[DisorderedTag],composite_highways:dict[Ordered
             if right_node==left_node:
                 # Join! 
 
-                bridge,bridge_composition=highway_from_highways(left_highways,right_highways)
+                # Bridge left node and right node
+                add_highway_from_highways(left_highways,right_highways,composite_highways,composition_dictionary)
                 #print(f"Joined {left_num} - {right_num} at {right_node}")
                 
-                for key in bridge:
-                    if key not in composite_highways:
-                        composite_highways[key]={}
-                    if key not in composition_dictionary: # separate in case added as angle
-                        composition_dictionary[key]={}
-                    composite_highways[key] |= bridge[key]
-                    composition_dictionary[key] |= bridge_composition[key]
+          
                 #print(f"Joined at {right_node}")
             else:
                 assert not join_only
                 # Build into the smallest gap
                 if right_node_idx+1 <= len(atom_chain)-left_node_idx:  # BUILDING(left_num ----- right_node) | right_node ---- right_num
-                    build_highway(atom_chain[0:right_node_idx+1],*same_args,left_altlocs,ALL_ALTLOCS,first_call=False)
+                    build_highway(atom_chain[0:right_node_idx+1],*same_args,left_altlocs,full_altlocs_dict[right_node],first_call=False)
                 else:
-                    build_highway(atom_chain[left_node_idx:],*same_args,ALL_ALTLOCS,right_altlocs,first_call=False) # left_num ----- left_node  | BUILDING(left_node ---- right_num)
+                    build_highway(atom_chain[left_node_idx:],*same_args,full_altlocs_dict[left_node],right_altlocs,first_call=False) # left_num ----- left_node  | BUILDING(left_node ---- right_num)
                 print(f"Joining {left_node} - {right_node}")
                 build_highway(atom_chain,*same_args,(altloc_left,),(altloc_right,),first_call=False,join_only=True)
                 
@@ -456,7 +454,14 @@ def build_highway(atom_chain:list[DisorderedTag],composite_highways:dict[Ordered
             highways[LH_tag]={}
             for altloc_right in right_altlocs:
                 RH_tag=atom_chain[-1].ordered_tag(altloc_right)
-                highways[LH_tag][RH_tag]=get_highway(LH_tag,RH_tag,composite_highways)
+                hw = get_highway(LH_tag,RH_tag,composite_highways,must_exist=False)
+                if hw is not None:
+                    highways[LH_tag][RH_tag]=hw
+                else:
+                    # bonds or angles involved at end don't exist for all from-altlocs.
+                    print("??????",LH_tag,RH_tag)
+                    pass
+                
         return highways
         #return CA_to_CA
         #return CA_to_CA
@@ -486,7 +491,7 @@ def bond_as_highway(LH_tag:DisorderedTag,RH_tag:DisorderedTag,constr_var_diction
             [RH_tag,LH_tag]
             )
         assert bond_dID in constr_var_dictionary, bond_dID
-        print(f"Warning, backwards bond {LH_tag} {RH_tag}")
+        #print(f"Warning, backwards bond {LH_tag} {RH_tag}")
 
     bond_highway={}
     for bond_geomection, var in constr_var_dictionary[bond_dID].values():
@@ -718,7 +723,7 @@ def construct_backbone_highways(LD_geomections:list[LP_Input.Geomection],constr_
 def construct_remaining_highways(LD_geomections:list[LP_Input.Geomection],constr_var_dict:dict[str,dict[str,tuple[LP_Input.Geomection,pl.LpVariable]]],
                             composite_highways:dict[OrderedTag,dict[OrderedTag,tuple[pl.LpVariable,list[pl.LpConstraint]]]],
                             composition_dictionary:dict[OrderedTag,dict[OrderedTag,DisorderedTag]],
-                            CA_altlocs):
+                            faux_bond_dict:dict[int,tuple[DisorderedTag,DisorderedTag]],CA_altlocs):
     
     # EXTREMELY INEFFICIENT
     #bonds_dict:dict[frozenset]={}
@@ -786,16 +791,21 @@ def construct_remaining_highways(LD_geomections:list[LP_Input.Geomection],constr
             assert False, f"Not found, {disordered_tag_A},{disordered_tag_B}, " + (f"{sequence}\ndepth limit reached!" if max_depth<=1 else tag_search_str)
     
     print("Constructing remaining highways")
+    printed_skipped_end_tags=[]
     for i, geom in enumerate(LD_geomections):
         if i%500==0:
             print(f"{i}/{len(LD_geomections)} long-distance geomections processed")
         end_tags=(geom.atom_chunks[0].get_ordered_tag(),geom.atom_chunks[-1].get_ordered_tag())
         skip=False
         #if any(t.resnum() not in CA_altlocs for t in end_tags): # XXX # i.e. not protein...
-        if any(ch.is_water for ch in geom.atom_chunks): 
-            skip=True 
+        if all(ch.is_water for ch in geom.atom_chunks): 
+             skip=True  # temporary
+             pass
         if end_tags[0].resnum()==end_tags[-1].resnum():
-            print(f"Skipping {end_tags}")
+            d_end_tags = [t.disordered_tag() for t in end_tags]
+            if d_end_tags not in printed_skipped_end_tags:
+                print(f"Skipping {d_end_tags}")
+                printed_skipped_end_tags.append(d_end_tags)
             skip=True
         if skip:
             #print(f"Skipping {end_tags}")
@@ -806,12 +816,22 @@ def construct_remaining_highways(LD_geomections:list[LP_Input.Geomection],constr
 
         # FIXME extremely stupid and takes ages.
         make_chain_kwargs=[{},{}]
-        for i, resnum in enumerate(CA_resnums): 
+        for i, resnum in enumerate(CA_resnums): # 2 loops
             if resnum not in CA_altlocs:
+                assert resnum in faux_bond_dict, list(faux_bond_dict.keys())
                 shortest_chain_length=1e10
                 #for CA_resnum in CA_altlocs:
                 make_chain_kwargs[i]=dict(intra_protein_search=True,max_depth=20,max_depth_fatal=False)
-                for protein_CA_resnum in (54,62,149,154):# TEMP FIXME
+                connected_protein_resnum=resnum
+                max_depth=50
+                d=0
+                while connected_protein_resnum not in CA_altlocs:
+                    assert connected_protein_resnum in faux_bond_dict, faux_bond_dict
+                    connected_protein_resnum = faux_bond_dict[connected_protein_resnum][0].resnum()
+                    d+=1
+                    assert d < max_depth
+                make_chain_kwargs[i]["max_depth"]+=d # e.g. if path goes through 20 waters before reaching protein, then add 20.
+                for protein_CA_resnum in [connected_protein_resnum,]:# TEMP FIXME
                     try:
                         chain = make_atom_chain(DisorderedTag(protein_CA_resnum,"CA"),end_tags[i],must_find=True,**make_chain_kwargs[i]) # debug_print=(CA_resnum==149 and end_tags[i].resnum()==161) 
                     except Exception as e:
@@ -820,7 +840,7 @@ def construct_remaining_highways(LD_geomections:list[LP_Input.Geomection],constr
                     if len(chain) < shortest_chain_length:
                         shortest_chain_length=len(chain)
                         CA_resnums[i]=protein_CA_resnum
-                assert CA_resnums[i] in CA_altlocs, (resnum, CA_resnums[i])
+                assert CA_resnums[i] in CA_altlocs, (resnum, CA_resnums[i],faux_bond_dict[resnum])
 
         # Construct a chain from each atom to its residue's CA. 
         LH_highways=None
@@ -834,6 +854,9 @@ def construct_remaining_highways(LD_geomections:list[LP_Input.Geomection],constr
             atom_chain_right=make_atom_chain(DisorderedTag(CA_resnums[1],"CA"),end_tags[1],must_find=True,**make_chain_kwargs[1]) 
             assert (atom_chain_right[0],atom_chain_right[-1])==(DisorderedTag(CA_resnums[1],"CA"),end_tags[1].disordered_tag()), (DisorderedTag(CA_resnums[1],"CA"),end_tags[1], atom_chain_right)
             RH_highways = build_highway(atom_chain_right,composite_highways,composition_dictionary,constr_var_dict)
+            for tag_A in RH_highways:
+                for tag_B in RH_highways[tag_A]:
+                    assert RH_highways[tag_A][tag_B] is not None, (tag_A,tag_B,atom_chain_right)
 
 
         central_highways={}
@@ -1186,7 +1209,21 @@ def arbitrary_highway(LH_tag:OrderedTag,RH_tag:OrderedTag):
     
 
 
-def construct_highways(disordered_connections:dict[str,list[LP_Input.Geomection]],constr_var_dict:dict[str,dict[str,tuple[LP_Input.Geomection,pl.LpVariable]]]):
+full_altlocs_dict:defaultdict[DisorderedTag,list[str]]=defaultdict(list) #XXX
+def altlocs_once_and_for_all(constr_var_dict:dict[str,dict[str,tuple[LP_Input.Geomection,pl.LpVariable]]]):
+    global full_altlocs_dict
+    for dID in constr_var_dict:
+        for altlocs_key, (geom,var) in constr_var_dict[dID].items():
+            for t in [ch.get_ordered_tag() for ch in geom.atom_chunks]:
+                dtag=t.disordered_tag()
+                if dtag in full_altlocs_dict and t.altloc() in full_altlocs_dict[dtag]:
+                    continue
+                full_altlocs_dict[dtag].append(t.altloc()) 
+
+def construct_highways(disordered_connections:dict[str,list[LP_Input.Geomection]],constr_var_dict:dict[str,dict[str,tuple[LP_Input.Geomection,pl.LpVariable]]],faux_bond_dict:dict[int,tuple[DisorderedTag,DisorderedTag]]):
+    
+    altlocs_once_and_for_all(constr_var_dict)
+    
     # TODO change to using a frozenset((LH_tag,RH_tag)) for highway dictionary keys.
     LD_geomections = []
     for key, conns in disordered_connections.items():
@@ -1197,7 +1234,7 @@ def construct_highways(disordered_connections:dict[str,list[LP_Input.Geomection]
     composite_highways, composition_dictionary,CA_altlocs = construct_backbone_highways(LD_geomections,constr_var_dict)
     composite_highways, composition_dictionary = construct_easy_highways(LD_geomections,constr_var_dict,composite_highways, composition_dictionary,CA_altlocs)    
     
-    construct_remaining_highways(LD_geomections,constr_var_dict,composite_highways, composition_dictionary,CA_altlocs)    
+    construct_remaining_highways(LD_geomections,constr_var_dict,composite_highways, composition_dictionary,faux_bond_dict,CA_altlocs)    
 
 
     testing = True
