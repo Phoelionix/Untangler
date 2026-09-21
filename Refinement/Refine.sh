@@ -62,6 +62,11 @@ fixed_water_occupancy='false' # Fix water occupancies at value of ordered_solven
 
 reTry_on_fail='false' # You should not have any need to use this.
 
+# Water picking parameters
+occupancy_min=0.05
+occupancy_max=0.51
+occupancy=0.17
+
 
 while getopts ":a:f:o:u:c:e:n:s:q:wxhprgtzACDFGHLMNOPRSTWXYZ" flag; do
  case $flag in
@@ -356,6 +361,12 @@ fi
 
 if $ordered_solvent; then 
   sed "s/ordered_solvent = False/ordered_solvent = True/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+  sed "s/occupancy_min=0.05/occupancy_min=$occupancy_min/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+  sed "s/occupancy_max=0.51/occupancy_min=$occupancy_max/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+  sed "s/occupancy=0.17/occupancy=$occupancy/g" $paramFile  > $tmpfile 
   mv $tmpfile $paramFile
 fi
 

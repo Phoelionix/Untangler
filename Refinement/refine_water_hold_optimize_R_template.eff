@@ -1412,9 +1412,9 @@ bond {
     b_iso_min = 1.0
     b_iso_max = 80.0
     anisotropy_min = 0.1
-    occupancy_min = 0.02
-    occupancy_max = 1.0
-    occupancy = 0.33
+    occupancy_min = 0.05
+    occupancy_max = 0.51
+    occupancy = 0.17
     filter_at_start = True
     ignore_final_filtering_step = False
     correct_drifted_waters = True
