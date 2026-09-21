@@ -22,6 +22,12 @@ from cctbx import geometry_restraints
 from cctbx import uctbx, crystal
 import numpy as np
 import mmtbx.validation.molprobity
+from mmtbx.monomer_library import pdb_interpretation
+
+import sys,pathlib
+sys.path.append(str(pathlib.Path(__file__).parent.parent))
+import UntangleFunctions
+
 #from cctbx.geometry_restraints import pair_proxies
 # import boost_adaptbx.boost.python as bp
 # ext = bp.import_ext("cctbx_geometry_restraints_ext")
@@ -41,13 +47,13 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
 
 
     radius_considered = 10
-    ###TEMPORARY####
-    #radius_considered = 5
-    ################
+    if UntangleFunctions.QUICK_TEST_MODE:
+        radius_considered = 5
     
     params = mmtbx.model.manager.get_default_pdb_interpretation_params()
     params.pdb_interpretation.allow_polymer_cross_special_position=True
-    params.pdb_interpretation.clash_guard.nonbonded_distance_threshold = radius_considered
+    #params.pdb_interpretation.clash_guard.nonbonded_distance_threshold = radius_considered
+    params.pdb_interpretation.clash_guard.nonbonded_distance_threshold = 0
     params.pdb_interpretation.nonbonded_distance_cutoff= radius_considered
     params.pdb_interpretation.restraints_library.cdl = use_cdl
     if USE_HOLTON_CSDA:
@@ -87,10 +93,27 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
             else:
                 w.write(line)
             #same_altloc_labels.append(flex.std_string([new_str]))
+
     single_conformation_pdb_inp = iotbx.pdb.input(tmp_pdb_file)
+
+    # ### TEMP
+    # CIF_FILE_TMP="/home/speno/Untangler/data/elbow.1CX_cif.001.cif"
+    # processed_pdb_file = pdb_interpretation.run(args=[tmp_pdb_file, CIF_FILE_TMP],nonbonded_distance_threshold=0)
+    # grm = processed_pdb_file.geometry_restraints_manager()
+    # model = mmtbx.model.manager(
+    #         model_input = single_conformation_pdb_inp,
+    #         log         = null_out(),
+    #         # crystal_symmetry=crystal.symmetry(
+    #         #         unit_cell=unreasonably_large_unit_cell,
+    #         #         space_group_symbol="P1")
+    #     )
+    # ####
+
+    
 
 
     #pdb_inp = iotbx.pdb.input(pdb_file_path)
+
 
 
     model = mmtbx.model.manager(
@@ -106,7 +129,6 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
 
     
 
-
     #pnp_manager = process_nonbonded_proxies.manager(model=model)
     # grm = pnp_manager.model.get_restraints_manager().geometry
     # xrs = pnp_manager.model.get_xray_structure()
@@ -115,6 +137,8 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
     grm: cctbx.geometry_restraints.manager.manager
     grm = model.get_restraints_manager().geometry
     #grm = validation.model.get_restraints_manager().geometry
+    
+
     xrs = model.get_xray_structure()
     sites_cart  = model.get_sites_cart()
     site_labels = xrs.scatterers().extract_labels()
