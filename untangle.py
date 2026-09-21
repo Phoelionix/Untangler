@@ -36,7 +36,7 @@ CLEAR_CLASHING_SOLVENT_AROUND_SIDECHAINS=False # Clears waters very close to sid
 DISABLE_WATER_ALTLOC_OPTIM=False
 TURN_OFF_BULK_SOLVENT=False
 CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=False
-PHENIX_ORDERED_SOLVENT=True
+PHENIX_ORDERED_SOLVENT=False
 PHENIX_filter_ordered_solvent_FIRST=False
 PHENIX_ORDERED_SOLVENT_APPLIED_ONCE=False # Apply in a single macro cycle each loop
 PHENIX_SAME_OCC_ORDERED_SOLVENT=False
@@ -47,7 +47,6 @@ PHENIX_DISABLE_NQH=True
 ILP_IGNORES_WATERS=False
 
 DEBUG_FORCE_NEVER_RIDING_H_PHENIX=False
-DEFAULT_REFINE_WATER_OCCUPANCIES=True
 
 REFINE_ADP_WHEN_REFINING_POSITIONS=True
 
@@ -67,7 +66,11 @@ TIMEOUT_MINS_FACTOR=30 # 1
 CLEAR_REFINE_LOGS=False
 
 
-assert not (DEBUG_FORCE_NEVER_RIDING_H_PHENIX and DEFAULT_REFINE_WATER_OCCUPANCIES)
+if not DEBUG_FORCE_NEVER_RIDING_H_PHENIX:
+    default_refine_water_occupancies = True
+
+
+assert not (DEBUG_FORCE_NEVER_RIDING_H_PHENIX and default_refine_water_occupancies)
 
 # TODO:
 # Make flag in swap options that says what the altlocs were swapped around. So that on debug reruns the same altlocs can be used.
@@ -96,7 +99,7 @@ class Untangler():
     # As of writing, untwist step is skipped if the unrestrained step is skipped.
     debug_skip_refine = False  # Note: Can set to True alongside debug_skip_first_swaps to skip to first proposal
     debug_skip_initial_refine=True
-    debug_skip_first_unrestrained_refine=True
+    debug_skip_first_unrestrained_refine=False
     debug_skip_first_untwist_refine=False
     debug_skip_first_swaps=False # Uses output from a previous run. Swaps still happen
     debug_skip_first_batch_refine=False # skip to assessing best model from the batch of refinements
@@ -114,7 +117,7 @@ class Untangler():
     default_scoring_function = staticmethod(RestraintsHandler.z_sqr)
     #default_scoring_function = staticmethod(RestraintsHandler.chi) # Like how phenix scores
     #default_scoring_function = staticmethod(RestraintsHandler.log_chi)
-    debug_skip_to_loop=1
+    debug_skip_to_loop=0
     debug_force_subsets=None # ["BDEF"] # None
     num_loops_not_refine_H=9999
     untwist_moves_enabled=False
@@ -142,7 +145,7 @@ class Untangler():
         debug_skip_first_focus_swaps=True
     if DEBUG_FORCE_NEVER_RIDING_H_PHENIX:
         num_loops_not_refine_H=np.inf
-    if DEFAULT_REFINE_WATER_OCCUPANCIES: 
+    if default_refine_water_occupancies: 
         num_loops_not_refine_H=np.inf  # Otherwise it refines hydrogen occupancies too....
 
     class Score():
@@ -1448,7 +1451,7 @@ class Untangler():
     def regular_batch_refine(self,model_paths:list[str],altloc_subsets_list=None, refine_H=False,
         refine_water_occupancies=None,alternate_strategy=False, refine_H_before_end=False,**kwargs):
         if refine_water_occupancies is None:
-            refine_water_occupancies = DEFAULT_REFINE_WATER_OCCUPANCIES
+            refine_water_occupancies = default_refine_water_occupancies
         
         param_set:list[tuple[SimpleNamespace,list[str]]] = []
         all_phenix_kwargs=[]
@@ -1586,7 +1589,7 @@ class Untangler():
                        wc_override=None,hold_protein_override=None,refine_water_occupancies=None, real_space_refine=False,
                        **kwargs)->str:
         if refine_water_occupancies is None:
-            refine_water_occupancies = DEFAULT_REFINE_WATER_OCCUPANCIES        
+            refine_water_occupancies = default_refine_water_occupancies        
 
         print("Performing restrained refinement")
         tag = "" if runtag is None else f"-{runtag}"
