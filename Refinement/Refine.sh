@@ -16,7 +16,7 @@ hkl_handle=${hkl_file%.*}
 out_handle_override='false'
 
 # defaults
-random_seed=42
+random_seed=42; seeded=true
 serial=999
 wc=1
 wu=1
@@ -35,6 +35,7 @@ generate_r_free='false'
 turn_off_bulk_solvent='false'
 disable_movement_restraint='false'
 refine_occupancies='false'
+refine_solvent_occupancies='false'
 refine_water_occupancies='false'
 ordered_solvent='false'
 disable_ADP='false'
@@ -49,6 +50,7 @@ filter_ordered_solvent='false'
 clear_out_solvent_mode='false'
 real_space_refine='false'
 hold_main_chain='false'
+disable_reciprocal_xyz='false'
 
 max_sigma_movement_restraint=0.1
 
@@ -61,7 +63,7 @@ fixed_water_occupancy='false' # Fix water occupancies at value of ordered_solven
 reTry_on_fail='false' # You should not have any need to use this.
 
 
-while getopts ":a:f:o:u:c:e:n:s:q:whprgtzACDFGHLMNOPRSTWXZ" flag; do
+while getopts ":a:f:o:u:c:e:n:s:q:wxhprgtzACDFGHLMNOPRSTWXYZ" flag; do
  case $flag in
     a) altlocs_to_refine=$OPTARG
     ;;
@@ -84,6 +86,8 @@ while getopts ":a:f:o:u:c:e:n:s:q:whprgtzACDFGHLMNOPRSTWXZ" flag; do
     q) max_sigma_movement_restraint=$OPTARG
     ;;
     w) calc_wE='true'
+    ;;
+    x) disable_reciprocal_xyz='true'
     ;;
     h) hold_water='true'
     ;;
@@ -129,6 +133,8 @@ while getopts ":a:f:o:u:c:e:n:s:q:whprgtzACDFGHLMNOPRSTWXZ" flag; do
     ;;
     X) real_space_refine='true'
     ;;
+    Y) refine_solvent_occupancies='true'
+    ;;
     Z) water_and_H_only='true'
     ;;
    \?)
@@ -137,9 +143,20 @@ while getopts ":a:f:o:u:c:e:n:s:q:whprgtzACDFGHLMNOPRSTWXZ" flag; do
  esac
 done
 
+  # if [[ "$xyz_handle" =~ ^(.*)${hkl_handle}(_([0-9]+))?$ ]]; then
+  #   num=${BASH_REMATCH[3]}
+  #   next=$(( ${num:-1} + 1 ))
+  #   out_handle="${BASH_REMATCH[1]}${hkl_handle}_${next}"
+
 
 if ! $out_handle_override; then
-  out_handle=${xyz_handle}-${hkl_handle}
+  if [[ "$xyz_handle" =~ ^(.*)${hkl_handle}([0-9]*)$ ]]; then
+    prefix="${BASH_REMATCH[1]}"
+    num="${BASH_REMATCH[2]}"
+    out_handle="${prefix}${hkl_handle}$((${num:-1} + 1))"
+  else
+    out_handle=${xyz_handle}-${hkl_handle}
+  fi
   if [ -n "$altlocs_to_refine" ]; then
     out_handle=${out_handle}-${altlocs_to_refine}
   fi
@@ -176,6 +193,7 @@ fi
 
 if $hold_protein; then
   paramFileTemplate=refine_protein_hold_template.eff
+  echo "ordered solv bugged"
 fi
 
 #TEMPORARY
@@ -288,11 +306,28 @@ if $refine_occupancies; then
   mv $tmpfile $paramFile
 fi
 
+if $refine_solvent_occupancies; then 
+  sed  "s/tls occupancies/tls *occupancies/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+  sed  -z 's/occupancies {\n      individual = None/occupancies {\n      individual = water or resname SOL or resname MN or resname CL/g' $paramFile  > $tmpfile
+  mv $tmpfile $paramFile
+  sed  "s/remove_selection = All/remove_selection = protein/g" $paramFile  > $tmpfile
+  mv $tmpfile $paramFile
+  if $refine_hydrogens; then
+    echo "Warning, hydrogen occupancies will still be refined because hydrogens are being refined individually!"
+  fi
+fi
+# or resname NAP or resname FOL or resname CL or resname MN
 if $refine_water_occupancies; then 
   sed  "s/tls occupancies/tls *occupancies/g" $paramFile  > $tmpfile 
   mv $tmpfile $paramFile
+  sed  -z 's/occupancies {\n      individual = None/occupancies {\n      individual = water/g' $paramFile  > $tmpfile
+  mv $tmpfile $paramFile
   sed  "s/remove_selection = All/remove_selection = not water/g" $paramFile  > $tmpfile
   mv $tmpfile $paramFile
+  if $refine_hydrogens; then
+    echo "Warning, hydrogen occupancies will still be refined because hydrogens are being refined individually!"
+  fi
 fi
 
 if $generate_r_free; then
@@ -352,7 +387,7 @@ logs_path="../../../output/refine_logs"
 mkdir -p $logs_path
 
 if $disable_movement_restraint; then 
-  sed 's/reference_coordinate_restraints {\n      enabled = True/reference_coordinate_restraints {\n      enabled = False/g' $paramFile  > $tmpfile 
+  sed -z 's/reference_coordinate_restraints {\n      enabled = True/reference_coordinate_restraints {\n      enabled = False/g' $paramFile  > $tmpfile 
   mv $tmpfile $paramFile
 fi 
 
@@ -382,6 +417,11 @@ mv $tmpfile $paramFile
 sed "s/individual = TEMPLATE_SITES_INDIVIDUAL/individual = None/g" $paramFile > $tmpfile 
 mv $tmpfile $paramFile
 
+if $disable_reciprocal_xyz; then
+  sed "s/\*individual_sites/individual_sites/g" $paramFile > $tmpfile 
+  mv $tmpfile $paramFile
+fi
+
 
 if $filter_ordered_solvent; then
   sed 's/mode = \*second_half filter_only every_macro_cycle every_macro_cycle_after_first/mode = second_half *filter_only every_macro_cycle every_macro_cycle_after_first/g' $paramFile  > $tmpfile 
@@ -401,6 +441,7 @@ if $clear_out_solvent_mode; then
 fi
 sed "s/b_iso_max = 80.0/b_iso_max = $max_ordered_solvent_B/g" $paramFile  > $tmpfile 
 mv $tmpfile $paramFile
+
 # Broad sweep attempt to stop phenix segfaulting when run in parallel
 # export OMP_NUM_THREADS=1
 # export OPENBLAS_NUM_THREADS=1
@@ -448,7 +489,15 @@ while true; do
 
 
   failed=false
-  phenix.refine main.random_seed=$random_seed $paramFile $user_param_file  2>$error_file 1> $log_file
+
+
+  if $seeded; then 
+    randomseedparam="main.random_seed=$random_seed" 
+  else 
+    randomseedparam="main.random_seed=None" 
+  fi
+
+  phenix.refine $randomseedparam $paramFile $user_param_file  2>$error_file 1> $log_file
 
   if [ -s $error_file ]; then
     failed=true
