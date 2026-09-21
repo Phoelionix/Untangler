@@ -9,10 +9,11 @@ from LinearOptimizer.OrderedAtomLookup import OrderedAtomLookup
 from Bio.PDB import PDBParser,Structure,PDBIO
 from UntangleFunctions import parse_symmetries_from_pdb, UNTANGLER_WORKING_DIRECTORY, prepare_pdb
 from ConformationTree.split_pdb import split_specific
+import shutil
 
 
 def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False,nonexistent_parent_from_child_priority_dict={},equalize_output_occupancies=False,never_alter_lone_waters=False, nonexistent_parents_replace_child=True,
-        shake_new_conformers=0.1 # Angstrom
+        shake_new_conformers=0.1,out_path=None, # Angstrom
         ):
     out_dir = os.path.join(UntangleFunctions.UNTANGLER_WORKING_DIRECTORY,"ConformationTree","output")
     if not os.path.exists(out_dir):
@@ -44,17 +45,22 @@ def run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=False,nonex
     if equalize_output_occupancies:
         prepare_pdb(split_model_path,split_model_path,
                     even_split_protein_occupancies=True,treat_solvent_identically_to_protein=True)
-    print(f"Successfully written to {split_model_path}")
+    if out_path is None:
+        out_path=split_model_path
+    else:
+        shutil.move(split_model_path,out_path)
+    print(f"Successfully written to {out_path}")
 
 if __name__ == "__main__":
-    model_path="/home/speno/Untangler/data/lys/5KXL.pdb"
+    model_path="/home/speno/Untangler/data/lys/5KXK.pdb"
     equalize_output_occupancies=True
     preserve_parent_altlocs=False
     nonexistent_parents_replace_child=True
 
     SING=' '
     #child_parent_altlocs_dict={}; nonexistent_parent_from_child_priority_dict={"A":"CDB"+SING,"B":"DCA"+SING,"C"+SING:"ABD ","D":"BAC"+SING}; nonexistent_parents_replace_child=False # Make contiguous conformations from 4-conf qFit. 
-    child_parent_altlocs_dict={};nonexistent_parent_from_child_priority_dict={"A":"BC"+SING,"B":"CA"+SING,"C":"AB"+SING,"D":'BAC'+SING,"E":'CAB'+SING}; nonexistent_parents_replace_child=False # Make 5 contiguous conformations from 3-conf qFit. Could be more thought out.
+    #child_parent_altlocs_dict={};nonexistent_parent_from_child_priority_dict={"A":"BC"+SING,"B":"CA"+SING,"C":"AB"+SING,"D":'BAC'+SING,"E":'CAB'+SING}; nonexistent_parents_replace_child=False # Make 5 contiguous conformations from 3-conf qFit. Could be more thought out.
+    child_parent_altlocs_dict={};nonexistent_parent_from_child_priority_dict={"A":"BC"+SING,"B":"CA"+SING,"C":"AB"+SING,"D":'BAC'+SING,"E":'CAB'+SING,'F':'ACB'+SING}; nonexistent_parents_replace_child=False # Make 6 contiguous conformations from 3-conf qFit. Could be more thought out.
 
 
     #child_parent_altlocs_dict={"A":" ","B":" ", "C":" ", "D":" ", "E": " "}; preserve_parent_altlocs=False
@@ -63,7 +69,7 @@ if __name__ == "__main__":
     #child_parent_altlocs_dict={"C":"A","D":"A","E":"A","F":"A","c":"B","d":"B","e":"B","f":"B"}
     #child_parent_altlocs_dict={"A":" ","B":" ","C":" ","D":" ","E":" ","F":" "}
     #child_parent_altlocs_dict={"D":"A","E":"B","F": "C"}
-    shake_new_conformers=0.5 # angstrom
+    shake_new_conformers=0 # angstrom
     run(model_path,child_parent_altlocs_dict,preserve_parent_altlocs=preserve_parent_altlocs,equalize_output_occupancies=equalize_output_occupancies,
         nonexistent_parents_replace_child=nonexistent_parents_replace_child,
         nonexistent_parent_from_child_priority_dict=nonexistent_parent_from_child_priority_dict,
