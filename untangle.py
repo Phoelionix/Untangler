@@ -33,6 +33,7 @@ CLEAR_SOLVENT_AROUND_SIDECHAINS_BEFORE_UNRESTRAINED=False # Conformation-blind r
 CLEAR_SOLVENT_AROUND_SIDECHAINS_BEFORE_SWAP=False
 CLEAR_CLASHING_SOLVENT_AROUND_SIDECHAINS=False # Clears waters very close to sidechain atoms in the same conformation plus extremely close regardless of conformation. Good for when changes made in coot without waters before waters are added back
 
+
 DISABLE_WATER_ALTLOC_OPTIM=False
 TURN_OFF_BULK_SOLVENT=False
 CONSIDER_WE_WHEN_CHOOSING_BEST_BATCH=False
@@ -50,6 +51,7 @@ DEBUG_FORCE_NEVER_RIDING_H_PHENIX=False
 
 REFINE_ADP_WHEN_REFINING_POSITIONS=True
 
+MAIN_CHAIN_SWAPS_ONLY=False 
 
 REFINE_FOR_POSITIONS_UNTIL_WORSE=False; WU_MULT_WHEN_REFINING_POSITIONS=1.0
 #REFINE_FOR_POSITIONS_UNTIL_WORSE=True; WU_MULT_WHEN_REFINING_POSITIONS=1.2
@@ -110,7 +112,6 @@ class Untangler():
     never_do_unrestrained=UntangleFunctions.NO_UNRESTRAINED # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
     always_allow_O_swaps=False
     always_forbid_O_swaps=False
-    debug_main_chain_swaps_only=True  ##
     main_chain_swaps_only_after_first_loop=False
     optimize_side_and_main_separately=False
     #default_scoring_function = staticmethod(RestraintsHandler.chi_z_sqr) # Like Holton score (non-outlier terms)
@@ -781,7 +782,7 @@ class Untangler():
 
     def main_chain_only(self):
         return not ((self.loop+1)%self.main_chain_swaps_only_period!=0
-                and not self.debug_main_chain_swaps_only
+                and not MAIN_CHAIN_SWAPS_ONLY
                 and not (self.main_chain_swaps_only_after_first_loop and self.loop>0))
     #TODO only allow the atoms untwisted to be refined.
     def get_untwist_moves(self,working_model,num_unrestrained_cycles=2, debug_skip_refine=False):
