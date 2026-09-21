@@ -30,6 +30,8 @@ def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False
             RestraintsHandler.NonbondRestraint: 0.1, # 0.1
             RestraintsHandler.ClashRestraint: 1e2, 
             RestraintsHandler.TwoAtomPenalty: 0,
+            RestraintsHandler.Dihedral: 0,
+            RestraintsHandler.Planarity: 0,
         }
     else:
         weight_factors=copy.deepcopy(weight_factors)
@@ -212,3 +214,4 @@ def write_to_b_factors(pdb_path,terms,out_path): # 0/1 if in/not in terms, 1 i.
 if __name__ == "__main__":
      evaluate_tangle(*sys.argv[1:])
 
+#python3 Measures/evaluate_tangle.py output/lrt_shaken.pdb data/synthetic/best.pdb
