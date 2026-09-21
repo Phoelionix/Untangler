@@ -140,7 +140,7 @@ class OrderedAtomLookup: #TODO pandas?
         return self.better_dict[ordered_tag.resnum()][ordered_tag.atom_name()][ordered_tag.altloc()] # NOTE If error here during constraint loading, might be that waters weren't loaded in OrderedAtomLookup.
 
 
-    def remove_water_around_sidechains(self,radius=1.8):
+    def remove_water_around_sidechains(self,radius=1.8,same_altlocs=False):
         def separation(a:Atom,b:Atom):
             return np.sqrt(np.sum((a.get_coord()-b.get_coord())**2))
         exclude=["C","N","O","CA","CB"]
@@ -150,11 +150,11 @@ class OrderedAtomLookup: #TODO pandas?
         
         original_num_waters=len(self.select_atoms_by(waters=True,protein=False))
         waters_removed=0
-        print(f"Removing water within {radius} A of sidechain atoms\nIgnoring {', '.join(exclude)}")
+        print(f"Removing {'same-conformation ' if same_altlocs else ''}water within {radius} A of sidechain atoms\nIgnoring {', '.join(exclude)}")
         for i, other_atom in enumerate(sidechain_atoms):
             if i%500==0:
                 print(f"{i}/{len(sidechain_atoms)}. Removed {waters_removed}/{original_num_waters} waters")
-            for water in self.select_atoms_by(waters=True,protein=False):
+            for water in self.select_atoms_by(waters=True,protein=False,altlocs=[other_atom.get_altloc(),]):
                 if separation(water,other_atom) < radius:
                     self.delete(water)
                     waters_removed+=1
@@ -270,13 +270,13 @@ class OrderedAtomLookup: #TODO pandas?
         return atom_selection
     
 
-def clear_solvent_around_sidechains(pdb,radius=1.8,prepare_first=False,debug_skip=False):
+def clear_solvent_around_sidechains(pdb,radius=1.8,prepare_first=False,debug_skip=False,same_altlocs=False):
     assert pdb[-4:]==".pdb"
     out_path=pdb[:-4]+f"_delHOH{radius}.pdb"
     if not debug_skip:
         UntangleFunctions.prepare_pdb(pdb,out_path)
         ordered_atom_lookup=OrderedAtomLookup(out_path,waters=True)
 
-        ordered_atom_lookup.remove_water_around_sidechains(radius=radius)
+        ordered_atom_lookup.remove_water_around_sidechains(radius=radius,same_altlocs=same_altlocs)
         ordered_atom_lookup.output_as_pdb_file(out_path,out_path)
     return out_path

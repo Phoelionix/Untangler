@@ -10,11 +10,13 @@ class VariableKind(Enum):
     Planarity = "Planarity"
     Penalty = "Penalty"
 
+
+
 class VariableID:
     @staticmethod
     def Atom(chunk:'AtomChunk'):
         return VariableID(
-            chunk.get_disordered_tag(), #f"{chunk.resnum}.{chunk.name}",
+            chunk.get_disordered_tag(), # NOTE #f"{chunk.resnum}.{chunk.name}", 
             VariableKind.Atom,
             chunk.get_site_num(),
             chunk.is_water,

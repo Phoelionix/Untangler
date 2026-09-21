@@ -103,6 +103,7 @@ def get_untwist_atom_options_that_survived_unrestrained(pos_refined_model, pre_u
         if separation(*post_ref_atm)/separation(*og_atm) < min_ratio_real_sep_on_fake_sep:
             passed = False
 
+        assert min_ratio_real_sep_on_fake_sep <=2 
 
         if separation(*post_ref_atm)/separation(*og_atm) > 2 and separation(*post_ref_atm)>0.2:
             passed=True 

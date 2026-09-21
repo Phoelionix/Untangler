@@ -156,9 +156,10 @@ class AtomChunk(OrderedResidue):
         self.echoed_altloc = echoed_altloc
         self._atm=atom
     def generate_uninitialized_constraints(self,constraints_handler:RestraintsHandler):
+        TEMP_ALLOW_MISSING_ALTLOCS=False # e.g. missing carboxyl group from one conformation
         self.constraints_holder:RestraintsHandler = \
             constraints_handler.get_constraints(self.get_disordered_tag(),
-                                                no_constraints_ok=self.is_water or self.is_het)
+                                                no_constraints_ok=self.is_water or self.is_het or TEMP_ALLOW_MISSING_ALTLOCS)
     def has_alternate_coords(self):
         return len(self.alt_pos_options)>0
     def get_coord(self):
@@ -185,8 +186,8 @@ class LP_Input:
     #MODE= "NO_RESTRICTIONS"
     #MODE= "LOW_TOL"
     #MODE= "V_LOW_TOL"
-    #MODE= "V_LOW_TOL2"
-    MODE="TEST"
+    MODE= "V_LOW_TOL2"
+    #MODE="TEST"
     max_sigmas,min_sigmas_where_anything_goes,min_tension_where_anything_goes={},{},{}
     if MODE=="NO_RESTRICTIONS":
         pass
@@ -204,8 +205,10 @@ class LP_Input:
             }       
         else:
             max_sigmas={
-                RestraintsHandler.BondRestraint:3,
-                RestraintsHandler.AngleRestraint:2,
+                RestraintsHandler.BondRestraint:4,
+                RestraintsHandler.AngleRestraint:2.5,
+                # RestraintsHandler.BondRestraint:3,
+                # RestraintsHandler.AngleRestraint:2,
                 RestraintsHandler.ClashRestraint:-99,
             }    
     elif MODE=="NONBOND_RESTRICTIONS":
@@ -283,7 +286,8 @@ class LP_Input:
         max_sigmas={
             RestraintsHandler.BondRestraint:2,
             RestraintsHandler.AngleRestraint:1.5,
-            RestraintsHandler.ClashRestraint:-99,
+            RestraintsHandler.ClashRestraint:6,
+            #RestraintsHandler.ClashRestraint:-99,
         } 
     elif MODE=="TENSIONS_TOL":
         max_sigmas={
@@ -401,9 +405,9 @@ class LP_Input:
             self.connection_type=connection_type
             self.ts_distance=ts_distance  # NOTE As in the travelling salesman problem sense
             self.position_option_indices=position_option_indices
-            self.hydrogen_tag = LP_Input.make_hydrogen_tag(hydrogen_names) # TODO change to hydrogen names. Change get_disordered_connection_id() to call on construct_disordered_connection_id
+            self.hydrogen_names = hydrogen_names
+            self.hydrogen_tag = LP_Input.make_hydrogen_tag(self.hydrogen_names) # TODO change to hydrogen names. Change get_disordered_connection_id() to call on construct_disordered_connection_id
             self.poschange_tag=""
-            self.hydrogen_name_set=set([])
             self.ideal=ideal
             self.z_score=z_score # i.e. sigma
             self.actual=actual
@@ -417,7 +421,6 @@ class LP_Input:
             self.forbidden= (connection_type in LP_Input.max_sigmas) and (self.z_score > LP_Input.max_sigmas[self.connection_type]) 
                 
             if hydrogen_names is not None:
-                self.hydrogen_name_set = set(hydrogen_names)
                 if NEVER_FORBID_HYDROGEN_GEOMETRIES:
                     self.forbidden=False
             if self.involves_position_changes():
@@ -451,7 +454,6 @@ class LP_Input:
                                        None,self.ideal,self.z_score,self.actual,self.max_site_tension,self.outlier_ok,
                                        echo_is_of_original=is_original_geomection,
                                        echo_is_link=is_link)
-            echo.hydrogen_name_set=self.hydrogen_name_set
             echo.hydrogen_tag=self.hydrogen_tag
             echo.poschange_tag=self.poschange_tag
             return echo
@@ -620,7 +622,7 @@ class LP_Input:
                         suppress_worse=False, # Suppresses cost of ordered connections for a geometry when they are worse than the current worst ordered connection. This is to encourage improvements in other measures. 
                         improvement_factor=1, # improvements are weighted by this much. Might need to be implemented in LinearOptimizer.Solver
                         weight_for_range=False, # increases weight of restraints that currently have a wide range in z scores. 
-                        )->tuple[list[Chunk],dict[str,list[Geomection]]]: #disorderedResidues:list[Residue]
+                        )->tuple[list[Chunk],dict[str,list[Geomection]],dict[int,OrderedTag]]: #disorderedResidues:list[Residue]
         
         print("Geomections - Calculating geometric costs for all possible connections between chunks of atoms (pairs for bonds, triplets for angles, etc.)")
         #print("Calculating costs for all geomections")
@@ -1187,7 +1189,7 @@ class LP_Input:
 
 
 
-        return finest_depth_chunks,disordered_connections
+        return finest_depth_chunks,disordered_connections, constraints_handler.faux_bond_dict
     
 
     def get_echoes(self,atom_chunks:dict[str,AtomChunk],disordered_connections:dict[str,list[Geomection]],child_parent_altloc_dict:dict[str,str]):

@@ -575,6 +575,7 @@ def detect_twists(ordered_atom_lookup:OrderedAtomLookup,target_res_num:int,atom_
         if len(twist_point_sets[0])>0:
             solutions=select_points_from_single_constraint(twist_point_sets[0],point_0_sets[0],C)     
     else:
+        ### this is overriding solutions??? 
         for t1,p0_1 in zip(twist_point_sets, point_0_sets):
             for t2,p0_2 in [(t,p0) for t,p0 in zip(twist_point_sets,point_0_sets) if t is not t1]:
                 solutions = find_compatible_solutions_for_separate_pairs(t1,t2,C)

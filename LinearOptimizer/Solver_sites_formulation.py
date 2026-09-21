@@ -89,7 +89,7 @@ USE_DYNAMIC_ALTLOC_SUBSET_SIZE = True # Dynamically modify the number of conform
 
 PEPPER_FIXED_SITES=True
 PEPPER_FIXED_GEOMECTIONS=True
-CEMENT=True
+CEMENT=False
 
 
 #ALTLOC_RUN_SUBSET_SIZES=[2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,None] # None 
@@ -131,8 +131,10 @@ def add_sos2(lp_problem:LpProblem,sos2_name,sos2_rule):
     lp_problem.sos2[sos2_name]=sos2_rule
 
 
-def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]],out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
-          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,max_mins_start=3,mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
+def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]],dummy_arg:dict[DisorderedTag,DisorderedTag],
+          out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
+          inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,
+          max_mins_start=3, mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
           inert_water_sites=False,
           #gapRel=0.001,
           #gapRel=0,
@@ -149,7 +151,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
           forbid_ring_changes=True,
           forbid_solutions_composed_of_better_solutions=False,
           forbid_CECD12_changes=False, # Leaving true until fix bug from missing interchangability of C[E/D]1 and C[E/D]2 when reading geometry restraints 
-          reference_pdb_file=None
+          reference_pdb_file=None,
+          force_one_round=False,
           ):  
           #max_bond_changes=None):  
     print("****************\nConstructing ILP problem\n****************")
@@ -285,43 +288,46 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     sidechain_improvement_factor_requirement_mult_bond=1
     sidechain_improvement_factor_requirement_mult_angle=1
     #TODO try a round where everything costs zero except clashes?
-    if True:
-        if len(all_altlocs)==2:
-            improvement_factors_to_tolerate=np.array([100,2,1]) 
-        elif len(all_altlocs)<=4:
-            #improvement_factors_to_tolerate=np.array([100,12,10,4,3,2,1.5,1.2,1.1,1,0.95]) 
-            improvement_factors_to_tolerate=np.array([2,1]) 
-        else:
-            #improvement_factors_to_tolerate=np.array([100,12,10,8,6,5,4.5,4,3.5,3,2.5,2.25,2,1.75,1.5,1.35,1.2,1.1,1,0.95,0.90]) 
-            #improvement_factors_to_tolerate=np.array([100,12,6,4,3,2,1.5,1,0.95,0.90,0.85]) 
-            #improvement_factors_to_tolerate=np.array([5,1.75,1.2,1,0.90,0.85,0.80]) 
-            #improvement_factors_to_tolerate=np.array([1.75,1.5,1.25,1,0.9,0.8]) 
-            #improvement_factors_to_tolerate=np.array([1,0.8]) 
-            #improvement_factors_to_tolerate=np.array([10,5,4,3,2,1.5,1]) 
-            #improvement_factors_to_tolerate=np.array([1]) 
-            #improvement_factors_to_tolerate=np.array([5,2,1,0.8,0.6,0.5]) 
-            #improvement_factors_to_tolerate=np.array([5,3,2,1,0.8,0.6,0.5]) 
-            if UntangleFunctions.NO_UNRESTRAINED:
-                improvement_factors_to_tolerate=np.array([5,2,1,0.5,0.25]) 
-            else:
 
-                #improvement_factors_to_tolerate=np.array([100,4,2,1.5,1]) 
-                #improvement_factors_to_tolerate=np.array([4,2,1,0.7,0.4]) 
-                #improvement_factors_to_tolerate=np.array([4,2,1]) 
-                #improvement_factors_to_tolerate=np.array([4,0.8]) 
-                improvement_factors_to_tolerate=np.array([2,0.8]) 
-                #improvement_factors_to_tolerate=np.array([10,4,2,1,0.7,0.4,0.2]) /0.2
-        # TODO remove altloc_run_subset_size variable, replace
-        num_subset_runs=4
-        #improvement_factors_to_tolerate=np.array([2,0.8]) 
-        improvement_factors_to_tolerate=np.array([20,4,2,1.01,0.8]) 
-        #start_of_round_altloc_subset_size=max(2,math.ceil(len(all_altlocs)/2))
-        start_of_round_altloc_subset_size=3 #2 # 3
-        # TEMPORARY NEW FORM. TESTING
-        #improvement_factors_to_tolerate=np.array([1.01]) 
-        start_of_round_altloc_subset_size=6
-        ###################
-        ALTLOC_RUN_SUBSET_SIZES=[start_of_round_altloc_subset_size,]*num_subset_runs
+    ###################
+    if len(all_altlocs)==2:
+        improvement_factors_to_tolerate=np.array([100,2,1]) 
+    elif len(all_altlocs)<=4:
+        #improvement_factors_to_tolerate=np.array([100,12,10,4,3,2,1.5,1.2,1.1,1,0.95]) 
+        improvement_factors_to_tolerate=np.array([2,1]) 
+    else:
+        if UntangleFunctions.NO_UNRESTRAINED:
+            improvement_factors_to_tolerate=np.array([5,2,1,0.5,0.25]) 
+        else:
+
+            #improvement_factors_to_tolerate=np.array([100,4,2,1.5,1]) 
+            #improvement_factors_to_tolerate=np.array([4,2,1,0.7,0.4]) 
+            #improvement_factors_to_tolerate=np.array([4,2,1]) 
+            #improvement_factors_to_tolerate=np.array([4,0.8]) 
+            improvement_factors_to_tolerate=np.array([2,0.8]) 
+            #improvement_factors_to_tolerate=np.array([10,4,2,1,0.7,0.4,0.2]) /0.2
+    # TODO remove altloc_run_subset_size variable, replace
+    #num_subset_runs=4
+    #improvement_factors_to_tolerate=np.array([20,4,2,1.01,0.8]) 
+    #start_of_round_altloc_subset_size=5 #2 # 3
+    num_subset_runs=5
+    improvement_factors_to_tolerate=np.array([20,4,2,1.01,0.8]) 
+    start_of_round_altloc_subset_size=len(all_altlocs)-1 
+
+    # TEMPORARY NEW FORM. TESTING
+    #improvement_factors_to_tolerate=np.array([1.01]) 
+    #start_of_round_altloc_subset_size=6
+
+
+    if force_one_round:
+        improvement_factors_to_tolerate=np.array([1])
+        num_subset_runs=1
+
+    ###################
+    
+    ALTLOC_RUN_SUBSET_SIZES=[start_of_round_altloc_subset_size,]*num_subset_runs # NOTE these are the MAXIMUM altloc subset sizes to START with. See dynamic_subset_size_mod variable.
+
+
 
     #TODO limit alternatives to consider to the top N alternatives. Otherwise when have really bad outliers, introduce a huge number of branches.
     # TODO dynamical solution space size. Stop solve if taking too long, and increase the required improvement_factor, then retry. 
@@ -639,7 +645,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                                 return True
             if constraint_type==VariableKind.Bond: 
                 # XXX this allows water to change. But necessary.
-                other_things=["MN", "NAP", "FOL"] # XXX
+                other_things=["MN", "NAP", "FOL","NA","CL","ACT"] # XXX
                 if MAIN_CHAIN_ONLY and not in_main_chain and (any(ch.get_resname().strip() not in (["CYS","HOH"] + other_things) for ch in chunks)):  # XXX tidy up and put in a separate python file for specifying what to optimize
                     return True
                 if SIDE_CHAIN_ONLY and in_main_chain and (any(ch.get_resname().strip() not in (["HOH",] + other_things) for ch in chunks)):
@@ -1191,10 +1197,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     #TODO this should replace 'constraint_var_dict'
     mega_geomection_var_dict:dict[str,dict[str,tuple[LP_Input.Geomection,LpVariable]]]={}
     ALL_mega_geomection_var_dict:dict[str,dict[str,tuple[LP_Input.Geomection,LpVariable]]]={}
+    has_clashes=False # Just a quick check, because if clashes aren't added for for some reason it will lead to a slow and likely useless solve.
     for i, (connection_id, ordered_connection_choices) in enumerate(disordered_connections.items()):
         if i % 250 == 0:
             print(f"Adding constraints {i}/{len(disordered_connections)} ({connection_id})")
         constraint_type = VariableKind[connection_id.split('_')[0]]  #XXX ?????
+        if constraint_type.value=="Clash":
+            has_clashes=True
         result = add_constraints_from_disordered_connection(constraint_type,ordered_connection_choices,global_score_tolerate_threshold=global_score_tolerate_threshold)
         if result is not None:
             #XXX
@@ -1205,7 +1214,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     print(f"Num allowed alternative geomections: {num_allowed_alternative_connections}")
     print(f"Num forbidden geomections: {num_forbidden_connections}")
     print(f"Num small fry: {num_small_fry_geomections}")
-
+    assert has_clashes, "No clashes added! Something may have gone wrong. If intentional, comment out this assertion."
 
     smallest_unit_geomection_types = (RestraintsHandler.BondRestraint,RestraintsHandler.NonbondRestraint,RestraintsHandler.ClashRestraint)
 
@@ -1428,7 +1437,12 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 max_resnum = max(resnum,max_resnum)
             resnum_no_change_vars_dict[resnum].append(no_change_vars_dict[connection_id])
         #print(resnum_no_change_vars_dict[4])
-
+        for resnum in range(1,max_resnum+1): # LIGAND FIX PART 1
+            if resnum not in resnum_no_change_vars_dict:
+                # This can happen if a ligand with N CA C or CB follows one that does not in the PDB file
+                #  TODO assert it's a ligand
+                print(f"Warning: check residue {resnum} has no main chain")
+                resnum_no_change_vars_dict[resnum]=[]
         for resnum in range(1,max_resnum+1):
             # consider vars for bonds between N, C, CA in residue and neighbouring residues
             no_change_vars=[v for v in resnum_no_change_vars_dict[resnum]]
@@ -1436,6 +1450,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 no_change_vars.extend(resnum_no_change_vars_dict[resnum-1])
             if resnum < max_resnum:
                 no_change_vars.extend(resnum_no_change_vars_dict[resnum+1])
+            if len(no_change_vars)==0: # LIGAND FIX PART 2
+                continue
             max_changes=1
             lp_problem +=  (
                 lpSum(no_change_vars)>=(len(no_change_vars)-max_changes),
@@ -2416,17 +2432,15 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 log("==============")
                 log("All conformations:")
                 for kind,vals in totals_dict.items():
-                    log(f"{kind}: {rms(vals):.5f} (min/max conf.{' RMSZ' if kind not in [VariableKind.Clash.value,VariableKind.Penalty.value] else ''}: {min(vals)},{max(vals)})") # TODO worst z values of conformations or histogram.
+                    log(f"{kind}: {rms(vals):.3f} (min/max conf.{' RMSZ' if kind not in [VariableKind.Clash.value,VariableKind.Penalty.value] else ''}: {min(vals):.3f},{max(vals):.3f})") # TODO worst z values of conformations or histogram.
                 log("==============")
                 
 
         return z_scores_dict
 
-    SKIP_SCORE_DIAGNOSTICS=False
+    SKIP_IN_LOOP_SCORE_DIAGNOSTICS=True
     def score_diagnostics(loop_idx,altloc_subset):
         # TODO CRITICAL split into generating data for each individual conformation. Store the information.
-        if SKIP_SCORE_DIAGNOSTICS:
-            return
         print("***********")
         print("Running score diagnostics")
         if reference_pdb_file is not None:
@@ -2673,8 +2687,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             except Exception as e:
                 print(f"Plotting failed. Error: {e}")    
     ########
-
-    run_clash_validation(reference_pdb_file,out_handle)
+    if reference_pdb_file is not None:
+        run_clash_validation(reference_pdb_file,out_handle)
     for l in range(num_solutions):
         if l > 0 and l <= len(forced_swap_solutions):
             lp_problem.constraints.pop("forcedSwap")
@@ -2730,8 +2744,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 if altloc_subset_sizes[j] is not None:
                     if USE_DYNAMIC_ALTLOC_SUBSET_SIZE:
                         dynamic_subset_size = max(2, altloc_subset_sizes[j] + math.floor(dynamic_subset_size_mod))
+                        print(f"Dynamic ensemble subset size mod: {dynamic_subset_size_mod:.1f}. Next ensemble subset size: {dynamic_subset_size})")
                     else:
                         dynamic_subset_size=altloc_subset_sizes[j]
+                dynamic_subset_size_mod_used = dynamic_subset_size-altloc_subset_sizes[j]
                 if dynamic_subset_size is not None and dynamic_subset_size<len(all_altlocs):
                     altlocs_in_problem = set_up_altloc_subset_restrictions(dynamic_subset_size)
                     restricted_text=f"Altlocs restricted to {altlocs_in_problem}"
@@ -2800,10 +2816,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     sleep(1)
                     gc.collect()
 
-                    if solve_time > timeLimit_seconds:  # FIXME subtract read time
+                    if solve_time > timeLimit_seconds:  # FIXME subtract read time from solve_time
                         dynamic_subset_size_mod-= 1
                     elif solve_time < timeLimit_seconds/2:
-                        dynamic_subset_size_mod+=1/2
+                        dynamic_subset_size_mod+=1/3
                     return solve_time, solve_time>timeLimit_seconds
                 
                 solve_time,exceeded_time_limit = run_solve()
@@ -2820,7 +2836,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 # if solve_time/60>=max_mins*0.95:
                 #     pass
 
-                get_status(verbose=False,extra_text=''.join(altlocs_in_problem))
+                get_status(verbose=False,extra_text=''.join(altlocs_in_problem) + f" (size mod: {dynamic_subset_size_mod_used:.1f})")
 
 
 
@@ -2883,7 +2899,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 update_swaps_file(distances,site_assignment_arrays)  #,record_notable_improvements_threshold=0.03)
                 
                 log_geometry_changes(site_assignments)
-                score_diagnostics(l,altlocs_in_problem)
+                if not SKIP_IN_LOOP_SCORE_DIAGNOSTICS:
+                    score_diagnostics(l,altlocs_in_problem)
 
 
 
@@ -2897,7 +2914,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             print(f"WARNING: Finding solution {l+1} was infeasible! Ending solution search")
             break
 
-       
+
+        if SKIP_IN_LOOP_SCORE_DIAGNOSTICS:
+            # Score the last solution
+            score_diagnostics(l,altlocs_in_problem)       
 
 
                 

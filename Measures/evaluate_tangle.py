@@ -1,17 +1,21 @@
 import os, sys, pathlib
 sys.path.append(str(pathlib.Path(__file__).parent.parent))
 from LinearOptimizer.Input import *
-from LinearOptimizer import Solver 
+#from LinearOptimizer import Solver 
+from LinearOptimizer import Solver_sites_formulation as Solver 
 import UntangleFunctions
 from UntangleFunctions import parse_symmetries_from_pdb, prepare_pdb, UNTANGLER_WORKING_DIRECTORY
 from LinearOptimizer.Swapper import Swapper
 import copy
+import shutil
 
 # How many bonds need to change to get it right?
 
 IGNORE_WATERS=False 
+WRITE_SWAPPED_MODEL = False # Whether to also create swapped model
 
 assert not IGNORE_WATERS, "bugged"
+assert not WRITE_SWAPPED_MODEL, "doesn't account for water groups that don't interact with the protein."
 
 def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False,scoring_function=None):
     scoring_function = RestraintsHandler.chi_z_sqr if scoring_function is None else scoring_function # RestraintsHandler.log_chi
@@ -115,7 +119,7 @@ def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False
 
     
     LP_Input.prepare_geom_files(model,None)
-    atoms, connections = LP_Input(model, model, None, symmetries,ignore_waters=IGNORE_WATERS).calculate_paths(
+    atoms, connections,molecule_connectors = LP_Input(model, model, None, symmetries,ignore_waters=IGNORE_WATERS).calculate_paths(
         scoring_function=scoring_function,
         constraint_weights=weight_factors,
         force_solution_reference=force_solution_reference,
@@ -127,15 +131,20 @@ def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False
     change_punish_factor=0
     if change_punish_factor<=0:
         print("WARNING: not doing minimal changes. Returned tangle level likely to be much higher than it is.")
-    swaps_file_path,bonds_replaced_each_loop,distances=Solver.solve(atoms,connections,out_dir=os.path.join(UNTANGLER_WORKING_DIRECTORY,"output",""),
+    swaps_file_path,bonds_replaced_each_loop,distances=Solver.solve(atoms,connections,molecule_connectors,out_dir=os.path.join(UNTANGLER_WORKING_DIRECTORY,"output",""),
                 out_handle=out_handle,
                 num_solutions=1,
                 modify_forbid_conditions=False,
                 change_punish_factor=change_punish_factor,#0.01 # Need to make non-zero 
+                force_one_round=True,
                 )
-    # swapper=Swapper()
-    # swapper.add_candidates(swaps_file_path) #
-    # working_model, swapGroup = swapper.run(model)
+
+    if WRITE_SWAPPED_MODEL:
+        swapper=Swapper()
+        swapper.add_candidates(swaps_file_path) #
+        cheat_model, swapGroup = swapper.run(model)
+        shutil.move(cheat_model,os.path.join(UntangleFunctions.UNTANGLER_WORKING_DIRECTORY,"output",out_handle+".pdb")) 
+        del cheat_model
     # Read ChangedConnections to see where bond changes occur.
 
     bonds_replaced=bonds_replaced_each_loop[0]
