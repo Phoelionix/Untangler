@@ -7,21 +7,25 @@ import shutil
 
 
 batch="cheat"
-#batch="reconnected"
+#batch="mixedup"
 refinement_folders="Refinement/MovieMaking/"+batch+"/"
 out_dir="Refinement/MovieMaking/frames_"+batch+"/"
 
 
-def folder_order(string):
+def folder_order_by_end_number(string):
     # By number at end
-    assert '.' not in string
+    assert '.' not in string, string
+    last_non_numeric=None
     for i, c in enumerate(string):
-        if c.isdigit():
-            return int(string[i:])
-    return 0
+        if not c.isdigit():
+            last_non_numeric=i
+
+    if last_non_numeric==i: 
+        return 0 # does not end with number
+    return int(string[last_non_numeric+1:])
 
 pdb_files=[]
-for folder in sorted(os.listdir(refinement_folders),key=folder_order):
+for folder in sorted(os.listdir(refinement_folders),key=folder_order_by_end_number):
     folder_path=os.path.join(refinement_folders,folder,"",)
     for file in os.listdir(folder_path):
         if file.endswith("_999.pdb"):
@@ -39,6 +43,7 @@ if os.path.exists(out_dir):
 os.mkdir(out_dir)
 
 sigma_2fofc=1.5
+#sigma_fofc=5
 sigma_fofc=5
 coot.set_default_initial_contour_level_for_map(sigma_2fofc)
 coot.set_default_initial_contour_level_for_difference_map(sigma_fofc)
@@ -69,14 +74,20 @@ for pdb_file in pdb_files:
     coot.set_contour_level_in_sigma(imol_map, sigma_2fofc)
     coot.set_contour_level_in_sigma(imol_diff_map,sigma_fofc)
 
-    deg_rot=0.5
+    rotate=True
+    #deg_rot=0.5
+    deg_rot=0.15
     for _ in range(rots):
         coot.screendump_image(os.path.join(out_dir,str(frame)+".ppm"))
-        frame+=1
-        coot.rotate_y_scene(1,deg_rot)
-        sleep(frame_duration/rots)
+        if rotate:
+            frame+=1
+            coot.rotate_y_scene(1,deg_rot)
+            sleep(frame_duration/rots)
+
 # Reset to original view
-coot.rotate_y_scene(1,-deg_rot*frame)
+if rotate:
+    for _ in range(frame):
+        coot.rotate_y_scene(1,-deg_rot)
 
 
 # ffmpeg -framerate 10 -i Refinement/MovieMaking/frames_cheat/%d.ppm -c:v libx264 -crf 25 -vf "scale=2490:1276,format=yuv420p" -movflags +faststart Refinement/MovieMaking/cheat.mp4
