@@ -47,7 +47,7 @@ PHENIX_DISABLE_CDL=False # Disables the conformation-dependent library for pheni
 PHENIX_DISABLE_NQH=True
 ILP_IGNORES_WATERS=False
 
-DEBUG_FORCE_NEVER_RIDING_H_PHENIX=False
+DEBUG_FORCE_NEVER_RIDING_H_PHENIX=True
 
 REFINE_ADP_WHEN_REFINING_POSITIONS=True
 
@@ -68,8 +68,7 @@ TIMEOUT_MINS_FACTOR=30 # 1
 CLEAR_REFINE_LOGS=False
 
 
-if not DEBUG_FORCE_NEVER_RIDING_H_PHENIX:
-    default_refine_water_occupancies = True
+default_refine_water_occupancies = not DEBUG_FORCE_NEVER_RIDING_H_PHENIX
 
 
 assert not (DEBUG_FORCE_NEVER_RIDING_H_PHENIX and default_refine_water_occupancies)
