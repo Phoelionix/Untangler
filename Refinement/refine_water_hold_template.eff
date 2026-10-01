@@ -875,7 +875,7 @@ geometry_restraints.edits {
     b_iso_max = 80.0
     anisotropy_min = 0.1
     occupancy_min = 0.05
-    occupancy_max = 0.51
+    occupancy_max = 1.00
     occupancy = 0.17
     filter_at_start = True
     ignore_final_filtering_step = True
