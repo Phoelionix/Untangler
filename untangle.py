@@ -138,7 +138,7 @@ class Untangler():
     O_bond_change_period=5
     main_chain_swaps_only_period=3
     ####
-    num_threads=25
+    num_threads=UntangleFunctions.NUM_THREADS
     ## 
     if debug_skip_first_batch_refine:
         debug_skip_first_swaps=True
@@ -1649,8 +1649,8 @@ class Untangler():
 
     def holding_water(self)->bool:
         return self.loop<self.num_loops_water_held
-    def get_out_path(self,out_tag,add_loop_num=True):
-        return f"{Untangler.output_dir}{self.model_handle}_{out_tag}{self.loop if add_loop_num else ''}.pdb"
+    def get_out_path(self,out_tag,add_loop_num=True,file_ext="pdb"):
+        return f"{Untangler.output_dir}{self.model_handle}_{out_tag}{self.loop if add_loop_num else ''}.{file_ext}"
     
     def refine(self,refine_params:SimpleNamespace,debug_skip=False,divvy=False,divvy_has_decreasing_wc=False,**kwargs):
         
@@ -1792,7 +1792,7 @@ class Untangler():
                           no_restrain_movement=False,max_sigma_movement_of_selected=0.1,refine_hydrogens=False, # restraining movement refers to the reference_coordinate_restraints option
                           altloc_subset=None,disable_NQH_flips=False,restrain_protein_movement=False,
                           water_and_H_only=False,refine_water_occupancies=False,filter_ordered_solvent=False,
-                          real_space_refine=False,disable_adp=False):
+                          real_space_refine=False,disable_adp=False,generate_nonbond_symmetry_exclusions=None):
         if altloc_subset is not None:
             altloc_subset = ''.join(altloc_subset)  
         assert altloc_subset is None, altloc_subset
@@ -1801,6 +1801,8 @@ class Untangler():
             wc = self.default_wc
         if wu is None:
             wu = self.default_wu
+        if generate_nonbond_symmetry_exclusions is None:
+            generate_nonbond_symmetry_exclusions = (wc!=0)
         ### Override next_model with formatted one.
         #next_model = model_path[:-4]+"_fmtd.pdb"
 
@@ -1822,6 +1824,7 @@ class Untangler():
         assert (not hold_water_positions) or (not hold_protein_positions) or refine_hydrogens
         reflections_path = self.hkl_path
         algorithm="PHENIX"
+
 
 
         param_dict = locals()
@@ -1868,7 +1871,7 @@ class Untangler():
                                  [P.turn_off_bulk_solvent,"-t"],[P.ordered_solvent,"-S"],[P.no_restrain_movement,"-R"],
                                  [P.restrain_protein_movement,"-P"],[P.disable_CDL,"-C"],[P.disable_NQH_flips,"-N"],
                                  [P.water_and_H_only, "-Z"],[P.filter_ordered_solvent,"-F"],[P.real_space_refine,"-X"],
-                                 [P.disable_adp,"-A"]):
+                                 [P.disable_adp,"-A"],[P.generate_nonbond_symmetry_exclusions,"-E"]):
             if bool_param:
                 args.append(flag)
         return args
@@ -2078,6 +2081,8 @@ def main():
     end_loop_cycles=10
     if PHENIX_ORDERED_SOLVENT and not PHENIX_ORDERED_SOLVENT_APPLIED_ONCE:
         end_loop_cycles=12
+    if UntangleFunctions.RAPIDMODE:
+        end_loop_cycles=1
     Untangler(
         # max_num_best_swaps_considered=5,
         #default_wc=2,endloop_wc=2,refine_for_positions_geo_weight=0.4,
@@ -2102,7 +2107,7 @@ def main():
         starting_model,
         xray_data,
         desired_score=18.4, # score to stop at
-        max_num_runs=26,
+        max_num_runs=25,
     )
 if __name__=="__main__":
     main()

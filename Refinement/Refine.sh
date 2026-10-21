@@ -37,6 +37,7 @@ disable_movement_restraint='false'
 refine_occupancies='false'
 refine_solvent_occupancies='false'
 refine_water_occupancies='false'
+refine_altloc_X_occupancies='false'
 ordered_solvent='false'
 disable_ADP='false'
 group_adp='false'
@@ -45,13 +46,13 @@ water_and_H_only='false'
 disable_CDL='false' # Disable conformation-dependent library
 disable_nqh_flips='false'
 altlocs_to_refine=''
-user_param_file=''
 filter_ordered_solvent='false'
 clear_out_solvent_mode='false'
 real_space_refine='false'
 hold_main_chain='false'
 disable_reciprocal_xyz='false'
-
+user_param_file=''
+generate_nonbond_symmetry_exclusions='false'
 max_sigma_movement_restraint=0.1
 
 refine_hydrogens='false'
@@ -68,7 +69,7 @@ occupancy_max=1 # Don't change this. Phenix currently just removes waters that r
 occupancy=0.17
 
 
-while getopts ":a:f:o:u:c:e:n:s:q:wxhprgtzACDFGHLMNOPRSTWXYZ" flag; do
+while getopts ":a:f:o:u:c:e:n:s:q:wxhprgtzACDEFGHLMNOPQRSTWXYZ" flag; do
  case $flag in
     a) altlocs_to_refine=$OPTARG
     ;;
@@ -112,6 +113,8 @@ while getopts ":a:f:o:u:c:e:n:s:q:wxhprgtzACDFGHLMNOPRSTWXYZ" flag; do
     ;;
     D) ADP_only='true'
     ;;
+    E) generate_nonbond_symmetry_exclusions='true'
+    ;;
     F) filter_ordered_solvent='true'
     ;;
     G) group_adp='true'
@@ -127,6 +130,8 @@ while getopts ":a:f:o:u:c:e:n:s:q:wxhprgtzACDFGHLMNOPRSTWXYZ" flag; do
     O) refine_occupancies='true'
     ;;
     P) restrain_movement_of_protein='true'
+    ;;
+    Q) refine_altloc_X_occupancies='true'
     ;;
     R) disable_movement_restraint='true' 
     ;;
@@ -154,6 +159,7 @@ done
   #   out_handle="${BASH_REMATCH[1]}${hkl_handle}_${next}"
 
 
+
 if ! $out_handle_override; then
   if [[ "$xyz_handle" =~ ^(.*)${hkl_handle}([0-9]*)$ ]]; then
     prefix="${BASH_REMATCH[1]}"
@@ -175,6 +181,8 @@ if [ ! -f $expected_path ]; then  # TODO checks after other files or make Refine
     echo "File ${expected_path} not found!"
     exit 0
 fi
+
+
 
 
 # if ${shake}; then
@@ -232,7 +240,16 @@ cp $paramFileTemplate tmp_refinement/$out_handle/$paramFile
 cp $xyz_path tmp_refinement/$out_handle/${xyz_handle}.pdb
 
 
+nonbond_exclusions_file=""
+if $generate_nonbond_symmetry_exclusions; then 
+  nonbond_exclusions_file=$(realpath tmp_refinement/$out_handle/custom_nonbond_exclusions.eff)
+  #echo "-E: Generating nonbond symmetry exclusions at $(realpath $nonbond_exclusions_file)" 
+  phenix.python disable_intercell_nonbonds.py $xyz_path $nonbond_exclusions_file
+fi
+
 cd tmp_refinement/$out_handle
+
+
 
 
 
@@ -322,7 +339,7 @@ if $refine_solvent_occupancies; then
     echo "Warning, hydrogen occupancies will still be refined because hydrogens are being refined individually!"
   fi
 fi
-# or resname NAP or resname FOL or resname CL or resname MN
+
 if $refine_water_occupancies; then 
   sed  "s/tls occupancies/tls *occupancies/g" $paramFile  > $tmpfile 
   mv $tmpfile $paramFile
@@ -332,6 +349,24 @@ if $refine_water_occupancies; then
   mv $tmpfile $paramFile
   if $refine_hydrogens; then
     echo "Warning, hydrogen occupancies will still be refined because hydrogens are being refined individually!"
+  fi
+fi
+
+if $refine_altloc_X_occupancies; then 
+  sed  "s/tls occupancies/tls *occupancies/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+  sed  -z 's/occupancies {\n      individual = None/occupancies {\n      individual = altloc X/g' $paramFile  > $tmpfile
+  mv $tmpfile $paramFile
+  sed  "s/remove_selection = All/remove_selection = not altloc X/g" $paramFile  > $tmpfile
+  mv $tmpfile $paramFile
+  if $refine_hydrogens; then
+    echo "Warning, hydrogen occupancies will still be refined because hydrogens are being refined individually!"
+  fi
+  if $refine_water_occupancies; then
+    echo "Warning, conflict in occupancies refinement flags"
+  fi
+  if $refine_solvent_occupancies; then
+    echo "Warning, conflict in occupancies refinement flags"
   fi
 fi
 
@@ -508,7 +543,9 @@ while true; do
     randomseedparam="main.random_seed=None" 
   fi
 
-  phenix.refine $randomseedparam $paramFile $user_param_file  2>$error_file 1> $log_file
+  noclashguardparam="refinement.pdb_interpretation.clash_guard.nonbonded_distance_threshold=None"
+
+  phenix.refine $randomseedparam $noclashguardparam $paramFile $nonbond_exclusions_file $user_param_file  2>$error_file 1> $log_file
 
   if [ -s $error_file ]; then
     failed=true
