@@ -321,6 +321,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
     if force_one_round:
         improvement_factors_to_tolerate=np.array([1])
+        start_of_round_altloc_subset_size=len(all_altlocs)
         num_subset_runs=1
 
     ###################
@@ -1781,13 +1782,15 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
         for i in range(len(always_allow_original_tranches)):
             constrs_to_add=flexible_bad_original_allowed_constrs[i]
-            # Check whether the original geomection is inactive. Otherwise, do not forbid.
+            # Check whether the original geomection is inactive. If it's still active, do not forbid it! 
             if value(flexible_bad_original_vars[i]) < 0.5:
-                if not always_allow_original_tranches[i][r]:
-                    assert r > 0
+                if not (always_allow_original_tranches[i][r] or r == 0):  
                     constrs_to_add=flexible_bad_original_forbid_constrs[i]
                     num_inactive_og_forbidden[flexible_bad_original_constr_types[i]]+=1
                 else:
+                    if not always_allow_original_tranches[i][r]:
+                        # If it's the first round and we are not generating multiple solutions, then something has gone wrong.
+                        assert r==0 and num_solutions > 1
                     num_inactive_og_allowed[flexible_bad_original_constr_types[i]]+=1
 
                 
@@ -2720,7 +2723,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         dynamic_subset_size_mod=0
         
         for r in range(num_rounds):
-            dynamic_subset_size_mod = min(0,dynamic_subset_size_mod)
+            dynamic_subset_size_mod = min(0.,dynamic_subset_size_mod)
 
             altloc_subset_sizes=[None]
             if not difficult and (ALTLOC_RUN_SUBSET_SIZES is not None):

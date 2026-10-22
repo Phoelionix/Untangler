@@ -546,8 +546,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     flexible_forbidden_constr_types:list[Type]=[]
     flexible_vars:list[LpVariable]=[]
     flexible_allowed_constr_tranches:list[list[bool]]=[] #  TODO better name
-    flexible_bad_original_forbid_constrs:list[list]=[] # List of list of constraints forbidding an original geomection. Used if and only if original geomection is inactive and always_allow_original_tranches[i][r] = False
-    flexible_bad_original_allowed_constrs:list[list]=[]
+    flexible_bad_original_forbid_constrs:list[tuple]=[] # List of list of constraints forbidding an original geomection. Used if and only if original geomection is inactive and always_allow_original_tranches[i][r] = False
+    flexible_bad_original_allowed_constrs:list[tuple]=[]
     flexible_bad_original_constr_types:list[Type]=[]
     always_allow_original_tranches:list[list[bool]]=[] #  
     flexible_bad_original_vars:list=[]
@@ -1600,11 +1600,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             constr_to_add=flexible_bad_original_allowed_constrs[i]
             # Check whether the original geomection is inactive. Otherwise, do not forbid.
             if value(flexible_bad_original_vars[i]) < 0.5:
-                if not always_allow_original_tranches[i][r]:
-                    assert r > 0
+                if not (always_allow_original_tranches[i][r] or r == 0):  
                     constr_to_add=flexible_bad_original_forbid_constrs[i]
                     num_inactive_og_forbidden[flexible_bad_original_constr_types[i]]+=1
                 else:
+                    if not always_allow_original_tranches[i][r]:
+                        # If it's the first round and we are not generating multiple solutions, then something has gone wrong.
+                        assert r==0 and num_solutions > 1
                     num_inactive_og_allowed[flexible_bad_original_constr_types[i]]+=1
             if constr_to_add is None:
                 continue
