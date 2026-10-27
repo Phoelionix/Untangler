@@ -189,17 +189,22 @@ class Swapper():
         self.sol_idx+=1 
 
         with open(model_path,'r') as f:
-            new_lines = ""
+            new_lines = []
             last_resnum=None
             for line in f.readlines():
                 # Don't change irrelevant lines
             
                 P = PDB_Atom_Entry(line)
+                if P.is_anisou_record:
+                    last_P=PDB_Atom_Entry(new_lines[-1])
+                    assert last_P.valid, (new_lines[-1])
+                    new_lines.append(P.new_line(new_altloc=last_P.altloc))
+                    continue
                 if not P.valid:
-                    new_lines+=line
+                    new_lines.append(line)
                     continue
                 if P.res_name == "HOH":
-                    new_lines += swap_group.get_line(P)
+                    new_lines.append(swap_group.get_line(P))
                     continue
                 if P.res_num!=last_resnum:
                     nonHatom_full_names=[]
@@ -214,7 +219,7 @@ class Swapper():
 
                 
 
-                new_lines+= swap_group.get_line(P,name_for_altloc_override=anchored_atom_name)
+                new_lines.append(swap_group.get_line(P,name_for_altloc_override=anchored_atom_name))
 
                 # Sorry for this
                 if P.atom_name[0]!="H" and P.atom_name_unstripped not in nonHatom_full_names:

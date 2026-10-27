@@ -14,8 +14,9 @@ import shutil
 import itertools
 from time import time
 
-NUM_THREADS=24
+NUM_THREADS=22
 
+RAPIDMODE=False # everything is separated by 1 macrocycle. Also reduces max solver time per round as of commenting
 
 NO_UNRESTRAINED=False
 NO_INDIV_WEIGHTS=False
@@ -788,7 +789,7 @@ def relabel_ring(pdb_path):
 
 def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=False,ring_name_grouping=False,altlocs_allowed=None,
                 even_split_protein_occupancies=False,allow_no_altloc=False,treat_solvent_identically_to_protein=False,
-                single_altloc_solvent=False,no_altloc_solvent_to_random_altloc=False):
+                single_altloc_solvent=False,no_altloc_solvent_to_random_altloc=False,keep_anisou=True):
         # Gets into format we expect. !!!!!!Assumes single chain!!!!!
         # Relabels ring atoms CE1/CE2, CD1/CD2 so that all with same label are closest         
         def replace_occupancy(line,occ):
@@ -824,6 +825,8 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
         if ring_name_grouping:
             ring_relabel_dict = relabel_ring(pdb_path)
 
+        def anisou_entry_key(resnum,altloc,name):
+            return "_".join((str(resnum),altloc,name))
         protein_altlocs = []
         with open(pdb_path) as I:
             max_resnum=0
@@ -839,8 +842,27 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
             solvent_chain_id = "z"
             warned_collapse=False
             gap_shift=0
+
             
+            anisou_lines={}
+            solvent_anisou_lines={}
             for line in I:
+                if line.startswith("ANISOU") and keep_anisou:
+                    if altlocs_allowed is not None and line[16] not in altlocs_allowed:
+                        continue
+                    # Now asssuming that the previous line was not ignored.
+                    resname=line[17:20]
+                    resnum,altloc,name = last_entry.split("_")
+                    line = replace_res_num(line,resnum)
+                    line = replace_name(line,name)
+                    line = replace_altloc(line,altloc)
+                    if resname in solvent_res_names:
+                        assert last_entry not in solvent_anisou_lines
+                        solvent_anisou_lines[last_entry]=replace_chain(line,solvent_chain_id)
+                    else:
+                        assert last_entry not in anisou_lines
+                        anisou_lines[last_entry]=line
+                    continue
                 if line.startswith("TER") or line.startswith("ANISOU"):
                     continue
                 start_strs_considered = ["ATOM","HETATM"]
@@ -869,6 +891,7 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                     resnum=resnum-added_shift
                 last_resname=resname
 
+                line = replace_name(line, name) # Correct any incorrect name white spacing
                 line = replace_res_num(line, resnum)
                 max_resnum=max(resnum,max_resnum)
 
@@ -883,6 +906,7 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                 if resname in solvent_res_names:
                     if altlocs_allowed is not None and altloc not in altlocs_allowed:
                         continue
+                    last_entry = anisou_entry_key(resnum,altloc,name)
                     solvent_lines.append(replace_chain(line,solvent_chain_id))
                     continue
                 
@@ -910,6 +934,7 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                     continue
                 
                 atom_dict[resnum][altloc][name]=line  
+                last_entry = anisou_entry_key(resnum,altloc,name)
                 last_chain = chain
                 continue
                     
@@ -939,6 +964,15 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
             for modified_line in lines:
                 start_lines.append(modified_line)
 
+                name = modified_line[12:16].strip()
+                altloc = modified_line[16]
+                resnum = int(modified_line[22:26])
+                anisou_line = anisou_lines.get(anisou_entry_key(resnum,altloc,name)) 
+                if anisou_line is not None:
+                    anisou_line=replace_chain(anisou_line,modified_line[21])
+                    anisou_line=replace_serial_num(anisou_line,modified_line[6:11])
+                    start_lines.append(anisou_line)
+
         # Make sure waters don't share residue numbers with protein
         # min_solvent_resnum=99999999
         # for line in solvent_lines:
@@ -959,16 +993,21 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
                 #     print(f"Warning, are solvent res nums out of order? {max_resnum,solvent_resnum,shift, min_solvent_resnum, max_resnum, out_path}")
                 # max_resnum = shift+solvent_resnum
                 #new_solvent_resnum_dict[solvent_resnum]=max_resnum
-            
+
+            name = line[12:16].strip()
+            altloc = line[16]
+            resnum = int(line[22:26])
+            anisou_line = solvent_anisou_lines.get(anisou_entry_key(resnum,altloc,name)) 
 
             #modified_line = replace_res_num(line,new_solvent_resnum_dict[solvent_resnum])
             modified_line = replace_serial_num(line,n)
+            modified_line = replace_name(modified_line,name)
             if single_altloc_solvent: # What is this?
                 if "last_resnum" not in vars():
                     last_resnum =max(resnum for resnum in atom_dict) 
                 last_resnum +=1 
+                resnum=last_resnum
                 modified_line=replace_res_num(modified_line,last_resnum)
-            altloc=modified_line[16]
             if altloc==' ' and no_altloc_solvent_to_random_altloc:
                 modified_line=replace_altloc(modified_line,np.random.choice(protein_altlocs))
                 altloc=modified_line[16]
@@ -976,6 +1015,14 @@ def prepare_pdb(pdb_path,out_path,sep_chain_format=False,altloc_from_chain_fix=F
             if not allow_no_altloc:
                 assert (altloc != ' '), line 
             start_lines.append(modified_line)
+
+            if anisou_line is not None:
+                anisou_line=replace_res_num(anisou_line,resnum)
+                anisou_line=replace_altloc(anisou_line,altloc)
+                anisou_line=replace_serial_num(anisou_line,n)
+                start_lines.append(anisou_line)
+
+
         
         if os.path.dirname(out_path)!='':
             os.makedirs(os.path.dirname(out_path),exist_ok=True)
@@ -1021,7 +1068,11 @@ class PDB_Atom_Entry:
     # Functions return atom entry with changes applied. Does not change in place 
     def __init__(self,atom_entry:str):
         self.valid=False
+        self.is_anisou_record=False
         self.atom_entry=atom_entry
+        if atom_entry.startswith("ANISOU"):
+            self.is_anisou_record=True
+            return
         valid_record_types=["ATOM","HETATM"]
         if np.any([atom_entry.startswith(k) for k in valid_record_types]):
             self.valid=True

@@ -90,7 +90,7 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
                 if line[17:20]=="HOH":
                     line= "HETATM"+line[6:]
                 w.write(line[:16]+"A"+line[17:21]+new_chain+ f"{new_resnum}".rjust(4)+line[26:])
-            else:
+            elif not line.startswith("ANISOU"):
                 w.write(line)
             #same_altloc_labels.append(flex.std_string([new_str]))
 

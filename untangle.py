@@ -62,6 +62,7 @@ FORCE_DIVVY_REFINE_INTO_SINGLE_LOOPS_PHENIX=False
 DISABLE_ALTLOC_SUBSET_REFINE=True
 
 EVEN_SPLIT_PROTEIN_OCCUPANCIES=False
+CONVERT_TO_ISOTROPIC_B_FACTORS=False
 
 TIMEOUT_MINS_FACTOR=30 # 1
 
@@ -267,6 +268,7 @@ class Untangler():
                     even_split_protein_occupancies=EVEN_SPLIT_PROTEIN_OCCUPANCIES,
                     single_altloc_solvent=single_altloc_solvent,
                     no_altloc_solvent_to_random_altloc=True,
+                    keep_anisou=not CONVERT_TO_ISOTROPIC_B_FACTORS,
                     )
         self.protein_altlocs,self.solvent_altlocs = get_altlocs_from_pdb(pdb_path)
 
