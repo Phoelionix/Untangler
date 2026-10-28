@@ -33,7 +33,7 @@ else:
 #print(os.path.realpath(geo_file))
 
 
-min_overlap_to_exclude=0.6 # in Angstroms
+min_overlap_to_exclude=0.4 # in Angstroms
 
 
 def inter_unit_cell(sym_op:str):
@@ -118,7 +118,7 @@ prefix="  refinement.pdb_interpretation.custom_nonbonded_symmetry_exclusions = "
 if len(exclusion_selections)>0:
     exclusion_selection_lines=prefix+ ('\n'+prefix).join(exclusion_selections)
 else:
-    exclusion_selection_lines="custom_nonbonded_symmetry_exclusions = None"
+    exclusion_selection_lines=prefix+"None"
 
 with open(out_exclusions_file,'w') as f:
     f.write(exclusion_selection_lines)
