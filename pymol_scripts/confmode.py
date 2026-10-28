@@ -1,3 +1,4 @@
+#%%
 from pymol import cmd
 def confmode(water=0,white=0,mch=0):
     water=int(water); white=int(white); mch=int(mch)
@@ -7,9 +8,6 @@ def confmode(water=0,white=0,mch=0):
     cmd.set("sphere_scale",0.1)
     cmd.hide("(hydro)")  # Hide hydrogen. Same as cmd.hide("everything", "hydro")  
     #cmd.hide("(hydro or solvent)")
-    print(water)
-    print(type(water))
-    print(water=='0')
     if not water:
         cmd.hide("(resn HOH)")
 
@@ -28,3 +26,4 @@ def confmode(water=0,white=0,mch=0):
 
     
 cmd.extend('confmode', confmode)
+# %%

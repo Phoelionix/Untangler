@@ -44,6 +44,10 @@ for symbol in ATOMS:
 UNTANGLER_WORKING_DIRECTORY=os.path.join(os.path.dirname(os.path.abspath(__file__)),"")
 
 
+def get_out_path(model_handle,out_tag):
+    output_dir = os.path.join(UNTANGLER_WORKING_DIRECTORY,"output","")
+    return f"{output_dir}{model_handle}_{out_tag}.pdb"
+
 def model_handle(model_handle_or_path):
     assert type(model_handle_or_path)==str
     if model_handle_or_path[-4:]==".pdb":

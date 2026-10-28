@@ -1,0 +1,93 @@
+Total distance = 361.6368632473086 (0.032%)
+name, z-score, cost
+Nonbond_HB3x_11.CB_105.O
+Change: -100.00% | 9.94e-04 --> 0.00e+00
+Original
+A,A 1.41e-01 9.94e-04 
+Active
+***********************
+Nonbond_HG2x_50.CG_85.O
+Change: -100.00% | 5.64e-04 --> 0.00e+00
+Original
+A,A 1.06e-01 5.64e-04 
+Active
+***********************
+Nonbond_HE3x_28.CE_111.O
+Change: -100.00% | 4.93e-04 --> 0.00e+00
+Original
+B,B 9.92e-02 4.93e-04 
+Active
+***********************
+Nonbond_HB2x_2.CB_99.O
+Change: 0.00e+00 --> 2.50e-04
+Original
+Active
+A,B 5.00e-02 2.50e-04 
+***********************
+Nonbond_HAx_2.CA_85.O
+Change: 0.00e+00 --> 1.14e-03
+Original
+Active
+A,B 1.07e-01 1.14e-03 
+***********************
+Nonbond_HE3x_58.CE_125.O
+Change: 211.99% | 7.15e-04 --> 2.23e-03
+Original
+A,A 1.20e-01 7.15e-04 
+Active
+B,A 1.49e-01 2.23e-03 
+***********************
+Nonbond_HG3x_24.CG_118.O
+Change: 0.00e+00 --> 1.61e-03
+Original
+Active
+B,A 1.27e-01 1.61e-03 
+***********************
+Nonbond_HB3x_23.CB_118.O
+Change: 0.00e+00 --> 4.00e-03
+Original
+Active
+B,A 2.00e-01 4.00e-03 
+***********************
+Nonbond_61.C_105.O
+Change: 0.00e+00 --> 5.92e-03
+Original
+Active
+A,B 2.43e-01 5.92e-03 
+***********************
+Nonbond_HAx_20.CA_101.O
+Change: 0.00e+00 --> 6.51e-03
+Original
+Active
+B,A 2.55e-01 6.51e-03 
+***********************
+Nonbond_HB3x_58.CB_124.O
+Change: 0.00e+00 --> 1.38e-02
+Original
+Active
+B,A 3.71e-01 1.38e-02 
+***********************
+Nonbond_HB3x_52.CB_138.O
+Change: 0.00e+00 --> 1.46e-02
+Original
+Active
+B,A 3.82e-01 1.46e-02 
+***********************
+Nonbond_54.CE1_138.O
+Change: 0.00e+00 --> 1.98e-02
+Original
+Active
+A,B 4.45e-01 1.98e-02 
+***********************
+Nonbond_HBx_6.CB_93.O
+Change: 0.00e+00 --> 2.26e-02
+Original
+Active
+A,B 4.76e-01 2.26e-02 
+***********************
+Nonbond_24.CD_111.O
+Change: 0.00e+00 --> 2.59e-02
+Original
+Active
+A,B 5.09e-01 2.59e-02 
+***********************

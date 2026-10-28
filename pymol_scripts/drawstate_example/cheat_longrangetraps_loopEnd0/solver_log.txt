@@ -1,0 +1,19 @@
+Version identifier: 22.1.1.0 | 2022-11-28 | 9160aff4d
+CPXPARAM_Read_DataCheck                          1
+CPXPARAM_Threads                                 10
+CPXPARAM_TimeLimit                               59999940
+Warning:  No solution found from 1 MIP starts.
+Retaining values of one MIP start for possible repair.
+Tried aggregator 1 time.
+MIP Presolve eliminated 18984 rows and 9287 columns.
+All rows and columns eliminated.
+Presolve time = 0.01 sec. (14.74 ticks)
+
+Root node processing (before b&c):
+  Real time             =    0.01 sec. (24.21 ticks)
+Parallel b&c, 10 threads:
+  Real time             =    0.00 sec. (0.00 ticks)
+  Sync time (average)   =    0.00 sec.
+  Wait time (average)   =    0.00 sec.
+                          ------------
+Total (root+branch&cut) =    0.01 sec. (24.21 ticks)

@@ -1,7 +1,8 @@
 from Bio.PDB import PDBParser
 from Bio.PDB.Atom import Atom,DisorderedAtom
 from Bio.PDB.Residue import Residue # Note we don't want the disorderedresidue here, it refers to different residue types for same res seq num.
-import UntangleFunctions 
+import UntangleFunctions
+from UntangleFunctions import PDB_Atom_Entry 
 from LinearOptimizer.Tag import *
 from LinearOptimizer.VariableID import *
 import os
@@ -9,7 +10,8 @@ from typing import Union
 import numpy as np
 
 class OrderedAtomLookup: #TODO pandas?
-    def __init__(self,atoms:Union[list[DisorderedAtom],str],waters, protein=True,altloc_subset=None,allowed_resnums=None,allowed_resnames=None,excluded_resnames=None,alternate_atoms:list[DisorderedAtom]=[]): # TODO type hint for sequence?
+    def __init__(self,atoms:Union[list[DisorderedAtom],str],waters:bool, protein=True,altloc_subset=None,allowed_resnums=None,
+                 allowed_resnames=None,excluded_resnames=None,alternate_atoms:list[DisorderedAtom]=[],check_consecutive_resnums=True): # TODO type hint for sequence?
         # atoms can be a path to a pdb file to get atoms from 
 
         if type(atoms)==str:
@@ -83,7 +85,7 @@ class OrderedAtomLookup: #TODO pandas?
                 self.chain_dict[res_num]=OrderedAtomLookup.atom_chain_id(disorderedAtom)
                 self.better_dict[res_num] = {}
                 #if allowed_resnums is not None and allowed_resnames is not None:
-                if allowed_resnums is None and allowed_resnames is None and excluded_resnames is None:
+                if allowed_resnums is None and allowed_resnames is None and excluded_resnames is None and check_consecutive_resnums:
                     assert len(self.residue_nums)== 0 or res_num-1 in [self.residue_nums[-1],last_skipped_res_num], (res_num,self.residue_nums)
                 self.residue_nums.append(res_num)
                 self.res_names[res_num]=disorderedAtom.get_parent().get_resname()
@@ -143,8 +145,9 @@ class OrderedAtomLookup: #TODO pandas?
     def remove_water_around_sidechains(self,radius=1.8,same_altlocs=False):
         def separation(a:Atom,b:Atom):
             return np.sqrt(np.sum((a.get_coord()-b.get_coord())**2))
-        exclude=["C","N","O","CA","CB"]
+        #exclude=["C","N","O","CA","CB"]
         #exclude=["C","N","CA"]
+        exclude=[]
 
         sidechain_atoms=self.select_atoms_by(waters=False,protein=True,exclude_atom_names=exclude)
         
@@ -154,7 +157,7 @@ class OrderedAtomLookup: #TODO pandas?
         for i, other_atom in enumerate(sidechain_atoms):
             if i%500==0:
                 print(f"{i}/{len(sidechain_atoms)}. Removed {waters_removed}/{original_num_waters} waters")
-            for water in self.select_atoms_by(waters=True,protein=False,altlocs=[other_atom.get_altloc(),]):
+            for water in self.select_atoms_by(waters=True,protein=False,altlocs=([other_atom.get_altloc(),] if same_altlocs else None)):
                 if separation(water,other_atom) < radius:
                     self.delete(water)
                     waters_removed+=1
@@ -163,24 +166,34 @@ class OrderedAtomLookup: #TODO pandas?
         self.ordered_atoms.remove(ordered_atom)
 
     def output_as_pdb_file(self, reference_pdb_file,out_path):
+        # ONLY FOR REMOVING LINES!!! # FIXME
         # Only outputs based on self.better_dict at present!!
+        take_next_anisou=False
         out_lines=[]
         with open(reference_pdb_file) as R:
             start_strs_considered = ["ATOM","HETATM"]
             for line in R:
+                if line.startswith("ANISOU") and take_next_anisou:
+                    out_lines.append(line)
+                    continue
+                take_next_anisou=False
                 if line == "TER\n":
                     continue
                 for s in start_strs_considered:
                     if line.startswith(s):
                         break
                 else: # Not an atom entry
-                    out_lines.append(line)
+                    if not line.startswith("ANISOU"):
+                        out_lines.append(line)
                     continue
                 name = line[12:16].strip()
                 altloc = line[16]
                 resnum = int(line[22:26])
                 if resnum in self.better_dict and name in self.better_dict[resnum] and altloc in self.better_dict[resnum][name]:
-                    out_lines.append(line)
+                    out_lines.append(PDB_Atom_Entry(line).new_line(new_coord=self.better_dict[resnum][name][altloc].get_coord()))
+                    take_next_anisou=True
+                else:
+                    take_next_anisou=False
         with open(out_path,'w') as O:
             O.writelines(out_lines)
             

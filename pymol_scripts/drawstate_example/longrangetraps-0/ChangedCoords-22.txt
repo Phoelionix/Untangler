@@ -1,0 +1,6 @@
+Changed coords
+Total distance = 1653.1361938324535 (-85.606%)
+==============
+18.N AB
+18.C AB
+60.N AB

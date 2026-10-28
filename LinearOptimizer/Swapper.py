@@ -18,7 +18,7 @@
 
 import numpy as np
 import os
-from UntangleFunctions import H_get_parent_fullname, PDB_Atom_Entry
+from UntangleFunctions import H_get_parent_fullname, PDB_Atom_Entry,get_out_path
 import json
 import copy
 import gc
@@ -177,7 +177,8 @@ class Swapper():
     def run(self,model_path) -> tuple[str,SwapGroup]:
         assert model_path[-4:]==".pdb", model_path
         model_handle = os.path.basename(model_path)[:-4]
-        out_path = f"{os.path.abspath(os.getcwd())}/output/{model_handle}_lpSwapped.pdb"
+        #out_path = f"{os.path.abspath(os.getcwd())}/output/{model_handle}_lpSwapped.pdb"
+        out_path = get_out_path(model_handle,"lpSwapped")
         assert os.path.abspath(out_path)!=os.path.abspath(model_path)
 
         swap_group: Swapper.SwapGroup = self.swap_groups_sorted[self.sol_idx]

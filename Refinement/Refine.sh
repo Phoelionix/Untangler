@@ -1,6 +1,8 @@
 # bash Refine.sh ../data/4et8.pdb refined -d ../data/lys_galli_aug_real.mtz -n 5 -s 3 -gzt
 
-# TODO folder with file containing commands used, shell file, and .eff file. 
+# TODO out folder should have file containing commands used, shell file, and .eff file. 
+# TODO remove template.eff files for holding protein and water specifically, use sed w/ TEMPLATE_SITES_INDIVIDUAL
+
 set -u
 
 xyz_path=$1; 
@@ -37,7 +39,8 @@ disable_movement_restraint='false'
 refine_occupancies='false'
 refine_solvent_occupancies='false'
 refine_water_occupancies='false'
-refine_altloc_X_occupancies='false'
+refine_altloc_X_occ='false'
+refine_altloc_X_pos='false'
 ordered_solvent='false'
 disable_ADP='false'
 group_adp='false'
@@ -57,6 +60,9 @@ max_sigma_movement_restraint=0.1
 
 refine_hydrogens='false'
 
+convert_to_isotropic='false'
+convert_to_anisotropic='false'
+
 restrain_movement_of_protein='false' # Note this does nothing when True if disable_movement_restraint is True
 
 fixed_water_occupancy='false' # Fix water occupancies at value of ordered_solvent_occupancy
@@ -69,7 +75,7 @@ occupancy_max=1 # Don't change this. Phenix currently just removes waters that r
 occupancy=0.17
 
 
-while getopts ":a:f:o:u:c:e:n:s:q:wxhprgtzACDEFGHLMNOPQRSTWXYZ" flag; do
+while getopts ":a:f:o:u:c:e:n:s:q:wxhprgtzABCDEFGHLMNOPQRSTUVWXYZ" flag; do
  case $flag in
     a) altlocs_to_refine=$OPTARG
     ;;
@@ -80,7 +86,7 @@ while getopts ":a:f:o:u:c:e:n:s:q:wxhprgtzACDEFGHLMNOPQRSTWXYZ" flag; do
     ;;
     c) wc=$OPTARG
     ;;
-    e) user_param_file=$OPTARG
+    e) user_param_file=$(realpath $OPTARG)
     ;;
     f) ordered_solvent_occupancy=$OPTARG
        fixed_water_occupancy='true' 
@@ -109,6 +115,10 @@ while getopts ":a:f:o:u:c:e:n:s:q:wxhprgtzACDEFGHLMNOPQRSTWXYZ" flag; do
     ;;
     A) disable_ADP='true'
     ;;
+    b) convert_to_isotropic='true'
+    ;;
+    B) convert_to_anisotropic='true'
+    ;;
     C) disable_CDL='true'
     ;;
     D) ADP_only='true'
@@ -131,7 +141,9 @@ while getopts ":a:f:o:u:c:e:n:s:q:wxhprgtzACDEFGHLMNOPQRSTWXYZ" flag; do
     ;;
     P) restrain_movement_of_protein='true'
     ;;
-    Q) refine_altloc_X_occupancies='true'
+    U) refine_altloc_X_occ='true'
+    ;;
+    V) refine_altloc_X_pos='true'
     ;;
     R) disable_movement_restraint='true' 
     ;;
@@ -242,9 +254,9 @@ cp $xyz_path tmp_refinement/$out_handle/${xyz_handle}.pdb
 
 nonbond_exclusions_file=""
 if $generate_nonbond_symmetry_exclusions; then 
-  nonbond_exclusions_file=$(realpath tmp_refinement/$out_handle/custom_nonbond_exclusions.eff)
+  nonbond_exclusions_file=custom_nonbond_exclusions.eff
   #echo "-E: Generating nonbond symmetry exclusions at $(realpath $nonbond_exclusions_file)" 
-  phenix.python disable_intercell_nonbonds.py $xyz_path $nonbond_exclusions_file
+  phenix.python disable_intercell_nonbonds.py $xyz_path $(realpath tmp_refinement/$out_handle/$nonbond_exclusions_file)
 fi
 
 cd tmp_refinement/$out_handle
@@ -316,6 +328,15 @@ if $hold_main_chain; then
     mv $tmpfile $paramFile
 fi
 
+    # adp {
+    #   individual {
+    #     isotropic = None
+
+if $refine_altloc_X_pos; then 
+    sed "s/individual = TEMPLATE_SITES_INDIVIDUAL/individual = altloc X/g" $paramFile > $tmpfile 
+    mv $tmpfile $paramFile
+fi
+
 if $no_mlhl; then
   sed "s/target = auto ml \*mlhl ml_sad ls mli/target = *auto ml mlhl ml_sad ls mli/g" $paramFile > $tmpfile 
   mv $tmpfile $paramFile
@@ -352,7 +373,7 @@ if $refine_water_occupancies; then
   fi
 fi
 
-if $refine_altloc_X_occupancies; then 
+if $refine_altloc_X_occ; then 
   sed  "s/tls occupancies/tls *occupancies/g" $paramFile  > $tmpfile 
   mv $tmpfile $paramFile
   sed  -z 's/occupancies {\n      individual = None/occupancies {\n      individual = altloc X/g' $paramFile  > $tmpfile
@@ -426,6 +447,18 @@ fi
 
 if $disable_CDL; then 
   sed "s/cdl = True/cdl = False/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+fi
+
+if $convert_to_anisotropic; then 
+  echo "Converting to anisotropic B-factors"
+  sed "s/convert_to_anisotropic = False/convert_to_anisotropic = True/g" $paramFile  > $tmpfile 
+  mv $tmpfile $paramFile
+fi
+
+if $convert_to_isotropic; then 
+  echo "Converting to isotropic B-factors"
+  sed "s/convert_to_isotropic = False/convert_to_isotropic = True/g" $paramFile  > $tmpfile 
   mv $tmpfile $paramFile
 fi
 
@@ -503,7 +536,6 @@ final_structure=${out_handle}_${serial}.pdb
 if [ -f $final_structure ]; then 
   mv $final_structure $final_structure#
 fi
-echo "Refining $out_handle"
 #echo $(realpath $paramFile) 
 export PYTHONNOUSERSITE=1
 
@@ -511,6 +543,7 @@ export PYTHONNOUSERSITE=1
 error_file=$logs_path/${out_handle}_err.log
 log_file=$logs_path/${out_handle}.log
 
+echo "Refining $out_handle || log: $(realpath $log_file) "
 
 num_attempts=1
 if $reTry_on_fail; then 
@@ -528,10 +561,10 @@ while true; do
   #user_param_file=/home/speno/Untangler/ConformationTree/output/split_conformations_restraints_noNB-4PSS_6conf18conf_reduced.eff
   #user_param_file=/home/speno/Untangler/Refinement/4PSS_group_adp.eff
 
-  # XXX Assuming user param file is only ever conformation tree restraints...
-  if (( $wc == 0 )); then  
-    user_param_file=""
-  fi
+  # # XXX Assuming user param file is only ever conformation tree restraints...
+  # if (( $wc == 0 )); then  
+  #   user_param_file=""
+  # fi
 
 
   failed=false

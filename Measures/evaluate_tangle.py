@@ -8,20 +8,19 @@ from UntangleFunctions import parse_symmetries_from_pdb, prepare_pdb, UNTANGLER_
 from LinearOptimizer.Swapper import Swapper
 import copy
 import shutil
+import itertools
+from UntangleFunctions import get_out_path
 
 # How many bonds need to change to get it right?
 
 IGNORE_WATERS=False 
-WRITE_SWAPPED_MODEL = False # Whether to also create swapped model
+WRITE_SWAPPED_MODEL = True # Whether to also create swapped model
 
 assert not IGNORE_WATERS, "bugged"
-assert not WRITE_SWAPPED_MODEL, "doesn't account for water groups that don't interact with the protein."
+#assert not WRITE_SWAPPED_MODEL, "doesn't account for water groups that don't interact with the protein."
 
 def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False,scoring_function=None):
     scoring_function = RestraintsHandler.chi_z_sqr if scoring_function is None else scoring_function # RestraintsHandler.log_chi
-    def get_out_path(model_handle,out_tag):
-        output_dir = os.path.join(UNTANGLER_WORKING_DIRECTORY,"output","")
-        return f"{output_dir}{model_handle}_{out_tag}.pdb"
     
     if weight_factors is None:
         weight_factors = {
@@ -40,6 +39,7 @@ def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False
         weight_factors[RestraintsHandler.ClashRestraint]=0 
         weight_factors[RestraintsHandler.TwoAtomPenalty]=0
 
+    # TODO set input max_sigmas to infinite
         
 
     model_handle=os.path.basename(model)[:-4]
@@ -90,8 +90,9 @@ def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False
         if res_num in truth_lookup.water_residue_nums and IGNORE_WATERS:
             continue
         for name in truth_lookup.better_dict[res_num]:
-            truth_conformers_assigned=[]
+            truth_conformers_assigned={}
             #print(res_num,name)
+
             for model_altloc, model_atom in model_lookup.better_dict[res_num][name].items():
                 min_distance=np.inf
                 closest_truth_conformer_altloc=None
@@ -100,10 +101,29 @@ def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False
                     if this_distance<min_distance:
                          closest_truth_conformer_altloc=truth_altloc
                          min_distance=this_distance
-                #print(min_distance,closest_truth_conformer_altloc)
-                # We are assuming that there is no case where a ground-truth conformer is the closest conformer for two model atoms. TODO handle this by finding whatever minimizes RMSD
-                assert closest_truth_conformer_altloc not in truth_conformers_assigned, "Error, unhandled case" # TODO
-                truth_conformers_assigned.append(closest_truth_conformer_altloc)
+                if closest_truth_conformer_altloc in truth_conformers_assigned.values():
+                    break # Switch to more expensive search
+                else:
+                    truth_conformers_assigned[model_altloc]=closest_truth_conformer_altloc
+
+            num_altlocs=len(model_lookup.better_dict[res_num][name])
+            if len(truth_conformers_assigned)<num_altlocs:
+                # Switch to more expensive search: find combination that minimizes RMSD
+                truth_conformers_assigned=[]
+                combinations_iterator:itertools.permutations[tuple[Atom]] = itertools.permutations(list(model_lookup.better_dict[res_num][name].items()), num_altlocs)
+                worst_sd=np.inf
+                truth_altloc_atom_pairs = list(truth_lookup.better_dict[res_num][name].items())
+                for comb in combinations_iterator:
+                    sd=0
+                    for i, (model_altloc, model_atom) in enumerate(comb):
+                        truth_atom = truth_altloc_atom_pairs[i][1]
+                        sd+=dist(model_atom,truth_atom,-avg_dict_model[res_num][name],-avg_dict_truth[res_num][name])**2
+                    if sd <= worst_sd:
+                        worst_sd = sd
+                        truth_conformers_assigned = {model_altloc:truth_altloc_atom_pairs[i][0] for i,(model_altloc,model_atom) in enumerate(comb)}
+                #print(truth_conformers_assigned)
+            for model_altloc, model_atom in model_lookup.better_dict[res_num][name].items():
+                closest_truth_conformer_altloc=truth_conformers_assigned[model_altloc]
                 force_solution_reference[OrderedTag(res_num,name,model_altloc)]=closest_truth_conformer_altloc
                 if forbid_ring_changes:
                     resname=OrderedAtomLookup.atom_res_name(model_atom) 
@@ -165,12 +185,14 @@ def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False
     # with open(bond_changes_file,"w") as f:
     #     f.write(out_str)
     #print(f"Necessary bond changes written to {bond_changes_file}")
-    tangled_bonds_path=get_out_path(model_handle,"tangled_bonds")
+    tangled_bonds_path=get_tangled_bonds_path(model_handle)
     write_to_b_factors(model,all_terms,tangled_bonds_path)
     print(f"Written bad bonds to B factors in {tangled_bonds_path}")
 
     return len(bonds_replaced), distance_from_truth
 
+def get_tangled_bonds_path(model_handle):
+    return get_out_path(UntangleFunctions.model_handle(model_handle),"tangled_bonds")
 
 
 def write_to_b_factors(pdb_path,terms,out_path): # 0/1 if in/not in terms, 1 i.
@@ -215,3 +237,4 @@ if __name__ == "__main__":
      evaluate_tangle(*sys.argv[1:])
 
 #python3 Measures/evaluate_tangle.py output/lrt_shaken.pdb data/synthetic/best.pdb
+#python3 Measures/evaluate_tangle.py output/lrt_shaken_copy.pdb output/lrt_huge_shake.pdb

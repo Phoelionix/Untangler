@@ -1,0 +1,29 @@
+Replaced bonds
+Total distance = 1650.8729622121452 (-85.625%)
+==============
+Bond_1.C_2.N AB
+Bond_4.C_4.O AB
+Bond_16.N_16.CA AB
+Bond_17.C_18.N AB
+Bond_18.N_18.CA AB
+Bond_18.CA_18.C AB
+Bond_18.C_19.N AB
+Bond_18.C_18.O AB
+Bond_22.CA_22.CB AB
+Bond_22.CB_22.SG AB
+Bond_25.CB_25.CG AB
+Bond_32.C_33.N AB
+Bond_33.N_33.CA AB
+Bond_33.CA_33.C AB
+Bond_34.CA_34.C AB
+Bond_35.C_36.N AB
+Bond_37.CA_37.C AB
+Bond_40.CB_40.OG AB
+Bond_46.CA_46.C AB
+Bond_51.N_51.CA AB
+Bond_54.C_54.O AB
+Bond_59.C_60.N AB
+Bond_60.N_60.CA AB
+Bond_60.N_60.CD AB
+Bond_61.C_62.N AB
+Bond_62.C_63.N AB

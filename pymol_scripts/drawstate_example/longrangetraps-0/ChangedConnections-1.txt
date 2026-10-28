@@ -1,0 +1,1024 @@
+Total distance = 1650.2463089074247 (-85.631%)
+name, z-score, cost
+Angle_1.O_1.C_2.N
+Change: -98.64% | 2.75e+03 --> 3.75e+01
+Original
+B,B,B 7.23e+00 1.78e+03 
+A,A,A 6.22e+00 9.73e+02 
+Active
+B,B,A 2.66e+00 3.24e+01 
+A,A,B 1.68e+00 5.13e+00 
+***********************
+Angle_1.C_2.N_2.CA
+Change: -88.30% | 2.34e+03 --> 2.74e+02
+Original
+B,B,B 6.55e+00 1.21e+03 
+A,A,A 6.44e+00 1.13e+03 
+Active
+B,A,A 3.94e+00 1.58e+02 
+A,B,B 3.64e+00 1.16e+02 
+***********************
+Angle_16.N_16.CA_16.C
+Change: -99.57% | 1.59e+03 --> 6.84e+00
+Original
+A,A,A 6.75e+00 1.53e+03 
+B,B,B 3.05e+00 6.41e+01 
+Active
+A,B,B 1.59e+00 4.66e+00 
+B,A,A 1.31e+00 2.18e+00 
+***********************
+Angle_1.CA_1.C_2.N
+Change: -98.38% | 1.41e+03 --> 2.29e+01
+Original
+B,B,B 5.83e+00 7.97e+02 
+A,A,A 5.47e+00 6.15e+02 
+Active
+B,B,A 2.18e+00 1.54e+01 
+A,A,B 1.81e+00 7.45e+00 
+***********************
+Bond_16.N_16.CA
+Change: -99.99% | 4.90e+02 --> 4.49e-02
+Original
+B,B 8.65e+00 3.86e+02 
+A,A 6.24e+00 1.04e+02 
+Active
+A,B 8.97e-01 4.45e-02 
+B,A 2.87e-01 4.67e-04 
+***********************
+Angle_62.C_63.N_63.CA
+Change: -97.32% | 3.42e+02 --> 9.16e+00
+Original
+A,A,A 4.75e+00 3.34e+02 
+B,B,B 1.87e+00 8.02e+00 
+Active
+B,A,A 1.90e+00 8.44e+00 
+A,B,B 1.03e+00 7.23e-01 
+***********************
+Angle_61.CA_61.C_62.N
+Change: -99.00% | 3.19e+02 --> 3.18e+00
+Original
+A,A,A 4.55e+00 2.98e+02 
+B,B,B 2.33e+00 2.05e+01 
+Active
+A,A,B 1.46e+00 3.14e+00 
+B,B,A 4.98e-01 4.25e-02 
+***********************
+Angle_61.O_61.C_62.N
+Change: -98.85% | 1.77e+02 --> 2.05e+00
+Original
+A,A,A 3.94e+00 1.58e+02 
+B,B,B 2.34e+00 1.97e+01 
+Active
+B,B,A 1.31e+00 1.94e+00 
+A,A,B 6.35e-01 1.06e-01 
+***********************
+Bond_18.C_19.N
+Change: -98.32% | 1.37e+02 --> 2.29e+00
+Original
+A,A 6.05e+00 1.00e+02 
+B,B 4.69e+00 3.64e+01 
+Active
+B,A 2.34e+00 2.24e+00 position_changes_1.0
+A,B 9.20e-01 5.37e-02 position_changes_1.0
+***********************
+Angle_16.N_16.CA_16.CB
+Change: -99.75% | 1.03e+02 --> 2.58e-01
+Original
+A,A,A 3.44e+00 1.01e+02 
+B,B,B 1.35e+00 2.42e+00 
+Active
+B,A,A 7.74e-01 2.57e-01 
+A,B,B 1.92e-01 9.82e-04 
+***********************
+Angle_61.C_62.N_62.CA
+Change: -81.20% | 1.14e+02 --> 2.15e+01
+Original
+B,B,B 3.59e+00 1.09e+02 
+A,A,A 1.66e+00 4.94e+00 
+Active
+B,A,A 2.39e+00 2.12e+01 
+A,B,B 8.05e-01 2.75e-01 
+***********************
+Bond_37.CA_37.C
+Change: -99.99% | 8.07e+01 --> 1.00e-02
+Original
+B,B 5.25e+00 4.98e+01 
+A,A 4.66e+00 3.09e+01 
+Active
+B,A 6.25e-01 1.00e-02 
+A,B 2.03e-03 1.12e-12 
+***********************
+Angle_15.C_16.N_16.CA
+Change: -99.88% | 7.52e+01 --> 8.99e-02
+Original
+B,B,B 2.79e+00 3.97e+01 
+A,A,A 2.71e+00 3.55e+01 
+Active
+A,A,B 6.07e-01 8.92e-02 
+B,B,A 1.84e-01 7.51e-04 
+***********************
+Angle_17.C_18.N_18.CA
+Change: -98.75% | 5.09e+01 --> 6.36e-01
+Original
+B,B,B 2.54e+00 2.73e+01 
+A,A,A 2.45e+00 2.36e+01 
+Active
+A,B,B 9.87e-01 6.20e-01 position_changes_0.1.0
+B,A,A 3.95e-01 1.59e-02 position_changes_0.1.0
+***********************
+Angle_18.CA_18.C_18.O
+Change: -97.40% | 3.65e+01 --> 9.48e-01
+Original
+A,A,A 2.35e+00 2.01e+01 
+B,B,B 2.23e+00 1.64e+01 
+Active
+B,B,B 1.09e+00 9.19e-01 position_changes_0.1.0
+A,A,A 4.58e-01 2.91e-02 position_changes_0.1.0
+***********************
+Angle_51.N_51.CA_51.C
+Change: -73.65% | 3.59e+01 --> 9.46e+00
+Original
+B,B,B 2.62e+00 3.40e+01 
+A,A,A 1.28e+00 1.96e+00 
+Active
+B,A,A 1.89e+00 9.23e+00 
+A,B,B 7.56e-01 2.37e-01 
+***********************
+Angle_62.O_62.C_63.N
+Change: -98.85% | 2.50e+01 --> 2.87e-01
+Original
+B,B,B 2.49e+00 2.50e+01 
+A,A,A 2.80e-01 4.00e-03 
+Active
+A,A,B 7.93e-01 2.57e-01 
+B,B,A 4.65e-01 3.04e-02 
+***********************
+Angle_46.N_46.CA_46.C
+Change: -92.51% | 2.43e+01 --> 1.82e+00
+Original
+A,A,A 2.40e+00 2.42e+01 
+B,B,B 6.06e-01 9.78e-02 
+Active
+A,A,B 1.25e+00 1.77e+00 
+B,B,A 5.18e-01 5.24e-02 
+***********************
+Bond_34.CA_34.C
+Change: -97.28% | 2.16e+01 --> 5.87e-01
+Original
+B,B 4.25e+00 2.16e+01 
+A,A 7.12e-01 1.70e-02 
+Active
+B,A 1.55e+00 3.86e-01 
+A,B 1.32e+00 2.01e-01 
+***********************
+Angle_17.O_17.C_18.N
+Change: -87.93% | 2.14e+01 --> 2.59e+00
+Original
+A,A,A 2.33e+00 1.91e+01 
+B,B,B 1.38e+00 2.37e+00 
+Active
+A,A,B 1.40e+00 2.53e+00 position_changes_0.0.1
+B,B,A 5.54e-01 6.16e-02 position_changes_0.0.1
+***********************
+Angle_46.C_46.CA_46.CB
+Change: -95.78% | 1.86e+01 --> 7.87e-01
+Original
+A,A,A 2.24e+00 1.85e+01 
+B,B,B 6.56e-01 1.35e-01 
+Active
+A,B,B 9.97e-01 7.21e-01 
+B,A,A 5.50e-01 6.66e-02 
+***********************
+Angle_25.CA_25.CB_25.CG
+Change: -83.07% | 2.03e+01 --> 3.44e+00
+Original
+A,A,A 2.18e+00 1.59e+01 
+B,B,B 1.58e+00 4.39e+00 
+Active
+A,A,B 1.46e+00 3.16e+00 
+B,B,A 7.95e-01 2.81e-01 
+***********************
+Angle_18.N_18.CA_18.C
+Change: -86.04% | 1.94e+01 --> 2.70e+00
+Original
+A,A,A 2.25e+00 1.88e+01 
+B,B,B 9.31e-01 5.48e-01 
+Active
+B,B,B 1.38e+00 2.68e+00 position_changes_1.0.1
+A,A,A 4.37e-01 2.67e-02 position_changes_1.0.1
+***********************
+Angle_18.O_18.C_19.N
+Change: -99.94% | 1.59e+01 --> 9.53e-03
+Original
+A,A,A 2.22e+00 1.59e+01 
+B,B,B 5.14e-01 4.52e-02 
+Active
+B,B,A 3.44e-01 9.08e-03 position_changes_0.1.0
+A,A,B 1.63e-01 4.53e-04 position_changes_0.1.0
+***********************
+Bond_61.C_62.N
+Change: -99.99% | 9.66e+00 --> 1.44e-03
+Original
+B,B 3.37e+00 9.66e+00 
+A,A 1.59e-01 4.80e-05 
+Active
+A,B 3.71e-01 1.43e-03 
+B,A 1.16e-01 1.36e-05 
+***********************
+Angle_33.C_33.CA_33.CB
+Change: -61.52% | 1.39e+01 --> 5.33e+00
+Original
+A,A,A 2.09e+00 1.38e+01 
+B,B,B 4.69e-01 3.47e-02 
+Active
+A,B,B 1.65e+00 5.33e+00 
+B,A,A 1.21e-01 1.56e-04 
+***********************
+Angle_37.CA_37.C_37.O
+Change: -92.92% | 8.75e+00 --> 6.19e-01
+Original
+A,A,A 1.64e+00 4.84e+00 
+B,B,B 1.56e+00 3.92e+00 
+Active
+A,B,B 9.84e-01 6.19e-01 
+B,A,A 1.22e-01 1.48e-04 
+***********************
+Angle_25.CB_25.CG_25.CD
+Change: -94.83% | 7.10e+00 --> 3.67e-01
+Original
+B,B,B 1.69e+00 5.74e+00 
+A,A,A 1.18e+00 1.36e+00 
+Active
+B,A,A 7.39e-01 2.12e-01 
+A,B,B 6.83e-01 1.55e-01 
+***********************
+Angle_18.CA_18.C_19.N
+Change: -97.59% | 6.15e+00 --> 1.48e-01
+Original
+B,B,B 1.71e+00 5.94e+00 
+A,A,A 7.46e-01 2.13e-01 
+Active
+B,B,A 6.61e-01 1.31e-01 position_changes_0.1.0
+A,A,B 3.98e-01 1.73e-02 position_changes_0.1.0
+***********************
+Bond_1.C_2.N
+Change: -53.24% | 1.07e+01 --> 5.00e+00
+Original
+A,A 3.36e+00 9.60e+00 
+B,B 1.95e+00 1.08e+00 
+Active
+A,B 2.80e+00 4.60e+00 
+B,A 1.51e+00 3.94e-01 
+***********************
+Bond_18.C_18.O
+Change: -99.89% | 4.99e+00 --> 5.55e-03
+Original
+A,A 2.79e+00 4.90e+00 
+B,B 1.04e+00 9.44e-02 
+Active
+B,B 4.99e-01 5.01e-03 position_changes_1.0
+A,A 2.86e-01 5.43e-04 position_changes_1.0
+***********************
+Angle_34.C_35.N_35.CA
+Change: -91.58% | 5.27e+00 --> 4.44e-01
+Original
+B,B,B 1.68e+00 5.22e+00 
+A,A,A 5.31e-01 5.23e-02 
+Active
+A,B,B 9.04e-01 4.38e-01 
+B,A,A 3.11e-01 6.13e-03 
+***********************
+Bond_62.C_63.N
+Change: -93.31% | 4.40e+00 --> 2.94e-01
+Original
+B,B 2.72e+00 4.12e+00 
+A,A 1.39e+00 2.79e-01 
+Active
+B,A 1.36e+00 2.58e-01 
+A,B 8.35e-01 3.66e-02 
+***********************
+Angle_34.CA_34.C_34.O
+Change: -99.45% | 3.76e+00 --> 2.05e-02
+Original
+A,A,A 1.52e+00 3.51e+00 
+B,B,B 7.81e-01 2.44e-01 
+Active
+A,B,B 3.86e-01 1.46e-02 
+B,A,A 3.08e-01 5.94e-03 
+***********************
+Angle_35.C_36.N_36.CA
+Change: -99.99% | 3.22e+00 --> 4.38e-04
+Original
+A,A,A 1.33e+00 2.04e+00 
+B,B,B 1.16e+00 1.18e+00 
+Active
+A,B,B 1.57e-01 4.01e-04 
+B,A,A 8.73e-02 3.78e-05 
+***********************
+Angle_34.CA_34.C_35.N
+Change: -68.03% | 3.76e+00 --> 1.20e+00
+Original
+A,A,A 1.52e+00 3.76e+00 
+B,B,B 1.37e-01 2.47e-04 
+Active
+B,A,B 9.93e-01 6.78e-01 
+A,B,A 9.32e-01 5.24e-01 
+***********************
+Angle_35.CA_35.C_36.N
+Change: -98.96% | 2.44e+00 --> 2.53e-02
+Original
+A,A,A 1.23e+00 1.59e+00 
+B,B,B 1.05e+00 8.50e-01 
+Active
+B,B,A 3.85e-01 1.53e-02 
+A,A,B 3.47e-01 1.01e-02 
+***********************
+Angle_34.N_34.CA_34.C
+Change: -94.48% | 2.22e+00 --> 1.23e-01
+Original
+B,B,B 1.21e+00 1.54e+00 
+A,A,A 9.84e-01 6.79e-01 
+Active
+B,B,A 5.73e-01 7.81e-02 
+A,A,B 4.98e-01 4.45e-02 
+***********************
+Bond_4.C_4.O
+Change: -96.85% | 2.15e+00 --> 6.77e-02
+Original
+B,B 2.02e+00 1.35e+00 
+A,A 1.77e+00 7.95e-01 
+Active
+A,B 9.42e-01 6.41e-02 
+B,A 4.59e-01 3.59e-03 
+***********************
+Bond_33.CA_33.C
+Change: -94.56% | 1.74e+00 --> 9.46e-02
+Original
+A,A 2.07e+00 1.20e+00 
+B,B 1.70e+00 5.43e-01 
+Active
+A,B 1.08e+00 9.10e-02 
+B,A 4.85e-01 3.65e-03 
+***********************
+Angle_59.CA_59.C_60.N
+Change: -37.40% | 4.07e+00 --> 2.55e+00
+Original
+A,A,A 1.56e+00 4.06e+00 
+B,B,B 3.22e-01 7.38e-03 
+Active
+A,A,A 1.39e+00 2.55e+00 position_changes_0.0.1
+B,B,B 1.61e-01 4.66e-04 position_changes_0.0.1
+***********************
+Bond_34.C_35.N
+Change: -55.80% | 2.71e+00 --> 1.20e+00
+Original
+B,B 2.39e+00 2.46e+00 
+A,A 1.35e+00 2.50e-01 
+Active
+B,A 1.77e+00 7.33e-01 
+A,B 1.58e+00 4.64e-01 
+***********************
+Angle_33.CA_33.C_34.N
+Change: -98.73% | 1.44e+00 --> 1.82e-02
+Original
+A,A,A 1.18e+00 1.32e+00 
+B,B,B 6.48e-01 1.21e-01 
+Active
+A,B,B 3.90e-01 1.60e-02 
+B,A,A 2.38e-01 2.20e-03 
+***********************
+Angle_17.CA_17.C_18.N
+Change: -90.92% | 1.49e+00 --> 1.35e-01
+Original
+A,A,A 1.21e+00 1.49e+00 
+B,B,B 1.51e-01 3.52e-04 
+Active
+A,A,B 6.48e-01 1.21e-01 position_changes_0.0.1
+B,B,A 3.82e-01 1.46e-02 position_changes_0.0.1
+***********************
+Angle_59.O_59.C_60.N
+Change: -55.95% | 2.31e+00 --> 1.02e+00
+Original
+A,A,A 1.36e+00 2.24e+00 
+B,B,B 5.63e-01 6.61e-02 
+Active
+A,A,A 1.11e+00 1.01e+00 position_changes_0.0.1
+B,B,B 2.49e-01 2.52e-03 position_changes_0.0.1
+***********************
+Angle_40.CA_40.CB_40.OG
+Change: -93.03% | 1.16e+00 --> 8.09e-02
+Original
+A,A,A 1.13e+00 1.16e+00 
+B,B,B 1.05e-01 8.75e-05 
+Active
+A,A,B 5.29e-01 5.64e-02 
+B,B,A 4.29e-01 2.45e-02 
+***********************
+Angle_22.C_22.CA_22.CB
+Change: -75.29% | 1.29e+00 --> 3.18e-01
+Original
+B,B,B 1.16e+00 1.28e+00 
+A,A,A 1.71e-01 6.10e-04 
+Active
+B,B,B 7.60e-01 2.40e-01 position_changes_0.0.1
+A,A,A 5.72e-01 7.72e-02 position_changes_0.0.1
+***********************
+Angle_4.O_4.C_5.N
+Change: -97.88% | 8.97e-01 --> 1.90e-02
+Original
+A,A,A 1.01e+00 6.80e-01 
+B,B,B 7.62e-01 2.18e-01 
+Active
+A,B,B 3.93e-01 1.54e-02 
+B,A,A 2.73e-01 3.60e-03 
+***********************
+Angle_33.CA_33.C_33.O
+Change: -88.22% | 9.30e-01 --> 1.10e-01
+Original
+A,A,A 1.01e+00 6.78e-01 
+B,B,B 7.86e-01 2.52e-01 
+Active
+A,B,B 6.35e-01 1.07e-01 
+B,A,A 2.39e-01 2.15e-03 
+***********************
+Angle_18.N_18.CA_18.CB
+Change: -95.69% | 7.67e-01 --> 3.31e-02
+Original
+B,B,B 9.99e-01 7.18e-01 
+A,A,A 5.10e-01 4.90e-02 
+Active
+A,A,A 4.60e-01 3.24e-02 position_changes_1.0.0
+B,B,B 1.77e-01 7.08e-04 position_changes_1.0.0
+***********************
+Angle_46.CA_46.C_46.O
+Change: -99.52% | 5.15e-01 --> 2.46e-03
+Original
+B,B,B 9.24e-01 4.81e-01 
+A,A,A 4.77e-01 3.41e-02 
+Active
+A,B,B 2.23e-01 1.64e-03 
+B,A,A 1.87e-01 8.16e-04 
+***********************
+Angle_18.C_19.N_19.CA
+Change: -99.76% | 5.05e-01 --> 1.19e-03
+Original
+A,A,A 9.07e-01 4.50e-01 
+B,B,B 5.38e-01 5.56e-02 
+Active
+A,B,B 2.06e-01 1.19e-03 position_changes_1.0.0
+B,A,A 4.60e-02 2.98e-06 position_changes_1.0.0
+***********************
+Bond_18.CA_18.C
+Change: -94.51% | 4.21e-01 --> 2.31e-02
+Original
+B,B 1.56e+00 3.85e-01 
+A,A 8.60e-01 3.59e-02 
+Active
+A,A 6.54e-01 1.20e-02 position_changes_0.1
+B,B 6.41e-01 1.11e-02 position_changes_0.1
+***********************
+Bond_40.CB_40.OG
+Change: -83.91% | 4.15e-01 --> 6.68e-02
+Original
+A,A 1.56e+00 4.15e-01 
+B,B 2.34e-01 2.11e-04 
+Active
+B,A 9.74e-01 6.35e-02 
+A,B 4.63e-01 3.23e-03 
+***********************
+Angle_54.CA_54.C_54.O
+Change: -67.22% | 4.98e-01 --> 1.63e-01
+Original
+B,B,B 9.28e-01 4.98e-01 
+A,A,A 1.59e-01 4.30e-04 
+Active
+B,B,A 7.03e-01 1.63e-01 
+A,A,B 7.09e-02 1.69e-05 
+***********************
+Angle_4.CA_4.C_4.O
+Change: -22.65% | 1.19e+00 --> 9.20e-01
+Original
+B,B,B 1.15e+00 1.17e+00 
+A,A,A 4.26e-01 2.16e-02 
+Active
+A,A,B 1.08e+00 9.02e-01 
+B,B,A 4.07e-01 1.79e-02 
+***********************
+Angle_33.N_33.CA_33.C
+Change: -21.88% | 6.63e-01 --> 5.18e-01
+Original
+A,A,A 9.74e-01 6.63e-01 
+B,B,B 1.56e-01 4.42e-04 
+Active
+A,A,B 9.16e-01 5.18e-01 
+B,B,A 1.02e-01 8.03e-05 
+***********************
+Bond_35.C_36.N
+Change: -89.89% | 1.10e-01 --> 1.11e-02
+Original
+A,A 1.10e+00 1.08e-01 
+B,B 3.90e-01 1.74e-03 
+Active
+B,A 6.20e-01 1.11e-02 
+A,B 1.37e-01 2.67e-05 
+***********************
+Angle_60.N_60.CA_60.C
+Change: -40.42% | 1.13e-01 --> 6.76e-02
+Original
+A,A,A 6.25e-01 1.09e-01 
+B,B,B 2.72e-01 3.93e-03 
+Active
+B,B,B 5.38e-01 6.02e-02 position_changes_1.0.0
+A,A,A 3.18e-01 7.35e-03 position_changes_1.0.0
+***********************
+Angle_46.CA_46.C_47.N
+Change: -9.59% | 4.15e-01 --> 3.76e-01
+Original
+A,A,A 8.80e-01 4.13e-01 
+B,B,B 2.53e-01 2.83e-03 
+Active
+A,B,B 8.27e-01 3.22e-01 
+B,A,A 5.27e-01 5.32e-02 
+***********************
+Angle_37.C_37.CA_37.CB
+Change: -77.55% | 4.47e-02 --> 1.00e-02
+Original
+A,A,A 4.99e-01 4.47e-02 
+B,B,B 5.52e-02 6.70e-06 
+Active
+A,B,B 3.22e-01 7.77e-03 
+B,A,A 2.37e-01 2.27e-03 
+***********************
+Angle_59.C_60.N_60.CD
+Change: -15.66% | 1.92e-01 --> 1.62e-01
+Original
+B,B,B 6.60e-01 1.22e-01 
+A,A,A 5.75e-01 7.01e-02 
+Active
+B,B,B 6.00e-01 8.32e-02 position_changes_0.1.0
+A,A,A 5.92e-01 7.85e-02 position_changes_0.1.0
+***********************
+Angle_60.N_60.CD_60.CG
+Change: -94.89% | 2.30e-02 --> 1.18e-03
+Original
+A,A,A 4.15e-01 2.30e-02 
+B,B,B 7.86e-02 2.96e-05 
+Active
+A,A,A 1.94e-01 1.10e-03 position_changes_1.0.0
+B,B,B 9.88e-02 7.38e-05 position_changes_1.0.0
+***********************
+Bond_60.N_60.CA
+Change: -43.63% | 3.50e-02 --> 1.97e-02
+Original
+B,B 8.15e-01 3.00e-02 
+A,A 5.19e-01 4.96e-03 
+Active
+B,B 7.21e-01 1.84e-02 position_changes_1.0
+A,A 3.73e-01 1.32e-03 position_changes_1.0
+***********************
+Nonbond_HBx_10.CB_107.O
+Change: -100.00% | 1.39e-02 --> 0.00e+00
+Original
+B,B 5.26e-01 1.39e-02 
+Active
+***********************
+Nonbond_HB2x_38.CB_104.O
+Change: -85.22% | 6.53e-03 --> 9.65e-04
+Original
+B,B 3.61e-01 6.53e-03 
+Active
+A,B 9.82e-02 9.65e-04 
+***********************
+Nonbond_HBx_13.CB_65.O
+Change: -99.98% | 4.89e-03 --> 8.14e-07
+Original
+B,B 3.13e-01 4.89e-03 
+Active
+A,B 2.85e-03 8.14e-07 
+***********************
+Nonbond_HB3x_42.CB_74.O
+Change: -100.00% | 4.38e-03 --> 0.00e+00
+Original
+B,B 2.96e-01 4.38e-03 
+Active
+***********************
+Nonbond_HAx_20.CA_101.O
+Change: -100.00% | 3.14e-03 --> 0.00e+00
+Original
+B,B 2.51e-01 3.14e-03 
+Active
+***********************
+Nonbond_35.CE2_37.OE1
+Change: -100.00% | 2.31e-03 --> 0.00e+00
+Original
+A,A 2.15e-01 2.31e-03 
+Active
+***********************
+Nonbond_HB3x_39.CB_115.O
+Change: -100.00% | 1.75e-03 --> 0.00e+00
+Original
+A,A 1.87e-01 1.75e-03 
+Active
+***********************
+Nonbond_22.CB_35.C
+Change: -32.88% | 2.18e-03 --> 1.46e-03
+Original
+B,B 2.09e-01 2.18e-03 
+Active
+A,B 1.21e-01 1.46e-03 position_changes_1.0
+***********************
+Nonbond_6.CG2_48.SG
+Change: -81.43% | 7.55e-04 --> 1.40e-04
+Original
+A,A 1.23e-01 7.55e-04 
+Active
+B,A 3.74e-02 1.40e-04 
+***********************
+Nonbond_HB2x_2.CB_99.O
+Change: -100.00% | 5.92e-04 --> 0.00e+00
+Original
+B,B 1.09e-01 5.92e-04 
+Active
+***********************
+Nonbond_HB2x_32.CB_137.O
+Change: -100.00% | 4.95e-04 --> 0.00e+00
+Original
+A,A 9.95e-02 4.95e-04 
+Active
+***********************
+Nonbond_HG2x_50.CG_85.O
+Change: -100.00% | 3.92e-04 --> 0.00e+00
+Original
+B,B 8.86e-02 3.92e-04 
+Active
+***********************
+Nonbond_45.O_46.C
+Change: -100.00% | 2.89e-04 --> 0.00e+00
+Original
+B,B 7.60e-02 2.89e-04 
+Active
+***********************
+Nonbond_HB2x_3.CB_88.O
+Change: -100.00% | 2.41e-04 --> 0.00e+00
+Original
+B,B 6.94e-02 2.41e-04 
+Active
+***********************
+Nonbond_HB3x_18.CB_76.O
+Change: -100.00% | 2.38e-04 --> 0.00e+00
+Original
+A,A 6.90e-02 2.38e-04 
+Active
+***********************
+Nonbond_HG3x_41.CG_139.O
+Change: -100.00% | 2.67e-06 --> 0.00e+00
+Original
+A,A 7.31e-03 2.67e-06 
+Active
+***********************
+Nonbond_Hx_17.N_81.O
+Change: -100.00% | 2.35e-06 --> 0.00e+00
+Original
+B,B 6.85e-03 2.35e-06 
+Active
+***********************
+Nonbond_22.SG_36.CB
+Change: 0.00e+00 --> 6.91e-07
+Original
+Active
+B,A 2.63e-03 6.91e-07 
+***********************
+Bond_54.C_54.O
+Change: 1141.95% | 1.02e-06 --> 1.27e-05
+Original
+B,B 5.96e-02 1.02e-06 
+A,A 1.20e-02 1.66e-09 
+Active
+A,B 1.05e-01 9.66e-06 
+B,A 7.84e-02 3.06e-06 
+***********************
+Nonbond_HB3x_64.CB_102.O
+Change: 0.00e+00 --> 1.34e-04
+Original
+Active
+A,B 3.67e-02 1.34e-04 
+***********************
+Nonbond_26.SG_34.CA
+Change: 0.00e+00 --> 4.41e-04
+Original
+Active
+B,A 6.64e-02 4.41e-04 
+***********************
+Angle_54.O_54.C_55.N
+Change: 74.92% | 6.17e-04 --> 1.08e-03
+Original
+B,B,B 1.75e-01 6.17e-04 
+A,A,A 8.57e-04 3.53e-13 
+Active
+B,A,A 2.02e-01 1.08e-03 
+A,B,B 2.75e-02 3.73e-07 
+***********************
+Nonbond_36.SG_38.CD1
+Change: 0.00e+00 --> 6.21e-04
+Original
+Active
+B,A 7.88e-02 6.21e-04 
+***********************
+Nonbond_21.CZ_25.CG
+Change: 3729.32% | 2.20e-05 --> 8.43e-04
+Original
+A,A 2.10e-02 2.20e-05 
+Active
+A,B 9.18e-02 8.43e-04 
+***********************
+Nonbond_62.CG_63.N
+Change: 0.00e+00 --> 1.30e-03
+Original
+Active
+B,A 1.14e-01 1.30e-03 
+***********************
+Bond_22.CA_22.CB
+Change: 28.84% | 5.54e-03 --> 7.14e-03
+Original
+A,A 5.39e-01 5.54e-03 
+B,B 2.48e-02 2.48e-08 
+Active
+B,B 5.75e-01 7.14e-03 position_changes_0.1
+A,A 5.40e-02 5.57e-07 position_changes_0.1
+***********************
+Nonbond_4.CA_47.CE2
+Change: 0.00e+00 --> 1.71e-03
+Original
+Active
+B,A 1.31e-01 1.71e-03 
+***********************
+Nonbond_16.O_44.CB
+Change: 80.14% | 2.29e-03 --> 4.13e-03
+Original
+A,A 2.14e-01 2.29e-03 
+Active
+A,B 2.03e-01 4.13e-03 
+***********************
+Nonbond_17.C_18.CG
+Change: 0.00e+00 --> 2.24e-03
+Original
+Active
+B,A 1.50e-01 2.24e-03 
+***********************
+Angle_22.N_22.CA_22.CB
+Change: 20.60% | 1.38e-02 --> 1.66e-02
+Original
+B,B,B 3.56e-01 1.17e-02 
+A,A,A 2.31e-01 2.06e-03 
+Active
+B,B,B 3.28e-01 8.39e-03 position_changes_0.0.1
+A,A,A 3.26e-01 8.24e-03 position_changes_0.0.1
+***********************
+Nonbond_34.CA_47.O
+Change: 1695.78% | 1.85e-04 --> 3.31e-03
+Original
+B,B 6.07e-02 1.85e-04 
+Active
+A,B 1.82e-01 3.31e-03 
+***********************
+Nonbond_16.CB_22.SG
+Change: 41.05% | 8.52e-03 --> 1.20e-02
+Original
+B,B 4.11e-01 8.45e-03 
+A,A 3.72e-02 6.93e-05 
+Active
+B,A 3.43e-01 1.18e-02 
+A,B 4.82e-02 2.33e-04 
+***********************
+Nonbond_1.CA_53.OD1
+Change: 0.00e+00 --> 4.65e-03
+Original
+Active
+A,B 2.16e-01 4.65e-03 
+***********************
+Angle_60.CA_60.N_60.CD
+Change: 969.38% | 6.50e-04 --> 6.95e-03
+Original
+B,B,B 1.72e-01 6.31e-04 
+A,A,A 7.17e-02 1.89e-05 
+Active
+B,B,B 2.67e-01 3.60e-03 position_changes_0.1.0
+A,A,A 2.62e-01 3.35e-03 position_changes_0.1.0
+***********************
+Nonbond_1.CA_51.O
+Change: 1053.80% | 6.55e-04 --> 7.56e-03
+Original
+B,B 1.14e-01 6.55e-04 
+Active
+B,A 2.75e-01 7.56e-03 
+***********************
+Nonbond_16.SG_45.C
+Change: 7753.47% | 1.33e-04 --> 1.05e-02
+Original
+A,A 5.16e-02 1.33e-04 
+Active
+B,A 3.23e-01 1.05e-02 
+***********************
+Nonbond_22.SG_36.CA
+Change: 8561.01% | 1.23e-04 --> 1.06e-02
+Original
+B,B 4.95e-02 1.23e-04 
+Active
+B,A 3.26e-01 1.06e-02 
+***********************
+Angle_22.CB_22.SG_46.SG
+Change: 1785.59% | 6.81e-04 --> 1.28e-02
+Original
+A,A,A 1.72e-01 6.75e-04 
+B,B,B 5.26e-02 5.89e-06 
+Active
+A,B,B 3.59e-01 1.27e-02 position_changes_1.0.0
+B,A,A 1.15e-01 1.34e-04 position_changes_1.0.0
+***********************
+Nonbond_18.O_19.C
+Change: 180.99% | 1.50e-02 --> 4.21e-02
+Original
+A,A 5.42e-01 1.47e-02 
+B,B 7.65e-02 2.92e-04 
+Active
+A,B 6.49e-01 4.21e-02 
+***********************
+Nonbond_16.SG_22.SG
+Change: 740.31% | 6.32e-03 --> 5.31e-02
+Original
+A,A 3.56e-01 6.32e-03 
+B,B 2.06e-03 2.12e-07 
+Active
+A,B 7.29e-01 5.31e-02 
+***********************
+Angle_59.C_60.N_60.CA
+Change: 126.81% | 1.07e-01 --> 2.42e-01
+Original
+A,A,A 6.33e-01 1.07e-01 
+B,B,B 8.84e-02 4.08e-05 
+Active
+B,B,B 7.76e-01 2.42e-01 position_changes_0.1.0
+A,A,A 9.49e-02 5.42e-05 position_changes_0.1.0
+***********************
+Bond_25.CB_25.CG
+Change: 18.26% | 1.53e+00 --> 1.81e+00
+Original
+A,A 2.13e+00 1.36e+00 
+B,B 1.27e+00 1.73e-01 
+Active
+A,B 2.24e+00 1.65e+00 
+B,A 1.25e+00 1.60e-01 
+***********************
+Bond_60.N_60.CD
+Change: 3246.47% | 9.65e-03 --> 3.23e-01
+Original
+B,B 6.14e-01 9.65e-03 
+A,A 4.29e-02 2.31e-07 
+Active
+B,B 1.46e+00 3.10e-01 position_changes_1.0
+A,A 6.59e-01 1.28e-02 position_changes_1.0
+***********************
+Bond_59.C_60.N
+Change: 2268.18% | 1.52e-02 --> 3.59e-01
+Original
+B,B 6.26e-01 1.15e-02 
+A,A 4.69e-01 3.63e-03 
+Active
+B,B 1.32e+00 2.25e-01 position_changes_0.1
+A,A 1.16e+00 1.34e-01 position_changes_0.1
+***********************
+Bond_46.CA_46.C
+Change: 7294.31% | 6.81e-03 --> 5.03e-01
+Original
+B,B 5.45e-01 5.81e-03 
+A,A 3.51e-01 9.98e-04 
+Active
+B,A 1.55e+00 3.81e-01 
+A,B 1.17e+00 1.22e-01 
+***********************
+Bond_18.N_18.CA
+Change: 2103.22% | 3.28e-02 --> 7.22e-01
+Original
+A,A 8.27e-01 3.22e-02 
+B,B 3.03e-01 5.81e-04 
+Active
+A,A 1.65e+00 5.06e-01 position_changes_1.0
+B,B 1.33e+00 2.17e-01 position_changes_1.0
+***********************
+Bond_22.CB_22.SG
+Change: 1167.31% | 6.04e-02 --> 7.66e-01
+Original
+A,A 1.02e+00 5.99e-02 
+B,B 3.17e-01 5.60e-04 
+Active
+B,A 1.82e+00 6.11e-01 position_changes_1.0
+A,B 1.29e+00 1.55e-01 position_changes_1.0
+***********************
+Angle_37.CA_37.C_38.N
+Change: 4783.26% | 1.79e-02 --> 8.73e-01
+Original
+A,A,A 3.82e-01 1.46e-02 
+B,B,B 2.62e-01 3.25e-03 
+Active
+B,A,A 9.89e-01 6.57e-01 
+A,B,B 7.49e-01 2.16e-01 
+***********************
+Angle_37.N_37.CA_37.C
+Change: 24.34% | 3.80e+00 --> 4.72e+00
+Original
+B,B,B 1.50e+00 3.69e+00 
+A,A,A 6.14e-01 1.05e-01 
+Active
+B,B,A 1.57e+00 4.45e+00 
+A,A,B 7.78e-01 2.69e-01 
+***********************
+Angle_35.O_35.C_36.N
+Change: 428.79% | 3.28e-01 --> 1.73e+00
+Original
+A,A,A 8.00e-01 2.66e-01 
+B,B,B 5.55e-01 6.19e-02 
+Active
+B,B,A 1.20e+00 1.33e+00 
+A,A,B 8.88e-01 4.04e-01 
+***********************
+Bond_51.N_51.CA
+Change: 291.57% | 5.13e-01 --> 2.01e+00
+Original
+A,A 1.61e+00 4.63e-01 
+B,B 9.22e-01 4.98e-02 
+Active
+A,B 2.25e+00 1.76e+00 
+B,A 1.38e+00 2.47e-01 
+***********************
+Angle_60.N_60.CA_60.CB
+Change: 422.67% | 4.33e-01 --> 2.26e+00
+Original
+B,B,B 8.64e-01 4.31e-01 
+A,A,A 2.34e-01 2.32e-03 
+Active
+B,B,B 1.31e+00 2.26e+00 position_changes_1.0.0
+A,A,A 2.25e-01 1.99e-03 position_changes_1.0.0
+***********************
+Bond_17.C_18.N
+Change: 22455.70% | 1.73e-02 --> 3.91e+00
+Original
+B,B 6.92e-01 1.72e-02 
+A,A 1.90e-01 9.84e-05 
+Active
+B,A 2.29e+00 2.08e+00 position_changes_0.1
+A,B 2.22e+00 1.83e+00 position_changes_0.1
+***********************
+Angle_34.O_34.C_35.N
+Change: 272936.40% | 1.76e-03 --> 4.80e+00
+Original
+A,A,A 2.28e-01 1.76e-03 
+B,B,B 3.92e-02 1.53e-06 
+Active
+B,B,A 1.59e+00 4.11e+00 
+A,A,B 1.02e+00 6.92e-01 
+***********************
+Angle_62.CA_62.C_63.N
+Change: 692.26% | 7.95e-01 --> 6.30e+00
+Original
+B,B,B 1.04e+00 7.95e-01 
+A,A,A 8.31e-02 3.28e-05 
+Active
+B,B,A 1.74e+00 6.30e+00 
+A,A,B 1.17e-01 1.31e-04 
+***********************
+Angle_50.C_51.N_51.CA
+Change: 1567.07% | 4.52e-01 --> 7.54e+00
+Original
+A,A,A 9.00e-01 4.36e-01 
+B,B,B 3.96e-01 1.63e-02 
+Active
+B,B,A 1.83e+00 7.46e+00 
+A,A,B 5.75e-01 7.23e-02 
+***********************
+Angle_51.N_51.CA_51.CB
+Change: 4016.41% | 2.65e-01 --> 1.09e+01
+Original
+B,B,B 7.73e-01 2.60e-01 
+A,A,A 2.76e-01 4.21e-03 
+Active
+A,B,B 1.87e+00 8.81e+00 
+B,A,A 1.30e+00 2.08e+00 
+***********************
+Angle_18.C_18.CA_18.CB
+Change: 449.29% | 3.07e+00 --> 1.69e+01
+Original
+A,A,A 1.43e+00 3.05e+00 
+B,B,B 4.13e-01 2.12e-02 
+Active
+B,B,B 2.19e+00 1.68e+01 position_changes_1.0.0
+A,A,A 4.85e-01 4.05e-02 position_changes_1.0.0
+***********************
+Angle_22.CA_22.CB_22.SG
+Change: 1113.39% | 2.38e+00 --> 2.88e+01
+Original
+A,A,A 1.30e+00 2.01e+00 
+B,B,B 8.51e-01 3.66e-01 
+Active
+B,B,A 2.34e+00 2.08e+01 position_changes_0.1.0
+A,A,B 1.84e+00 8.00e+00 position_changes_0.1.0
+***********************

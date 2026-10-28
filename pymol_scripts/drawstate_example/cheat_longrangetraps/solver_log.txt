@@ -1,0 +1,112 @@
+
+Log started (V22.1.1.0) Wed Oct 28 20:11:32 2026
+
+New value for mixed integer optimality gap tolerance: 0.005
+New value for upper limit on size of tree in megabytes: 35000
+New value for default parallel thread count: 22
+Version identifier: 22.1.1.0 | 2022-11-28 | 9160aff4d
+CPXPARAM_Simplex_Perturbation_Indicator          1
+CPXPARAM_Read_Scale                              1
+CPXPARAM_Preprocessing_Dual                      -1
+CPXPARAM_LPMethod                                1
+CPXPARAM_Threads                                 22
+CPXPARAM_Parallel                                -1
+CPXPARAM_MIP_Strategy_Branch                     1
+CPXPARAM_MIP_Cuts_Cliques                        2
+CPXPARAM_MIP_Cuts_Covers                         -1
+CPXPARAM_MIP_Display                             4
+CPXPARAM_MIP_Strategy_StartAlgorithm             1
+CPXPARAM_MIP_Strategy_VariableSelect             4
+CPXPARAM_Preprocessing_Relax                     1
+CPXPARAM_MIP_Cuts_FlowCovers                     -1
+CPXPARAM_MIP_Cuts_Implied                        -1
+CPXPARAM_MIP_Cuts_GUBCovers                      2
+CPXPARAM_MIP_Cuts_Gomory                         -1
+CPXPARAM_MIP_Cuts_PathCut                        -1
+CPXPARAM_MIP_Cuts_MIRCut                         -1
+CPXPARAM_MIP_Cuts_Disjunctive                    -1
+CPXPARAM_Emphasis_MIP                            1
+CPXPARAM_Preprocessing_RepeatPresolve            3
+CPXPARAM_MIP_Limits_Populate                     1
+CPXPARAM_MIP_Cuts_ZeroHalfCut                    -1
+CPXPARAM_MIP_Cuts_MCFCut                         -1
+CPXPARAM_MIP_Cuts_LiftProj                       -1
+CPXPARAM_MIP_Cuts_BQP                            -1
+CPXPARAM_MIP_Cuts_RLT                            -1
+CPXPARAM_MIP_Strategy_HeuristicFreq              -1
+CPXPARAM_MIP_Limits_CutPasses                    1
+CPXPARAM_TimeLimit                               180
+CPXPARAM_MIP_Tolerances_MIPGap                   0.0050000000000000001
+CPXPARAM_MIP_Limits_TreeMemory                   35000
+CPXPARAM_MIP_Strategy_HeuristicEffort            0
+Processing 1 MIP starts.
+MIP start 'm1' defined no solution.
+Warning:  No solution found from 1 MIP starts.
+Retaining values of one MIP start for possible repair.
+Tried aggregator 1 time.
+MIP Presolve eliminated 14124 rows and 5106 columns.
+All rows and columns eliminated.
+Presolve time = 0.00 sec. (7.97 ticks)
+
+Root node processing (before b&c):
+  Real time             =    0.01 sec. (12.56 ticks)
+Parallel b&c, 22 threads:
+  Real time             =    0.00 sec. (0.00 ticks)
+  Sync time (average)   =    0.00 sec.
+  Wait time (average)   =    0.00 sec.
+                          ------------
+Total (root+branch&cut) =    0.01 sec. (12.56 ticks)
+
+Solution pool: 1 solution saved.
+
+MIP - Integer optimal solution:  Objective =  1.7220935300e+03
+Solution time =    0.01 sec.  Iterations = 0  Nodes = 0 (1)
+Deterministic time = 12.57 ticks  (1401.64 ticks/sec)
+
+MILP problem relaxed to LP with fixed integer variables using
+incumbent solution.
+Version identifier: 22.1.1.0 | 2022-11-28 | 9160aff4d
+CPXPARAM_Simplex_Perturbation_Indicator          1
+CPXPARAM_Read_Scale                              1
+CPXPARAM_Preprocessing_Dual                      -1
+CPXPARAM_LPMethod                                1
+CPXPARAM_Threads                                 22
+CPXPARAM_Parallel                                -1
+CPXPARAM_MIP_Strategy_Branch                     1
+CPXPARAM_MIP_Cuts_Cliques                        2
+CPXPARAM_MIP_Cuts_Covers                         -1
+CPXPARAM_MIP_Display                             4
+CPXPARAM_MIP_Strategy_StartAlgorithm             1
+CPXPARAM_MIP_Strategy_VariableSelect             4
+CPXPARAM_Preprocessing_Relax                     1
+CPXPARAM_MIP_Cuts_FlowCovers                     -1
+CPXPARAM_MIP_Cuts_Implied                        -1
+CPXPARAM_MIP_Cuts_GUBCovers                      2
+CPXPARAM_MIP_Cuts_Gomory                         -1
+CPXPARAM_MIP_Cuts_PathCut                        -1
+CPXPARAM_MIP_Cuts_MIRCut                         -1
+CPXPARAM_MIP_Cuts_Disjunctive                    -1
+CPXPARAM_Emphasis_MIP                            1
+CPXPARAM_Preprocessing_RepeatPresolve            3
+CPXPARAM_MIP_Limits_Populate                     1
+CPXPARAM_MIP_Cuts_ZeroHalfCut                    -1
+CPXPARAM_MIP_Cuts_MCFCut                         -1
+CPXPARAM_MIP_Cuts_LiftProj                       -1
+CPXPARAM_MIP_Cuts_BQP                            -1
+CPXPARAM_MIP_Cuts_RLT                            -1
+CPXPARAM_MIP_Strategy_HeuristicFreq              -1
+CPXPARAM_MIP_Limits_CutPasses                    1
+CPXPARAM_TimeLimit                               180
+CPXPARAM_MIP_Tolerances_MIPGap                   0.0050000000000000001
+CPXPARAM_MIP_Limits_TreeMemory                   35000
+CPXPARAM_MIP_Strategy_HeuristicEffort            0
+Using steepest-edge.
+Perturbation started.
+Removing perturbation.
+
+Primal simplex - Optimal:  Objective =  1.7220935300e+03
+Solution time =    0.00 sec.  Iterations = 0 (0)
+Deterministic time = 8.94 ticks  (4028.76 ticks/sec)
+
+
+Solution written to file '/tmp/5f5f997f561c408ebab40783ab05d315-pulp.sol'.

@@ -313,6 +313,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     num_subset_runs=5
     improvement_factors_to_tolerate=np.array([20,4,2,1.01,0.8]) 
     start_of_round_altloc_subset_size=len(all_altlocs)-1 
+    if UntangleFunctions.RAPIDMODE:
+        num_subset_runs=2
+        start_of_round_altloc_subset_size=len(all_altlocs)
+        max_mins_start/=5
 
     # TEMPORARY NEW FORM. TESTING
     #improvement_factors_to_tolerate=np.array([1.01]) 
@@ -1215,7 +1219,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     print(f"Num allowed alternative geomections: {num_allowed_alternative_connections}")
     print(f"Num forbidden geomections: {num_forbidden_connections}")
     print(f"Num small fry: {num_small_fry_geomections}")
-    assert has_clashes, "No clashes added! Something may have gone wrong. If intentional, comment out this assertion."
+    #assert has_clashes, "No clashes added! Something may have gone wrong. If intentional, comment out this assertion."
 
     smallest_unit_geomection_types = (RestraintsHandler.BondRestraint,RestraintsHandler.NonbondRestraint,RestraintsHandler.ClashRestraint)
 
@@ -2543,7 +2547,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         bonds_replaced:list[LP_Input.Geomection]=[] # connections in original that are not present in solution
         #new_connections=[]
         all_active_constraints:list[tuple[LP_Input.Geomection,LpVariable]]=[]
-        for disordered_geomection_var_dict in mega_geomection_var_dict.values():
+        for disordered_geomection_var_dict in ALL_mega_geomection_var_dict.values():
             # NOTE these are lists of tuples
             active_constraints=[(constraint,var) for constraint,var in disordered_geomection_var_dict.values() if var.value()>0.5]
             all_active_constraints.extend(active_constraints)
