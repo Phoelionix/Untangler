@@ -948,6 +948,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 # if not involves_link:
                 #     no_link_geoms.append(geomection)
                 if geomection not in small_fry and geomection.ts_distance>0:
+                    assert geomection.ts_distance>=0, (geomection.get_disordered_connection_id(),geomection.ts_distance)
                     #assert geomection.ts_distance>=0, (geomection,geomection.ts_distance)
                     #if geomection.connection_type == RestraintsHandler.ClashRestraint:
                     distance_vars.append(geomection.ts_distance*var_active)

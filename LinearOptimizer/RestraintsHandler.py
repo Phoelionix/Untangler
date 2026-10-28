@@ -455,7 +455,7 @@ class RestraintsHandler:
                 #     #return None
                 #     return 0
                 pass
-            return lj_energy+1
+            return round(lj_energy+1,6)
             #return abs(max(neg_badness_limit,RestraintsHandler.NonbondRestraint.lennard_jones(r,r0,E_min)))
         #@staticmethod
         # def lennard_jones(Rij,Rmin,EPSij):
