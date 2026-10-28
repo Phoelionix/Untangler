@@ -45,10 +45,10 @@ def evaluate_tangle(model, ground_truth,weight_factors=None,ignore_nonbond=False
     model_handle=os.path.basename(model)[:-4]
     untangle_fmted_model = get_out_path(model_handle,"fmtd")
     prepare_pdb(model,untangle_fmted_model,
-                ring_name_grouping=UntangleFunctions.RING_NAME_GROUPING) #NOTE
+                ring_name_grouping=UntangleFunctions.RING_NAME_GROUPING,single_altloc_solvent=UntangleFunctions.SINGLE_ALTLOC_SOLVENT) #NOTE
     untangle_fmted_truth = get_out_path(os.path.basename(ground_truth)[:-4],"fmtd")
     prepare_pdb(ground_truth,untangle_fmted_truth,
-            ring_name_grouping=UntangleFunctions.RING_NAME_GROUPING) #NOTE
+            ring_name_grouping=UntangleFunctions.RING_NAME_GROUPING,single_altloc_solvent=UntangleFunctions.SINGLE_ALTLOC_SOLVENT) #NOTE
     model = untangle_fmted_model
     ground_truth=untangle_fmted_truth
 

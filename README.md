@@ -1,14 +1,16 @@
 # Untangler
 
-An algorithm to address the confusion of conformer labels in ensemble refinement (i.e. "tangling"), identified in James Holton's [Untangle Challenge](https://bl831.als.lbl.gov/~jamesh/challenge/twoconf/).
+Connectivity optimization for reducing strain in ensemble models.
+
+This readme is out of date!
 
 ## Requirements
-`phenix`, `python3.9` or later, `tcsh`, `gnuplot`, 
+`phenix`, `python3.12` or later, `tcsh`, `gnuplot`, 
 
 ## Setup 
 (Optional) make a virtual Python environment
 
-`python3.9 -m venv untangler_venv`
+`python3 -m venv untangler_venv`
 
 `source untangler_venv/bin/activate`
 
@@ -16,15 +18,20 @@ Install required packages
 
 `pip install -r requirements.txt` 
 
-Tested with python 3.9.
+Tested with python 3.12.
 
-## Run
+## Untangle Challenge example 
 
-`python3.9 untangle.py data/longrangetraps.pdb data/refme.mtz`  
+Application to synthetic dataset of the [Untangle Challenge](https://doi.org/10.64898/2026.02.21.706873).
 
-To automatically generate information on the differences from the best model (in `output/linear_optimizer_logs/cheat_longrangetraps_[...]/ChangedBonds-1.txt`), run
+`python3 untangle.py data/synthetic/longrangetraps.pdb data/synthetic/refme.mtz`  
 
-`python3.9 untangle.py data/longrangetraps.pdb data/refme.mtz data/best.pdb`  
+To automatically generate information on the differences from the best model run
+
+`python3 untangle.py data/synthetic/longrangetraps.pdb data/synthetic/refme.mtz data/synthetic/best.pdb`  
+
+This will generate a file like `output/linear_optimizer_logs/cheat_longrangetraps_[...]/ChangedBonds-1.txt`. 
+
 
 <!-- <CENTER><P>
 <HR><A href="untangling.gif"><img src=untangling.gif width=960 height=720></A><p>

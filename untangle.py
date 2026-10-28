@@ -25,7 +25,7 @@ from LinearOptimizer.Tension import GeoXrayTension
 from matplotlib import pyplot as plt
 from StructureGeneration.CombineUpdateEnsembles import combine_update_ensembles
 from StructureGeneration.interp_coords import interp_coords
-from Measures.evaluate_tangle import evaluate_tangle
+from Measures.evaluate_tangle import evaluate_tangle,get_tangled_bonds_path
 from Untwist import untwist
 
 
@@ -266,7 +266,7 @@ class Untangler():
                     altloc_from_chain_fix=altloc_from_chain_fix,
                     ring_name_grouping=ring_name_grouping,
                     even_split_protein_occupancies=EVEN_SPLIT_PROTEIN_OCCUPANCIES,
-                    single_altloc_solvent=single_altloc_solvent,
+                    single_altloc_solvent=single_altloc_solvent, # Whether waters should be split into their own independent "residues". If True, waters that originally had the same "residue number" can be assigned to the same conformation.
                     no_altloc_solvent_to_random_altloc=True,
                     keep_anisou=not CONVERT_TO_ISOTROPIC_B_FACTORS,
                     )
@@ -934,7 +934,7 @@ class Untangler():
         working_model = old_working_model[:-4]+"_fmtd.pdb"
         self.prepare_pdb_and_read_altlocs(old_working_model,working_model,
                                           ring_name_grouping=UntangleFunctions.RING_NAME_GROUPING, #NOTE
-                                          single_altloc_solvent=True,
+                                          single_altloc_solvent=UntangleFunctions.SINGLE_ALTLOC_SOLVENT,
                                           )
         if CLEAR_SOLVENT_AROUND_SIDECHAINS_BEFORE_SWAP:
             working_model=clear_solvent_around_sidechains(working_model)
@@ -1261,6 +1261,27 @@ class Untangler():
         print(self.reference_distances)
         print(self.reference_score_labels)
 
+        self.draw(model,self.reference_score_labels[-1],
+                  bad_bonds_file=get_tangled_bonds_path(model),
+                  changed_bonds_file=None # TODO read it from linear optimizer logs (needs to correspond to accepted model...).
+                  )
+
+    def draw(self,model,image_out_handle,bad_bonds_file=None,changed_bonds_file=None):
+        try:
+            from pymol_scripts.drawstate import drawstate,DEFAULT_FIGURE_FOLDER
+
+            drawstate(
+                model,
+                os.path.join(DEFAULT_FIGURE_FOLDER,image_out_handle+".png"),
+                bad_bonds=bad_bonds_file,
+                reference_ground_truth_pdb_for_bad_bonds=self.solution_reference if bad_bonds_file is None else None,
+                changed_bonds_file=changed_bonds_file,
+            )
+        except Exception as e:
+            print("Error while trying to draw frame")
+            print(e)
+    
+
     def propose_model(self,working_model):
         new_score = Untangler.Score(*get_score(score_file_name(working_model)))
         
@@ -1452,6 +1473,11 @@ class Untangler():
     #TODO regular_batch_refine and regular_refine should get refine params from same source. For now, regular_batch_refine is the workhorse regardless of if batch or not.
     def regular_batch_refine(self,model_paths:list[str],altloc_subsets_list=None, refine_H=False,
         refine_water_occupancies=None,alternate_strategy=False, refine_H_before_end=False,**kwargs):
+
+        if "debug_skip" in kwargs:
+            if kwargs["debug_skip"]:
+                return self.batch_refine(f"loopEnd{self.loop}",None, **kwargs)
+
         if refine_water_occupancies is None:
             refine_water_occupancies = default_refine_water_occupancies
         
@@ -2070,10 +2096,10 @@ def main():
             RestraintsHandler.AngleRestraint: 80,
             #RestraintsHandler.NonbondRestraint: 0.1,
             #RestraintsHandler.NonbondRestraint: 1,
-            #RestraintsHandler.NonbondRestraint: 50,
-            RestraintsHandler.NonbondRestraint: 0,
+            RestraintsHandler.NonbondRestraint: 50, RestraintsHandler.ClashRestraint: 1e5,
+            #RestraintsHandler.NonbondRestraint: 0,
             #RestraintsHandler.ClashRestraint: 1e6,
-            RestraintsHandler.ClashRestraint: 1e7,
+            #RestraintsHandler.ClashRestraint: 1e7,
             #RestraintsHandler.ClashRestraint: 0,
             RestraintsHandler.TwoAtomPenalty: 0,
             RestraintsHandler.Dihedral: 0,

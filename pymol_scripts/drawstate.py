@@ -4,14 +4,14 @@ sys.path.append(str(pathlib.Path(__file__).parent.parent))
 import pymol
 import shutil
 from pymol import cmd
-from confmode import *
-from loadBfacts import *
-#from colorbadbonds import *
-from highlightconnections import *
+from pymol_scripts.confmode import *
+from pymol_scripts.highlightconnections import *
+from pymol_scripts.loadBfacts import *
+#from pymol_scripts.pairconformations import pairconformations
+#from pymol_scripts.colorbadbonds import *
 from UntangleFunctions import UNTANGLER_WORKING_DIRECTORY,model_handle
 from Measures.evaluate_tangle import evaluate_tangle,get_tangled_bonds_path
 from LinearOptimizer.RestraintsHandler import RestraintsHandler
-
 
 
 
@@ -24,6 +24,7 @@ def drawstate(
     focus:str = None, # PyMOL selection
     altlocs:list[str]=None, # altlocs to show
     reference_ground_truth_pdb_for_bad_bonds:str=None,
+    #color_by_diff_from:str=None,
     bad_bonds:str=None, # pdb file that indicates bad bonds with B factors. # Output of Measures/evaluate_tangle.py
     changed_bonds_file:str=None, # ChangedBonds file in linear optimizer log folder
     changed_bonds:str=None, # pymol selection string for bonds that changed.
@@ -61,6 +62,11 @@ def drawstate(
 
 
 
+    # if color_by_diff_from is not None:
+    #    difference_color_reference_model=model_handle(color_by_diff_from)
+    #    cmd.load(color_by_diff_from,difference_color_reference_model)
+    #    pairconformations(mol,difference_color_reference_model) 
+    #    cmd.hide(f"not {mol}")
 
     if reference_ground_truth_pdb_for_bad_bonds is not None:
         assert bad_bonds is None
@@ -85,6 +91,7 @@ def drawstate(
         cmd.hide(f"(not altloc {'+'.join(altlocs)})")
 
     if atom_worst_geometry_devs is not None:
+        print("Warning: Implementation of worst atom geometry devs not tested") # TODO
         loadBfacts(mol, atom_worst_geometry_devs)
         cmd.select(f"{mol} and b >= {geom_devs_highlight_threshold}")
         cmd.spectrum(b, "blue yellow red", "sele")
@@ -143,6 +150,7 @@ if __name__=="__main__":
     assert len(sys.argv) < 4
     drawstate("drawstate_example/cheat_lrt_article_ogW_loopEnd1/lrt_article_ogW_loopEnd1_tangled_bonds.pdb",DEFAULT_FIGURE_FOLDER + "lrt_test.png",
               #reference_ground_truth_pdb_for_bad_bonds="../data/synthetic/best.pdb",
+              #color_by_diff_from="../data/synthetic/best.pdb",
               bad_bonds="drawstate_example/cheat_lrt_article_ogW_loopEnd1/lrt_article_ogW_loopEnd1_tangled_bonds.pdb",
               #old_file_for_old_bonds="drawstate_example/cheat_longrangetraps/longrangetraps_tangled_bonds.pdb",
               changed_bonds_file="drawstate_example/cheat_lrt_article_ogW_loopEnd1/ChangedBondsFromInitial.txt",

@@ -32,6 +32,8 @@ TEMP_TEST_CHILD_PARENT={}
 #TEMP_TEST_CHILD_PARENT={c:"A" for c in "GH"} | {c:"B" for c in "IJ"} | {c:"C" for c in "KL"} | {c:"D" for c in "MN"} | {c:"E" for c in "OP"} | {c:"F" for c in "QR"}
 
 
+SINGLE_ALTLOC_SOLVENT=False
+
 ATOMS = ('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr'
        +' Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe').split()
 NUM_E = {}
