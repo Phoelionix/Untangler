@@ -21,7 +21,7 @@ RAPIDMODE=False # everything is separated by 1 macrocycle. Also reduces max solv
 
 
 
-NO_UNRESTRAINED=True
+NO_UNRESTRAINED=False
 NO_INDIV_WEIGHTS=False
 SITES_FORMULATION=True
 

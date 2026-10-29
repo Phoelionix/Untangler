@@ -39,7 +39,8 @@ CLEAR_SOLVENT_AROUND_SIDECHAINS_BEFORE_SWAP=False
 CLEAR_CLASHING_SOLVENT_AROUND_SIDECHAINS=False # Clears waters very close to sidechain atoms in the same conformation plus extremely close regardless of conformation. Good for when changes made in coot without waters before waters are added back
 
 
-MAIN_CHAIN_SWAPS_ONLY=True
+MAIN_CHAIN_SWAPS_ONLY=False
+N_AND_CB_ONLY=False
 FORBID_O_SWAPS=True
 
 DISABLE_WATER_ALTLOC_OPTIM=False
@@ -590,6 +591,7 @@ class Untangler():
                                             forbidden_atom_bond_changes=dict(name=forbidden_atom_bond_changes),
                                             forbidden_atom_any_connection_changes=dict(name=forbidden_atom_any_connection_changes),
                                             MAIN_CHAIN_ONLY=MAIN_CHAIN_ONLY,SIDE_CHAIN_ONLY=SIDE_CHAIN_ONLY,NO_CB_CHANGES=NO_CB_CHANGES,
+                                            N_AND_CB_ONLY=N_AND_CB_ONLY,
                                             max_bond_changes=self.max_bond_changes,
                                             NO_ISOLATED_O_BOND_CHANGES=self.no_isolated_O_bond_swaps(),
                                             reference_pdb_file=model_to_swap,
@@ -633,7 +635,7 @@ class Untangler():
                 )
                 print("Allotting waters")
                 #TODO args in dict so don't repeat massive list of args.
-                waters_swapped_path, bonds_changed, distances = solve_module.solve(atoms,connections,out_dir=self.output_dir,
+                waters_swapped_path, bonds_changed, distances = Solver.solve(atoms,connections,out_dir=self.output_dir,
                                                         out_handle=out_handle,
                                                         num_solutions=1,
                                                         force_sulfur_bridge_swap_solutions=False,
@@ -644,6 +646,7 @@ class Untangler():
                                                         forbidden_atom_bond_changes=dict(name=forbidden_atom_bond_changes),
                                                         forbidden_atom_any_connection_changes=dict(name=forbidden_atom_any_connection_changes),
                                                         MAIN_CHAIN_ONLY=MAIN_CHAIN_ONLY,SIDE_CHAIN_ONLY=SIDE_CHAIN_ONLY,NO_CB_CHANGES=NO_CB_CHANGES,
+                                                        N_AND_CB_ONLY=N_AND_CB_ONLY,
                                                         max_bond_changes=self.max_bond_changes,
                                                         NO_ISOLATED_O_BOND_CHANGES=self.no_isolated_O_bond_swaps(),
                                                         reference_pdb_file=model_to_swap,

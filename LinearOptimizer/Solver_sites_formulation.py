@@ -100,7 +100,7 @@ DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS=np.inf # TODO remove this since dynamic s
 
 
 MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS=3 # CEMENT must be True
-MIN_ALTLOCS_TO_FIX_RANDOM=3 # if PEPPER_FIXED_SITES or PEPPER_FIXED_GEOMECTIONS
+MIN_ALTLOCS_TO_FIX_RANDOM=4 # if PEPPER_FIXED_SITES or PEPPER_FIXED_GEOMECTIONS
 
 # TODO cplex solution pool
 
@@ -133,7 +133,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
           gapRel=0.005,
           #gapRel=0.03,
           forbid_altloc_changes={"name":[]}, forbidden_atom_bond_changes={"name":[]},forbidden_atom_any_connection_changes={"name":[]},
-          MAIN_CHAIN_ONLY=False,SIDE_CHAIN_ONLY=False,NO_CB_CHANGES=False,NO_ISOLATED_O_BOND_CHANGES=False, # Forbids BOND changes that do not involve the specified atoms.
+          MAIN_CHAIN_ONLY=False,SIDE_CHAIN_ONLY=False,NO_CB_CHANGES=False,N_AND_CB_ONLY=False,NO_ISOLATED_O_BOND_CHANGES=False, # Forbids BOND changes that do not involve the specified atoms.
           #max_bond_changes=None):  
           #max_bond_changes=24):  
           #max_bond_changes=7):  
@@ -151,7 +151,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
     # protein_sites, water_sites: Whether these can be swapped.
     # gaprel : relative gap tolerance for the solver to stop (fraction) # https://coin-or.github.io/pulp/technical/solvers.html
-    assert MAIN_CHAIN_ONLY + SIDE_CHAIN_ONLY + NO_CB_CHANGES <=1 
+    assert MAIN_CHAIN_ONLY + SIDE_CHAIN_ONLY + NO_CB_CHANGES + N_AND_CB_ONLY <=1 
     
     TOSYMBOL="~TO~" # >>
     CEMSYMBOL="~CEM~"    
@@ -288,7 +288,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
     num_subset_runs=2
     start_of_round_altloc_subset_size=2
-    improvement_factors_to_tolerate=np.array([20,4,2.02,1.01,0.8,0.5,0.25])  # 20 means that must improve by factor of 20 to accept sigma above max sigma specified in LinearOptimizer.LP_Input
+    improvement_factors_to_tolerate=np.array([20,4,2.02,1.01,0.8,0.5,0.25,0.1,0.1,0.1])  # 20 means that must improve by factor of 20 to accept sigma above max sigma specified in LinearOptimizer.LP_Input
     #start_of_round_altloc_subset_size=len(all_altlocs)-1 
     # # NOTE these are the MAXIMUM altloc subset sizes to START with each round for a given improvement factor tolerance. See dynamic_subset_size_mod variable.
     if UntangleFunctions.RAPIDMODE:
@@ -633,6 +633,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                 if SIDE_CHAIN_ONLY and in_main_chain and (any(ch.get_resname().strip() not in (["HOH",] + other_things) for ch in chunks)):
                     return True
                 if NO_CB_CHANGES and any(ch.name =="CB" for ch in chunks):
+                    return True
+                if N_AND_CB_ONLY and not any(ch.name in ("CB","N") for ch in chunks) and (any(ch.get_resname().strip() not in (["HOH",] + other_things) for ch in chunks)):
                     return True
                 if forbid_ring_changes:
                     for ch in chunks:
