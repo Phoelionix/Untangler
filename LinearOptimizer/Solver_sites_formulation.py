@@ -2119,12 +2119,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         print(f"Target: {out_handle}")
         total_distance = value(lp_problem.objective)
         diff=total_distance/initial_badness-1
-        print(f"Total distance = {total_distance} ({100*(diff):.3f}%)")
+        print(f"Total distance = {total_distance:.6e} ({100*(diff):.3f}%)")
         if extra_text!="":
             extra_text="; "+extra_text
         log(f"{100*(diff):.3f}% ({total_distance:.6e}){extra_text}")
         #plt.scatter()
-
 
     # def good_constraint(constraint:LP_Input.Geomection):
     #     good_z_threshold=2
