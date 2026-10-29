@@ -18,7 +18,10 @@ NUM_THREADS=22
 
 RAPIDMODE=False # everything is separated by 1 macrocycle. Also reduces max solver time per round as of commenting
 
-NO_UNRESTRAINED=False
+
+
+
+NO_UNRESTRAINED=True
 NO_INDIV_WEIGHTS=False
 SITES_FORMULATION=True
 
@@ -33,6 +36,24 @@ TEMP_TEST_CHILD_PARENT={}
 
 
 SINGLE_ALTLOC_SOLVENT=False
+
+
+
+########### LP Solver options ###########
+try:
+    import pulp
+    from enum import Enum
+    class Solver(Enum):
+        COIN=pulp.PULP_CBC_CMD
+        CPLX_PY=pulp.CPLEX_PY
+        CPLX_CMD=pulp.CPLEX_CMD # NOTE Need to follow "Additional environment variables per solver" section in this guide: https://coin-or.github.io/pulp/guides/how_to_configure_solvers.html
+    #UntangleFunctions.ILP_solver=Solver.CPLX_CMD
+    #UntangleFunctions.ILP_solver = Solver.CPLX_PY
+    ILP_solver = Solver.COIN
+except:
+    pass
+
+
 
 ATOMS = ('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr'
        +' Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe').split()

@@ -1,7 +1,6 @@
 #%%
 from typing import Any
-from LinearOptimizer import Solver
-from LinearOptimizer import Solver_sites_formulation
+from LinearOptimizer import WIP_Solver, Solver_sites_formulation
 from LinearOptimizer.Input import RestraintsHandler
 from LinearOptimizer.OrderedAtomLookup import clear_solvent_around_sidechains
 from LinearOptimizer.Swapper import Swapper
@@ -28,11 +27,20 @@ from StructureGeneration.interp_coords import interp_coords
 from Measures.evaluate_tangle import evaluate_tangle,get_tangled_bonds_path
 from Untwist import untwist
 
+if UntangleFunctions.SITES_FORMULATION:
+    Solver = Solver_sites_formulation
+else:
+    Solver = WIP_Solver
+    print("WARNING: In-development ILP formulation selected. Set UntangleFunctions.SITES_FORMULATION=True if this is not desired.")
+
 
 CLEAR_SOLVENT_AROUND_SIDECHAINS_BEFORE_UNRESTRAINED=False # Conformation-blind removal of waters near sidechains
 CLEAR_SOLVENT_AROUND_SIDECHAINS_BEFORE_SWAP=False
 CLEAR_CLASHING_SOLVENT_AROUND_SIDECHAINS=False # Clears waters very close to sidechain atoms in the same conformation plus extremely close regardless of conformation. Good for when changes made in coot without waters before waters are added back
 
+
+MAIN_CHAIN_SWAPS_ONLY=True
+FORBID_O_SWAPS=True
 
 DISABLE_WATER_ALTLOC_OPTIM=False
 TURN_OFF_BULK_SOLVENT=False
@@ -47,11 +55,11 @@ PHENIX_DISABLE_CDL=False # Disables the conformation-dependent library for pheni
 PHENIX_DISABLE_NQH=True
 ILP_IGNORES_WATERS=False
 
-DEBUG_FORCE_NEVER_RIDING_H_PHENIX=True
+DEBUG_FORCE_NEVER_RIDING_H_PHENIX=False
 
 REFINE_ADP_WHEN_REFINING_POSITIONS=True
 
-MAIN_CHAIN_SWAPS_ONLY=False 
+
 
 REFINE_FOR_POSITIONS_UNTIL_WORSE=False; WU_MULT_WHEN_REFINING_POSITIONS=1.0
 #REFINE_FOR_POSITIONS_UNTIL_WORSE=True; WU_MULT_WHEN_REFINING_POSITIONS=1.2
@@ -80,9 +88,9 @@ assert not (DEBUG_FORCE_NEVER_RIDING_H_PHENIX and default_refine_water_occupanci
 DISABLE_UNTANGLE_FOR_CONTROL=False
 
 
+print(f"Unrestrained refinement step is {'disabled' if UntangleFunctions.NO_UNRESTRAINED else 'enabled'}")
 if DISABLE_UNTANGLE_FOR_CONTROL:
     print("xXx ALTLOC OPTIMIZER DISABLED xXx")
-    print(f"Unrestrained refinement step is {'disabled' if UntangleFunctions.NO_UNRESTRAINED else 'enabled'}")
     print()
 else:
     if ILP_IGNORES_WATERS:
@@ -111,7 +119,7 @@ class Untangler():
     auto_group_waters=False
     never_do_unrestrained=UntangleFunctions.NO_UNRESTRAINED # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
     always_allow_O_swaps=False
-    always_forbid_O_swaps=False
+    always_forbid_O_swaps=FORBID_O_SWAPS
     main_chain_swaps_only_after_first_loop=False
     optimize_side_and_main_separately=False
     #default_scoring_function = staticmethod(RestraintsHandler.chi_z_sqr) # Like Holton score (non-outlier terms)
@@ -558,11 +566,7 @@ class Untangler():
         swapper.clear_candidates()
         out_handle=f"{self.model_handle}-{self.loop}"
             
-        if UntangleFunctions.SITES_FORMULATION:
-            solve_module = Solver_sites_formulation
-        else:
-            solve_module = Solver
-            print("WARNING: In-development ILP formulation selected. Set UntangleFunctions.SITES_FORMULATION=True if this is not desired.")
+
         if not read_prior_run:
             alternate_atoms=[]
             if self.num_loops_not_untwist<=self.loop<=self.final_untwist_loop and (self.untwist_moves_enabled or (self.untwist_moves_enabled_on_mainch_only_loop and self.main_chain_only())):
@@ -575,7 +579,7 @@ class Untangler():
                 water_water_nonbond = not DISABLE_WATER_ALTLOC_OPTIM, 
                 constraint_weights=self.weight_factors,
             )
-            swaps_file_path, bonds_changed,distances = solve_module.solve(atoms,connections,molecule_connectors,out_dir=self.output_dir,
+            swaps_file_path, bonds_changed,distances = Solver.solve(atoms,connections,molecule_connectors,out_dir=self.output_dir,
                                             out_handle=out_handle,
                                             num_solutions=num_solutions,
                                             force_sulfur_bridge_swap_solutions=False, #True
@@ -2096,10 +2100,10 @@ def main():
             RestraintsHandler.AngleRestraint: 80,
             #RestraintsHandler.NonbondRestraint: 0.1,
             #RestraintsHandler.NonbondRestraint: 1,
-            RestraintsHandler.NonbondRestraint: 50, RestraintsHandler.ClashRestraint: 1e5,
-            #RestraintsHandler.NonbondRestraint: 0,
+            #RestraintsHandler.NonbondRestraint: 50, RestraintsHandler.ClashRestraint: 1e5,
+            RestraintsHandler.NonbondRestraint: 0,
             #RestraintsHandler.ClashRestraint: 1e6,
-            #RestraintsHandler.ClashRestraint: 1e7,
+            RestraintsHandler.ClashRestraint: 1e7,
             #RestraintsHandler.ClashRestraint: 0,
             RestraintsHandler.TwoAtomPenalty: 0,
             RestraintsHandler.Dihedral: 0,

@@ -33,7 +33,6 @@
 
 import pulp as pl
 import numpy as np
-from enum import Enum
 from LinearOptimizer.Input import *
 from LinearOptimizer.VariableID import *
 import itertools
@@ -74,10 +73,10 @@ NUM_RELEASE_ROUNDS=0
 USE_DYNAMIC_ALTLOC_SUBSET_SIZE = True # Dynamically modify the number of conformations considered each ILP subproblem solve run
 
 # Specify None to consider all altlocs.
-#ALTLOC_RUN_SUBSET_SIZES=[3,3,3,3,4,4,4,5,5,None] # None 
-#ALTLOC_RUN_SUBSET_SIZES=[2,2,2,3,3,3,3,4,4,4] # None 
-#ALTLOC_RUN_SUBSET_SIZES=[2,2,2,2,3,3,4,4,4,4,4,5] # None 
-#ALTLOC_RUN_SUBSET_SIZES=[4,4,5,6] # None 
+#start_of_round_altloc_subset_sizes=[3,3,3,3,4,4,4,5,5,None] # None 
+#start_of_round_altloc_subset_sizes=[2,2,2,3,3,3,3,4,4,4] # None 
+#start_of_round_altloc_subset_sizes=[2,2,2,2,3,3,4,4,4,4,4,5] # None 
+#start_of_round_altloc_subset_sizes=[4,4,5,6] # None 
 
 
 # if UntangleFunctions.NO_UNRESTRAINED:
@@ -92,23 +91,16 @@ PEPPER_FIXED_GEOMECTIONS=True
 CEMENT=False
 
 
-#ALTLOC_RUN_SUBSET_SIZES=[2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,None] # None 
-#ALTLOC_RUN_SUBSET_SIZES=[None] # None 
+
 ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT=[3,3,3,4,5,None]
 DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS=np.inf # TODO remove this since dynamic subset size approach replaces it.
 
 
 
 
-#ALTLOC_RUN_SUBSET_SIZES=[3,3,3,3,3,4,4,4,4,4,4] # None 
-#ALTLOC_RUN_SUBSET_SIZES=[6,6,7,8,10] # None 
-#ALTLOC_RUN_SUBSET_SIZES=[3,4,5,5,6,7] # None 
-#ALTLOC_RUN_SUBSET_SIZES=[2,2,2,2,3,3,3,4,4,4] # None 
 
-#ALTLOC_RUN_SUBSET_SIZES=[9,9,9,9,9,9] # None 
-#ALTLOC_RUN_SUBSET_SIZES=[3,4,4,4,4,4] # None 
 MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS=3 # CEMENT must be True
-MIN_ALTLOCS_TO_FIX_RANDOM=3
+MIN_ALTLOCS_TO_FIX_RANDOM=3 # if PEPPER_FIXED_SITES or PEPPER_FIXED_GEOMECTIONS
 
 # TODO cplex solution pool
 
@@ -134,7 +126,7 @@ def add_sos2(lp_problem:LpProblem,sos2_name,sos2_rule):
 def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_Input.Geomection]],dummy_arg:dict[DisorderedTag,DisorderedTag],
           out_dir,out_handle:str,force_no_flips=False,num_solutions=20,force_sulfur_bridge_swap_solutions=False,
           inert_protein_sites=False,protein_sites:bool=True,water_sites:bool=True,
-          max_mins_start=3, mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
+          max_mins_start=10, mins_extra_per_loop=0.1,#max_mins_start=100,mins_extra_per_loop=10,
           inert_water_sites=False,
           #gapRel=0.001,
           #gapRel=0,
@@ -283,41 +275,26 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     #         improvement_factors_to_tolerate=np.array([100,6,3,2,1.5,1.25,1.175,1.1,1.05,1]) 
     #mainchain_improvement_factor_requirement_mult_bond=1#0.5
     #mainchain_improvement_factor_requirement_mult_angle=1#0.01 #0.01
-    mainchain_improvement_factor_requirement_mult_bond=0.5
-    mainchain_improvement_factor_requirement_mult_angle=0.01 #0.01
+
+    ##### NOTE: before Oct 2026, bond and angle were 0.5 and 0.01 respectively.
+    # TODO want this to react to be looser in main chain when UntangleFunctions.NO_UNRESTRAINED
+    mainchain_improvement_factor_requirement_mult_bond=1
+    mainchain_improvement_factor_requirement_mult_angle=1 #0.01
     sidechain_improvement_factor_requirement_mult_bond=1
     sidechain_improvement_factor_requirement_mult_angle=1
+    ########
+
     #TODO try a round where everything costs zero except clashes?
 
-    ###################
-    if len(all_altlocs)==2:
-        improvement_factors_to_tolerate=np.array([100,2,1]) 
-    elif len(all_altlocs)<=4:
-        #improvement_factors_to_tolerate=np.array([100,12,10,4,3,2,1.5,1.2,1.1,1,0.95]) 
-        improvement_factors_to_tolerate=np.array([2,1]) 
-    else:
-        if UntangleFunctions.NO_UNRESTRAINED:
-            improvement_factors_to_tolerate=np.array([5,2,1,0.5,0.25]) 
-        else:
-
-            #improvement_factors_to_tolerate=np.array([100,4,2,1.5,1]) 
-            #improvement_factors_to_tolerate=np.array([4,2,1,0.7,0.4]) 
-            #improvement_factors_to_tolerate=np.array([4,2,1]) 
-            #improvement_factors_to_tolerate=np.array([4,0.8]) 
-            improvement_factors_to_tolerate=np.array([2,0.8]) 
-            #improvement_factors_to_tolerate=np.array([10,4,2,1,0.7,0.4,0.2]) /0.2
-    # TODO remove altloc_run_subset_size variable, replace
-    #num_subset_runs=4
-    #improvement_factors_to_tolerate=np.array([20,4,2,1.01,0.8]) 
-    #start_of_round_altloc_subset_size=5 #2 # 3
-    num_subset_runs=5
-    improvement_factors_to_tolerate=np.array([20,4,2,1.01,0.8]) 
-    start_of_round_altloc_subset_size=len(all_altlocs)-1 
+    num_subset_runs=2
+    start_of_round_altloc_subset_size=2
+    improvement_factors_to_tolerate=np.array([20,4,2.02,1.01,0.8,0.5,0.25])  # 20 means that must improve by factor of 20 to accept sigma above max sigma specified in LinearOptimizer.LP_Input
+    #start_of_round_altloc_subset_size=len(all_altlocs)-1 
+    # # NOTE these are the MAXIMUM altloc subset sizes to START with each round for a given improvement factor tolerance. See dynamic_subset_size_mod variable.
     if UntangleFunctions.RAPIDMODE:
         num_subset_runs=2
-        start_of_round_altloc_subset_size=len(all_altlocs)
         max_mins_start/=5
-
+        start_of_round_altloc_subset_size=len(all_altlocs)
     # TEMPORARY NEW FORM. TESTING
     #improvement_factors_to_tolerate=np.array([1.01]) 
     #start_of_round_altloc_subset_size=6
@@ -326,11 +303,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     if force_one_round:
         improvement_factors_to_tolerate=np.array([1])
         start_of_round_altloc_subset_size=len(all_altlocs)
-        num_subset_runs=1
 
+    start_of_round_altloc_subset_sizes=[start_of_round_altloc_subset_size,]*num_subset_runs
     ###################
     
-    ALTLOC_RUN_SUBSET_SIZES=[start_of_round_altloc_subset_size,]*num_subset_runs # NOTE these are the MAXIMUM altloc subset sizes to START with. See dynamic_subset_size_mod variable.
+   
 
 
 
@@ -1892,13 +1869,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         (len(always_allow_original_tranches),len(flexible_bad_original_vars),len(flexible_bad_original_allowed_constrs),len(flexible_bad_original_forbid_constrs))
     
     ########### LP Solver options ###########
-    class Solver(Enum):
-        COIN=PULP_CBC_CMD
-        CPLX_PY=CPLEX_PY
-        CPLX_CMD=CPLEX_CMD # NOTE Need to follow "Additional environment variables per solver" section in this guide: https://coin-or.github.io/pulp/guides/how_to_configure_solvers.html
-    pulp_solver=Solver.CPLX_CMD
-    #pulp_solver = Solver.CPLX_PY
-    #pulp_solver = Solver.COIN
     
     easy_timeLimit=min(DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS,max_mins_start)
     if max_mins_start is not None:
@@ -1912,24 +1882,13 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     warmStart=True
     #gapRel=0.0003
     #gapRel=0.001
-    solver_class=PULP_CBC_CMD
+    solver_class=UntangleFunctions.ILP_solver.value
     solver_options=[]
-    if pulp_solver == Solver.COIN: 
-        solver_class = PULP_CBC_CMD
-    elif pulp_solver == Solver.CPLX_CMD:
-        solver_class = CPLEX_CMD
-    # CPLEX parameters: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.6.0/ilog.odms.cplex.help/CPLEX/GettingStarted/topics/tutorials/InteractiveOptimizer/settingParams.html
-    # CPLEX status: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.10.0/ilog.odms.cplex.help/refcallablelibrary/macros/Solution_status_codes.html
-        #solver_options.append("set parallel -1")
-        #path='~/ibm/ILOG/CPLEX_STUDIO2211/cplex'
-    #https://coin-or.github.io/pulp/technical/solvers.html#pulp.apis.CPLEX_PY
-    elif pulp_solver == Solver.CPLX_PY:
-        solver_class = CPLEX_PY
-    else:
-        raise Exception("not implemented")
     #solver = solver_class(timeLimit=timeLimit,threads=THREADS,logPath=logPath,warmStart=warmStart,gapRel=gapRel,path=path)
     extra_args={}
-    if pulp_solver==Solver.CPLX_CMD:
+    if solver_class==pulp.PULP_CBC_CMD:
+        pass
+    if solver_class==CPLEX_CMD:
         disable_probe=False
         aggressive_probe=False
         #### Options to speed up root node relaxation: https://www.ibm.com/docs/en/icos/22.1.2?topic=problems-too-much-time-node-0
@@ -2730,8 +2689,8 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             dynamic_subset_size_mod = min(0.,dynamic_subset_size_mod)
 
             altloc_subset_sizes=[None]
-            if not difficult and (ALTLOC_RUN_SUBSET_SIZES is not None):
-                altloc_subset_sizes=ALTLOC_RUN_SUBSET_SIZES
+            if not difficult and (start_of_round_altloc_subset_sizes is not None):
+                altloc_subset_sizes=start_of_round_altloc_subset_sizes
             elif difficult and (ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT is not None):
                 altloc_subset_sizes=ALTLOC_RUN_SUBSET_SIZES_AFTER_DIFFICULT
             num_altloc_subset_runs=len(altloc_subset_sizes)
@@ -2807,7 +2766,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
                     # if is_subset_run:
                     #     minutes= max(1,minutes/4)
 
-                    # if pulp_solver==Solver.CPLX_CMD and advanced_basis:
+                    # if UntangleFunctions.ILP_solver==Solver.CPLX_CMD and advanced_basis:
                     #     if l==r==j==0 or os.path.getsize("Untangling_Problem-pulp.bas")<=1000:
                     #         extra_args["options"]=solver_options
                     #     else:

@@ -182,201 +182,36 @@ class AtomChunk(OrderedResidue):
 
 
 class LP_Input:
-    #MODE="LOW_TOL" # "NONBOND_RESTRICTIONS" #"LOW_TOL" #"HIGH_TOL" #"NO_RESTRICTIONS" # PHENIX REFMAC
-    #MODE= "NO_RESTRICTIONS"
-    #MODE= "LOW_TOL"
-    #MODE= "V_LOW_TOL"
-    MODE= "V_LOW_TOL2"
-    #MODE="TEST"
+
     max_sigmas,min_sigmas_where_anything_goes,min_tension_where_anything_goes={},{},{}
-    if MODE=="NO_RESTRICTIONS":
-        pass
-    elif MODE=="TEST":
-        # max_sigmas={
-        #     RestraintsHandler.BondRestraint:6,
-        #     RestraintsHandler.AngleRestraint:4,
-        #     #RestraintsHandler.ClashRestraint:-99,
-        # }  
-        if UntangleFunctions.NO_UNRESTRAINED:
-            max_sigmas={
-                RestraintsHandler.BondRestraint:5,
-                RestraintsHandler.AngleRestraint:3,
-                RestraintsHandler.ClashRestraint:-99,
-            }       
-        else:
-            max_sigmas={
-                RestraintsHandler.BondRestraint:4,
-                RestraintsHandler.AngleRestraint:2.5,
-                # RestraintsHandler.BondRestraint:3,
-                # RestraintsHandler.AngleRestraint:2,
-                RestraintsHandler.ClashRestraint:-99,
-            }    
-    elif MODE=="NONBOND_RESTRICTIONS":
-        max_sigmas={
-            RestraintsHandler.NonbondRestraint:3,
-        }
-        min_sigmas_where_anything_goes={
-            RestraintsHandler.NonbondRestraint:2,
-        }
-        min_tension_where_anything_goes={}
-    elif MODE=="HIGH_TOL":
-        max_sigmas={
-            RestraintsHandler.BondRestraint:10,
-            RestraintsHandler.AngleRestraint:4,
-        }    
-        min_sigmas_where_anything_goes={
-            RestraintsHandler.BondRestraint:2,
-            RestraintsHandler.NonbondRestraint:2,
-        } 
-        min_tension_where_anything_goes={
-            RestraintsHandler.BondRestraint:5,
-            RestraintsHandler.AngleRestraint:5,
-            RestraintsHandler.NonbondRestraint:5,
-            RestraintsHandler.ClashRestraint:5,
-            # RestraintsHandler.BondRestraint:7,
-            # RestraintsHandler.AngleRestraint:7,
-            # RestraintsHandler.NonbondRestraint:7,
-            # RestraintsHandler.ClashRestraint:7,
-        } 
-    elif MODE=="MED_TOL":
-        max_sigmas={
-            RestraintsHandler.BondRestraint:8,
-            RestraintsHandler.AngleRestraint:3,
-        }    
-        min_sigmas_where_anything_goes={
-            #RestraintsHandler.BondRestraint:99,
-            #RestraintsHandler.AngleRestraint:99,
-            #RestraintsHandler.NonbondRestraint:2,
-        } 
-        min_tension_where_anything_goes={
-            RestraintsHandler.BondRestraint:8,
-            RestraintsHandler.AngleRestraint:4,
-            #RestraintsHandler.BondRestraint:8,
-            #RestraintsHandler.AngleRestraint:8,
-            RestraintsHandler.NonbondRestraint:8,
-            RestraintsHandler.ClashRestraint:8,
-        } 
-    elif MODE=="LOW_TOL":
-        max_sigmas={
-            RestraintsHandler.BondRestraint:8,
-            RestraintsHandler.AngleRestraint:2.5,
-            RestraintsHandler.ClashRestraint:-99,
-        }    
-        min_sigmas_where_anything_goes={
-            #RestraintsHandler.BondRestraint:99,
-            #RestraintsHandler.AngleRestraint:99,
-            #RestraintsHandler.NonbondRestraint:2,
-        } 
-        # Unused at present
-        min_tension_where_anything_goes={
-            RestraintsHandler.BondRestraint:8,
-            RestraintsHandler.AngleRestraint:4,
-            #RestraintsHandler.BondRestraint:8,
-            #RestraintsHandler.AngleRestraint:8,
-            RestraintsHandler.NonbondRestraint:8,
-            RestraintsHandler.ClashRestraint:8,
-        } 
-    elif MODE=="V_LOW_TOL":
-        max_sigmas={
-            RestraintsHandler.BondRestraint:3.5,
-            RestraintsHandler.AngleRestraint:2,
-            RestraintsHandler.ClashRestraint:-99,
-        }  
-    elif MODE=="V_LOW_TOL2":
-        max_sigmas={
-            RestraintsHandler.BondRestraint:2,
-            RestraintsHandler.AngleRestraint:1.5,
-            RestraintsHandler.ClashRestraint:6,
-            #RestraintsHandler.ClashRestraint:-99,
-        } 
-    elif MODE=="TENSIONS_TOL":
-        max_sigmas={
-            RestraintsHandler.BondRestraint:2.5,
-            RestraintsHandler.AngleRestraint:2.5,
-            RestraintsHandler.NonbondRestraint:2.5,
-        }    
-        min_sigmas_where_anything_goes={
-        } 
-        min_tension_where_anything_goes={
-            RestraintsHandler.BondRestraint:2.5,
-            RestraintsHandler.AngleRestraint:2.5,
-            RestraintsHandler.NonbondRestraint:2.5,
-            RestraintsHandler.ClashRestraint:2.5,
-        } 
-    elif MODE=="PHENIX":
-        max_sigmas={
-            # RestraintsHandler.BondRestraint:4,
-            # RestraintsHandler.AngleRestraint:4,
-            #RestraintsHandler.BondRestraint:6,
-            #RestraintsHandler.AngleRestraint:3,
-            RestraintsHandler.BondRestraint:4,
-            RestraintsHandler.AngleRestraint:3,
-            # RestraintsHandler.BondRestraint:2,
-            # RestraintsHandler.AngleRestraint:2,
-            # RestraintsHandler.BondRestraint:99,
-            # RestraintsHandler.AngleRestraint:99,
-        } 
-        min_sigmas_where_anything_goes={
-            RestraintsHandler.BondRestraint:2.5,
-            RestraintsHandler.AngleRestraint:2.5,
-            # RestraintsHandler.BondRestraint:4,
-            # RestraintsHandler.AngleRestraint:4,
-            # RestraintsHandler.BondRestraint:99,
-            # RestraintsHandler.AngleRestraint:99,
-        } 
-        # min_tension_where_anything_goes={
-        #     RestraintsHandler.BondRestraint:4,
-        #     RestraintsHandler.AngleRestraint:5,
-        #     RestraintsHandler.NonbondRestraint:4,
-        #     RestraintsHandler.ClashRestraint:4,
-        # } 
-        min_tension_where_anything_goes={
-            RestraintsHandler.BondRestraint:6,
-            RestraintsHandler.AngleRestraint:6,
-            RestraintsHandler.NonbondRestraint:6,
-            RestraintsHandler.ClashRestraint:6,
-            # RestraintsHandler.BondRestraint:7,
-            # RestraintsHandler.AngleRestraint:7,
-            # RestraintsHandler.NonbondRestraint:7,
-            # RestraintsHandler.ClashRestraint:7,
-        } 
-    elif MODE == "REFMAC":
-        max_sigmas={
-            # RestraintsHandler.BondRestraint:4,
-            # RestraintsHandler.AngleRestraint:4,
-            # RestraintsHandler.BondRestraint:2.5,
-            # RestraintsHandler.AngleRestraint:2.5,
-            RestraintsHandler.BondRestraint:4,
-            RestraintsHandler.AngleRestraint:4,
-            # RestraintsHandler.BondRestraint:99,
-            # RestraintsHandler.AngleRestraint:99,
-        } 
-        min_sigmas_where_anything_goes={
-            # RestraintsHandler.BondRestraint:2.5,
-            # RestraintsHandler.AngleRestraint:2.5,
-            RestraintsHandler.BondRestraint:2,
-             RestraintsHandler.AngleRestraint:3,
-            # RestraintsHandler.BondRestraint:99,
-            # RestraintsHandler.AngleRestraint:99,
-        } 
-        # min_tension_where_anything_goes={
-        #     RestraintsHandler.BondRestraint:4,
-        #     RestraintsHandler.AngleRestraint:5,
-        #     RestraintsHandler.NonbondRestraint:4,
-        #     RestraintsHandler.ClashRestraint:4,
-        # } 
-        min_tension_where_anything_goes={
-            RestraintsHandler.BondRestraint:6,
-            RestraintsHandler.AngleRestraint:6,
-            RestraintsHandler.NonbondRestraint:6,
-            RestraintsHandler.ClashRestraint:6,
-            # RestraintsHandler.BondRestraint:5,
-            # RestraintsHandler.AngleRestraint:5,
-            # RestraintsHandler.NonbondRestraint:5,
-            # RestraintsHandler.ClashRestraint:5,
-        } 
+
+    @staticmethod
+    def get_max_sigmas(bond,angle,nonbond=None,max_clash_overlap=None): # max clash overlap in Angstrom as judged by ideal values used for clashscore
+        clash=10*max_clash_overlap if max_clash_overlap is not None else None
+        max_sigmas={restraint_kind:value for (restraint_kind,value) 
+                    in ((RestraintsHandler.BondRestraint,bond),
+                        (RestraintsHandler.AngleRestraint, angle),
+                        (RestraintsHandler.NonbondRestraint,nonbond),
+                        (RestraintsHandler.ClashRestraint, clash),
+                        )
+                    if value is not None}
+        return max_sigmas
+
+    if UntangleFunctions.NO_UNRESTRAINED:
+        max_sigmas=get_max_sigmas(
+            bond=1.5,
+            angle=1,
+            max_clash_overlap=0.4
+        )       
     else:
-        raise Exception(f"Invalid MODE {MODE}")
+        max_sigmas=get_max_sigmas(
+            bond=1.5,
+            angle=1,
+            max_clash_overlap=0.4
+        )    
+
+    
+
     ### This commented out code computes wE for combinations of larger groups of atoms.  
     # Could be useful in future as a quick coarse step... but would probably be better 
     # to build up from the atom-site approach, coding the wE measure directly.   
