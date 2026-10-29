@@ -45,8 +45,8 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
     if use_cdl is None:
         use_cdl = False
 
-
-    radius_considered = 10
+    # TODO check for altlocs that are more than some distance apart, and treat those.  
+    radius_considered = 20
     if UntangleFunctions.QUICK_TEST_MODE:
         radius_considered = 5
     
