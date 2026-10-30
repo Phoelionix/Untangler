@@ -1133,6 +1133,30 @@ def reduce_H(pdb_file):
     return out_file
 
 
+# TODO Very fragile implementation
+# TODO check I didn't miss any... I'm lazy and did it by eye.
+def is_rotable_H(name,resname):
+    N = (1,2,3)
+    rotable_dict={
+        # Methyl group
+        "ALA":[f"HB{x}" for x in N],
+        "VAL":[f"HG1{x}" for x in N]+[f"HG2{x}" for x in N],
+        "LEU":[f"HD1{x}" for x in N]+[f"HD2{x}" for x in N],
+        "ILE":[f"HD1{x}" for x in N]+[f"HG2{x}" for x in N],
+        "THR":[f"HG2{x}" for x in N],
+        "MET":[f"HE{x}" for x in N],
+        # Ammonium group
+        "LYS":[f"HZ{x}" for x in N], 
+        # Methylene group
+        "GLN":[f"HE2{x}" for x in (1,2)], 
+        "ASN":[f"HD2{x}" for x in (1,2)], 
+        "ARG":[f"HH12{x}" for x in (1,2)] + [f"HH22{x}" for x in (1,2)], 
+    }
+    if resname not in rotable_dict:
+        return False
+    return name in rotable_dict[resname]
+
+
 _GLOBAL_START_TIME_POINT:float=None
 def start_timer():
     global _GLOBAL_START_TIME_POINT
