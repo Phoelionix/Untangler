@@ -846,7 +846,7 @@ class RestraintsHandler:
                 continue
               table_items=list(table.items())
               global pooled_method  
-              def pooled_method(i):
+              def pooled_method(i:int):
                 (confA,confB,is_symm),phenix_vdw_sum = table_items[i]
                 if i%50000==0:
                     # if i !=0:
@@ -912,8 +912,34 @@ class RestraintsHandler:
                     assert False
 
                 nb_weight=1
+
+
                 if abs((confA.resnum()-confB.resnum()))<=2: # XXX quite arbitrary
                     nb_weight*=local_nb_scale_factor
+
+
+                # Reduce weight on nonbonds that are more likely to be a result of incorrectly placed conformers  
+                #TODO also reduce weight on clashes from symmetry operations! Resolving this is mainly to help refinement, but in reality we will have different conformations interacting. 
+                H2O_nb_weight=0.5
+                H2OH2O_nb_weight=0.1
+                H_nb_weight=0.25 
+                HH_nb_weight=0.1
+                same_residue_H_nb_weight=1e-3 # downweight these heavily since hydrogens will almost certainly move out of the way. Note that if NEVER_FORBID_HYDROGEN_GEOMETRIES is False, they can have a significant effect.
+                if all(conf.element()=="H" for conf in (confA,confB)):
+                    if same_residue_H_nb_weight and confA.resnum()==confB.resnum():
+                        nb_weight*=same_residue_H_nb_weight
+                    else:
+                        nb_weight*=HH_nb_weight
+                elif any(conf.element()=="H" for conf in (confA,confB)):
+                    nb_weight*=H_nb_weight
+                if all([(conf.resnum() in ordered_atom_lookup.water_residue_nums and conf.atom_name()=="O") for conf in (confA,confB)]):
+                    nb_weight*=H2OH2O_nb_weight
+                elif any([(conf.resnum() in ordered_atom_lookup.water_residue_nums and conf.atom_name()=="O") for conf in (confA,confB)]):
+                    nb_weight*=H2O_nb_weight
+
+                rotable_H_nb_weight_modifier=1e-6
+                if any(UntangleFunctions.is_rotable_H(conf.atom_name(),ordered_atom_lookup.res_names[conf.resnum()]) for conf in (confA,confB)):
+                    nb_weight*=rotable_H_nb_weight_modifier
 
                 # if (confA==OrderedTag(62,"NH1","B") and confB==OrderedTag(102,"O","A")):
                 #     print(confA,confB)
@@ -964,28 +990,13 @@ class RestraintsHandler:
                     #     #vdw_gap=max(3,vdw_gap) # Make both phenix and the holton score happy
                     #     pass
                     
-                    #H2O_clash_weight=1/50
-                    # H_clash_weight=1/10
-                    # HH_clash_weight=1/50
-                    # H2O_clash_weight=0.95
-                    # H_clash_weight=0.9
-                    # HH_clash_weight=0.8
+                    #H2O_nb_weight=1/50
+                    # H_nb_weight=1/10
+                    # HH_nb_weight=1/50
+                    # H2O_nb_weight=0.95
+                    # H_nb_weight=0.9
+                    # HH_nb_weight=0.8
 
-                    # Reduce weight on clashes that are more likely to be a result of incorrectly placed conformers  
-                    #TODO also reduce weight on clashes from symmetry operations! Resolving this is mainly to help refinement, but in reality we will have different conformations interacting. 
-                    H2O_clash_weight=0.5
-                    H2OH2O_clash_weight=0.1
-                    H_clash_weight=0.25 
-                    HH_clash_weight=0.1
-                    
-                    if all(conf.element()=="H" for conf in (confA,confB)):
-                        nb_weight*=HH_clash_weight
-                    elif any(conf.element()=="H" for conf in (confA,confB)):
-                        nb_weight*=H_clash_weight
-                    if all([(conf.resnum() in ordered_atom_lookup.water_residue_nums and conf.atom_name()=="O") for conf in (confA,confB)]):
-                        nb_weight*=H2OH2O_clash_weight
-                    elif any([(conf.resnum() in ordered_atom_lookup.water_residue_nums and conf.atom_name()=="O") for conf in (confA,confB)]):
-                        nb_weight*=H2O_clash_weight
 
                     if vdw_gap - min_separation >= CLASH_OVERLAP_THRESHOLD:  
                         return (RestraintsHandler.ClashRestraint(conf_pair,outlier_ok("CLASH",conf_pair),symmetries,weight=nb_weight),
