@@ -84,7 +84,7 @@ def get_constraints_handler(pdb_file_path,geo_file_needs_generation=True):
     struct = PDBParser().get_structure("struct",pdb_file_path)
     if geo_file_needs_generation:
         UntangleFunctions.create_score_file(pdb_file_path,turn_off_cdl=True)
-    ordered_atom_lookup = OrderedAtomLookup(struct.get_atoms())
+    ordered_atom_lookup = OrderedAtomLookup(struct.get_atoms(),waters=False)
     constraints_handler=RestraintsHandler()
     constraints_handler.load_all_constraints(pdb_file_path,ordered_atom_lookup,symmetries=None,calc_nonbonds=False,turn_off_cdl=True)
     return constraints_handler
