@@ -80,9 +80,9 @@ assert not (DEBUG_FORCE_NEVER_RIDING_H_PHENIX and default_refine_water_occupanci
 DISABLE_UNTANGLE_FOR_CONTROL=False
 
 
+print(f"Unrestrained refinement step is {'disabled' if UntangleFunctions.NO_UNRESTRAINED else 'enabled'}")
 if DISABLE_UNTANGLE_FOR_CONTROL:
     print("xXx ALTLOC OPTIMIZER DISABLED xXx")
-    print(f"Unrestrained refinement step is {'disabled' if UntangleFunctions.NO_UNRESTRAINED else 'enabled'}")
     print()
 else:
     if ILP_IGNORES_WATERS:
@@ -1722,7 +1722,7 @@ class Untangler():
             self.run_refinement(refine_params,debug_skip=debug_skip,**kwargs)
         return P.out_path
 
-    def run_refinement(self,refine_params:(tuple[SimpleNamespace,list[str]]),debug_skip=False,show_python_params=False,timeout_mins=None,
+    def run_refinement(self,refine_params:SimpleNamespace,debug_skip=False,show_python_params=False,timeout_mins=None,
                        skip_fail=False,delete_old_model_when_done=False,remove_tmpdir_on_end=False)->str:
         
         P, args = refine_params, self.args_from_params(refine_params)
@@ -1821,6 +1821,7 @@ class Untangler():
                           altloc_subset=None,disable_NQH_flips=False,restrain_protein_movement=False,
                           water_and_H_only=False,refine_water_occupancies=False,filter_ordered_solvent=False,
                           real_space_refine=False,disable_adp=False,generate_nonbond_symmetry_exclusions=None):
+        assert out_tag is not None
         if altloc_subset is not None:
             altloc_subset = ''.join(altloc_subset)  
         assert altloc_subset is None, altloc_subset

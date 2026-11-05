@@ -1362,7 +1362,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     def update_swaps_file(distances, site_assignment_arrays,record_notable_improvements_threshold=None): # record_notable_improvements_threshold: fractional improvement required to record separately
         assert len(distances)==len(site_assignment_arrays)
     # Create json file that lists all the site *changes* that are required to meet the solution. 
-        out_dict = {"target": out_handle,"initial badness":initial_badness,"solutions":{}}
+        out_dict = {"target": out_handle,"initial badness":f"{initial_badness:.6e},"solutions":{}}
         if record_notable_improvements_threshold is not None:
             assert 0 <= record_notable_improvements_threshold < 1
             sep_dict= deepcopy(out_dict)
@@ -1772,13 +1772,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         (len(always_allow_original_tranches),len(flexible_bad_original_vars),len(flexible_bad_original_allowed_constrs),len(flexible_bad_original_forbid_constrs))
     
     ########### LP Solver options ###########
-    class Solver(Enum):
-        COIN=PULP_CBC_CMD
-        CPLX_PY=CPLEX_PY
-        CPLX_CMD=CPLEX_CMD # NOTE Need to follow "Additional environment variables per solver" section in this guide: https://coin-or.github.io/pulp/guides/how_to_configure_solvers.html
-    pulp_solver=Solver.CPLX_CMD
-    #pulp_solver = Solver.CPLX_PY
-    #pulp_solver = Solver.COIN
     
     easy_timeLimit=min(DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS,max_mins_start)
     if max_mins_start is not None:
@@ -1792,24 +1785,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     warmStart=True
     #gapRel=0.0003
     #gapRel=0.001
-    solver_class=PULP_CBC_CMD
+    solver_class=UntangleFunctions.ILP_solver.value()
     solver_options=[]
-    if pulp_solver == Solver.COIN: 
-        solver_class = PULP_CBC_CMD
-    elif pulp_solver == Solver.CPLX_CMD:
-        solver_class = CPLEX_CMD
-    # CPLEX parameters: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.6.0/ilog.odms.cplex.help/CPLEX/GettingStarted/topics/tutorials/InteractiveOptimizer/settingParams.html
-    # CPLEX status: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.10.0/ilog.odms.cplex.help/refcallablelibrary/macros/Solution_status_codes.html
-        #solver_options.append("set parallel -1")
-        #path='~/ibm/ILOG/CPLEX_STUDIO2211/cplex'
-    #https://coin-or.github.io/pulp/technical/solvers.html#pulp.apis.CPLEX_PY
-    elif pulp_solver == Solver.CPLX_PY:
-        solver_class = CPLEX_PY
-    else:
-        raise Exception("not implemented")
-    #solver = solver_class(timeLimit=timeLimit,threads=THREADS,logPath=logPath,warmStart=warmStart,gapRel=gapRel,path=path)
     extra_args={}
-    if pulp_solver==Solver.CPLX_CMD:
+    if solver_class==CPLEX_CMD:
         FORCE_DEFAULT_CPLEX_OPTIONS=True
 
         disable_probe=False
@@ -2041,7 +2020,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         print(f"Target: {out_handle}")
         total_distance = value(lp_problem.objective)
         diff=total_distance/initial_badness-1
-        print(f"Total distance = {total_distance} ({100*(diff):.3f}%)")
+        print(f"Total distance = {total_distance:.6e} ({100*(diff):.3f}%)")
         if extra_text!="":
             extra_text="; "+extra_text
         log(f"{100*(diff):.3f}% ({total_distance:.6e}){extra_text}")

@@ -311,7 +311,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     #improvement_factors_to_tolerate=np.array([20,4,2,1.01,0.8]) 
     #start_of_round_altloc_subset_size=5 #2 # 3
     num_subset_runs=5
-    improvement_factors_to_tolerate=np.array([20,4,2,1.01,0.8]) 
+    improvement_factors_to_tolerate=np.array([20,4,2,1.01,0.8])  # 20 means that must improve by factor of 20 to accept sigma above max sigma specified in LinearOptimizer.LP_Input
     start_of_round_altloc_subset_size=len(all_altlocs)-1 
     if UntangleFunctions.RAPIDMODE:
         num_subset_runs=2
@@ -330,8 +330,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
     ###################
     
-    ALTLOC_RUN_SUBSET_SIZES=[start_of_round_altloc_subset_size,]*num_subset_runs # NOTE these are the MAXIMUM altloc subset sizes to START with. See dynamic_subset_size_mod variable.
-
+    ALTLOC_RUN_SUBSET_SIZES=[start_of_round_altloc_subset_size,]*num_subset_runs # NOTE these are the MAXIMUM altloc subset sizes to START with each round for a given improvement factor tolerance. See dynamic_subset_size_mod variable.
 
 
     #TODO limit alternatives to consider to the top N alternatives. Otherwise when have really bad outliers, introduce a huge number of branches.
@@ -1892,13 +1891,6 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         (len(always_allow_original_tranches),len(flexible_bad_original_vars),len(flexible_bad_original_allowed_constrs),len(flexible_bad_original_forbid_constrs))
     
     ########### LP Solver options ###########
-    class Solver(Enum):
-        COIN=PULP_CBC_CMD
-        CPLX_PY=CPLEX_PY
-        CPLX_CMD=CPLEX_CMD # NOTE Need to follow "Additional environment variables per solver" section in this guide: https://coin-or.github.io/pulp/guides/how_to_configure_solvers.html
-    pulp_solver=Solver.CPLX_CMD
-    #pulp_solver = Solver.CPLX_PY
-    #pulp_solver = Solver.COIN
     
     easy_timeLimit=min(DIFFICULT_SOLVE_TIME_THRESHOLD_IN_MINS,max_mins_start)
     if max_mins_start is not None:
@@ -1912,24 +1904,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     warmStart=True
     #gapRel=0.0003
     #gapRel=0.001
-    solver_class=PULP_CBC_CMD
+    solver_class=UntangleFunctions.ILP_solver.value
     solver_options=[]
-    if pulp_solver == Solver.COIN: 
-        solver_class = PULP_CBC_CMD
-    elif pulp_solver == Solver.CPLX_CMD:
-        solver_class = CPLEX_CMD
-    # CPLEX parameters: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.6.0/ilog.odms.cplex.help/CPLEX/GettingStarted/topics/tutorials/InteractiveOptimizer/settingParams.html
-    # CPLEX status: https://www.ibm.com/support/knowledgecenter/en/SSSA5P_12.10.0/ilog.odms.cplex.help/refcallablelibrary/macros/Solution_status_codes.html
-        #solver_options.append("set parallel -1")
-        #path='~/ibm/ILOG/CPLEX_STUDIO2211/cplex'
-    #https://coin-or.github.io/pulp/technical/solvers.html#pulp.apis.CPLEX_PY
-    elif pulp_solver == Solver.CPLX_PY:
-        solver_class = CPLEX_PY
-    else:
-        raise Exception("not implemented")
-    #solver = solver_class(timeLimit=timeLimit,threads=THREADS,logPath=logPath,warmStart=warmStart,gapRel=gapRel,path=path)
     extra_args={}
-    if pulp_solver==Solver.CPLX_CMD:
+    if solver_class==CPLEX_CMD:
         disable_probe=False
         aggressive_probe=False
         #### Options to speed up root node relaxation: https://www.ibm.com/docs/en/icos/22.1.2?topic=problems-too-much-time-node-0
@@ -2158,12 +2136,11 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         print(f"Target: {out_handle}")
         total_distance = value(lp_problem.objective)
         diff=total_distance/initial_badness-1
-        print(f"Total distance = {total_distance} ({100*(diff):.3f}%)")
+        print(f"Total distance = {total_distance:.6e} ({100*(diff):.3f}%)")
         if extra_text!="":
             extra_text="; "+extra_text
         log(f"{100*(diff):.3f}% ({total_distance:.6e}){extra_text}")
         #plt.scatter()
-
 
     # def good_constraint(constraint:LP_Input.Geomection):
     #     good_z_threshold=2
