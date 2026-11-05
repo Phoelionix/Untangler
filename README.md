@@ -24,6 +24,9 @@ Tested with python 3.12.
 
 Application to synthetic dataset of the [Untangle Challenge](https://doi.org/10.64898/2026.02.21.706873).
 
+IMPORTANT NOTE: On this branch, the program will NOT arrive at the  solution on its default settings, which have been chosen so as to find quick but suboptimal improvements to the connectivity of experimental models with more than two conformations. Notably, untwist moves are disabled, a single suboptimal solution is identified with low effort, and only only the weighted energy of a single conformation of each model is tracked (pending the implementation of a parallel computation of conformation geometry scores). 
+For a demonstration, please switch to the branch: https://github.com/Phoelionix/Untangler/tree/2_conformer_challenge_solution
+
 `python3 untangle.py data/synthetic/longrangetraps.pdb data/synthetic/refme.mtz`  
 
 To automatically generate information on the differences from the best model run
@@ -31,6 +34,8 @@ To automatically generate information on the differences from the best model run
 `python3 untangle.py data/synthetic/longrangetraps.pdb data/synthetic/refme.mtz data/synthetic/best.pdb`  
 
 This will generate a file like `output/linear_optimizer_logs/cheat_longrangetraps_[...]/ChangedBonds-1.txt`. 
+
+
 
 
 <!-- <CENTER><P>
