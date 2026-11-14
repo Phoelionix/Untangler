@@ -69,6 +69,7 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
         end_lines = []
         atom_dict:dict[int,dict[str,dict[str,str]]] = {}  
         atom_name_dict:dict[int,list[str]]={}
+        protein_resname_dict:dict[int,str]={} # resname from resnum
         last_chain=None
         solvent_res_names=UntangleFunctions.SOLVENT_RESNAMES
         solvent_chain_id = "z"
@@ -150,6 +151,7 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
             atom_dict[resnum][altloc][name]=line  
             if name not in atom_name_dict[resnum]:
                 atom_name_dict[resnum].append(name)
+                protein_resname_dict[resnum] = resname
 
             max_resnum=max(resnum,max_resnum)
             last_chain = chain
@@ -201,6 +203,9 @@ def split_specific(pdb_path,child_parent_altlocs_dict,child_atom_tags:list[Disor
                             # Add missing parent
                             atom_dict[resnum][parent_altloc][atom_name]=replace_altloc(atom_dict[resnum][altloc_to_use][atom_name],parent_altloc)
                             if shake_new is not None:
+                                if protein_resname_dict[resnum] in ("VAL","LEU") and atom_name not in ["CA","O","N","C"]:
+                                    continue # Because this very often makes things worse.
+
                                 # Since we are keeping both, this is a new conformation
                                 atom_dict[resnum][parent_altloc][atom_name]=add_shake(atom_dict[resnum][parent_altloc][atom_name],shake_new)
         for atom_name in single_confs_to_replace:
