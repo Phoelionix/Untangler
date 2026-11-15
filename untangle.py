@@ -2073,15 +2073,20 @@ class Untangler():
 
 
 def main():
-    if len(sys.argv) not in [3,4]:
+    if len(sys.argv) < 3:
         print("Usage: python3 untangle.py data/myInitialModel.pdb data/myReflections.mtz [tangle_evaluation_reference_model]")
         return
 
     import argparse
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("starting_model")
+    ap.add_argument("xray_data")
+    ap.add_argument("solution_reference", nargs="?", default=None)
     ap.add_argument("--runs", type=int, default=5)
     ap.add_argument("--output", type=str, default=None)
     parsed_args = ap.parse_args()
+    starting_model, xray_data = parsed_args.starting_model, parsed_args.xray_data
+    solution_reference = parsed_args.solution_reference
 
     starting_model = sys.argv[1]
     xray_data = sys.argv[2]
