@@ -162,25 +162,25 @@ def create_child_restraints(child_altloc,parent_altlocs,child_atom_tags:list[Dis
                         r, r_sym_min = RestraintsHandler.NonbondRestraint.symm_min_separation(atoms[0],atoms[1],symmetries)
                         threshold_factor=1.5
                         return r is not None and r/r0<=threshold_factor
-                    if not include_nonbond():
-                        continue
-                            
-                    #  ###
-                    #  involves_water=any([st.atom_name()=="O" for st in constraint.site_tags])
-                    #  is_H = [st.element()=="H" for st in constraint.site_tags]
-                    #  if any(is_H) and not all(is_H) and not involves_water:
-                    #      continue  # Creating bonds between H and non-H messes with riding H logic in phenix.  # Does it?
-                    #  ####
-                    if (parent_altloc,parent_altloc) not in constraint.altlocs_vdw_dict:
-                        if None in constraint.altlocs_vdw_dict:
-                            ideal_same_asu,ideal_crystal_packing = constraint.altlocs_vdw_dict[None]
+                    if include_nonbond():
+                        #  ###
+                        #  involves_water=any([st.atom_name()=="O" for st in constraint.site_tags])
+                        #  is_H = [st.element()=="H" for st in constraint.site_tags]
+                        #  if any(is_H) and not all(is_H) and not involves_water:
+                        #      continue  # Creating bonds between H and non-H messes with riding H logic in phenix.  # Does it?
+                        #  ####
+                        if (parent_altloc,parent_altloc) not in constraint.altlocs_vdw_dict:
+                            if None in constraint.altlocs_vdw_dict:
+                                ideal_same_asu,ideal_crystal_packing = constraint.altlocs_vdw_dict[None]
+                            else:
+                                continue
                         else:
-                            continue
+                        # TODO crystal-packing?
+                            ideal_same_asu,ideal_crystal_packing = constraint.altlocs_vdw_dict[(parent_altloc,parent_altloc)]  
+                        ideal = ideal_same_asu  
+                        parameter_scope_name="bond" # FIXME
                     else:
-                     # TODO crystal-packing?
-                        ideal_same_asu,ideal_crystal_packing = constraint.altlocs_vdw_dict[(parent_altloc,parent_altloc)]  
-                    ideal = ideal_same_asu  
-                    parameter_scope_name="bond" # FIXME
+                        continue
 
                 if type(constraint) in [RestraintsHandler.AngleRestraint,RestraintsHandler.Dihedral]:
                     ideal_variable_name="angle_ideal"

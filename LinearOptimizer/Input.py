@@ -201,7 +201,7 @@ class LP_Input:
             max_sigmas={
                 RestraintsHandler.BondRestraint:5,
                 RestraintsHandler.AngleRestraint:3,
-                RestraintsHandler.ClashRestraint:-99,
+                RestraintsHandler.ClashRestraint:4,
             }       
         else:
             max_sigmas={
@@ -209,7 +209,7 @@ class LP_Input:
                 RestraintsHandler.AngleRestraint:2.5,
                 # RestraintsHandler.BondRestraint:3,
                 # RestraintsHandler.AngleRestraint:2,
-                RestraintsHandler.ClashRestraint:-99,
+                RestraintsHandler.ClashRestraint:4,
             }    
     elif MODE=="NONBOND_RESTRICTIONS":
         max_sigmas={

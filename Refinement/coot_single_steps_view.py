@@ -6,8 +6,10 @@ from time import sleep
 import shutil
 
 
-batch="cheat"
+#batch="cheat"
 #batch="mixedup"
+#batch="randomized"
+batch="reconnected"
 refinement_folders="Refinement/MovieMaking/"+batch+"/"
 out_dir="Refinement/MovieMaking/frames_"+batch+"/"
 
@@ -44,7 +46,7 @@ os.mkdir(out_dir)
 
 sigma_2fofc=1.5
 #sigma_fofc=5
-sigma_fofc=5
+sigma_fofc=4
 coot.set_default_initial_contour_level_for_map(sigma_2fofc)
 coot.set_default_initial_contour_level_for_difference_map(sigma_fofc)
 
