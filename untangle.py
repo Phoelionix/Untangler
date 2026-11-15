@@ -317,7 +317,7 @@ class Untangler():
 
         #shutil.copy(pdb_file_path,self.current_model)
         self.prepare_pdb_and_read_altlocs(pdb_file_path,self.current_model)
-        parsed_symmetries = parse_symmetries_from_pdb(pdb_file_path) #TODO do in LinearOptimizer/Input. But first need to figure out why REMARK 290 is being removed... or work around it.
+        parsed_symmetries,self.remark_290_lines = parse_symmetries_from_pdb(pdb_file_path,return_remark_290_lines=True) #TODO do in LinearOptimizer/Input. But first need to figure out why REMARK 290 is being removed... or work around it.
 
         UNITCELLSYMMS=False
         if UNITCELLSYMMS:
@@ -383,10 +383,28 @@ class Untangler():
             print("Final:",self.current_score)
 
         print(self.current_score)
+        
+        self.add_remark_290_lines_back(self.current_model)
         if final_model_output_path is not None:
             shutil.copy(self.current_model,final_model_output_path)
 
-
+    def add_remark_290_lines_back(self,model=None):
+        # For symmetry. Because I'm lazy.
+        if model is None:
+            model = self.current_model
+        with open(model) as f:
+            lines = f.readlines()
+        if any(line.startswith("REMARK 290") for line in lines):
+            return
+        remark_lines = [l.rstrip("\n") + "\n" for l in self.remark_290_lines]
+        insert_idx = 0
+        for i, line in enumerate(lines):
+            if line.upper().startswith("CRYST1"):
+                insert_idx = i
+                break
+        lines[insert_idx:insert_idx] = remark_lines # Inserts without replacing
+        with open(model,'w') as f:
+            f.writelines(lines)
     def step(self):
         self.refinement_loop()
 
