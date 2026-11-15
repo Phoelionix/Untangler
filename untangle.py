@@ -281,7 +281,7 @@ class Untangler():
                     )
         self.protein_altlocs,self.solvent_altlocs = get_altlocs_from_pdb(pdb_path)
 
-    def run(self,pdb_file_path,hkl_file_path,desired_score=18.6,max_num_runs=100):
+    def run(self,pdb_file_path,hkl_file_path,desired_score=18.6,max_num_runs=25,final_model_output_path=None):
         # pdb_file_path: path to starting model
         # hkl_file_path: path to reflection data.
         # TODO Currently assume in data folder.
@@ -383,6 +383,8 @@ class Untangler():
             print("Final:",self.current_score)
 
         print(self.current_score)
+        if final_model_output_path is not None:
+            shutil.copy(self.current_model,final_model_output_path)
 
 
     def step(self):
@@ -2075,6 +2077,12 @@ def main():
         print("Usage: python3 untangle.py data/myInitialModel.pdb data/myReflections.mtz [tangle_evaluation_reference_model]")
         return
 
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--runs", type=int, default=5)
+    ap.add_argument("--output", type=str, default=None)
+    parsed_args = ap.parse_args()
+
     starting_model = sys.argv[1]
     xray_data = sys.argv[2]
     if len(sys.argv)==3:
@@ -2142,7 +2150,8 @@ def main():
         starting_model,
         xray_data,
         desired_score=18.4, # score to stop at
-        max_num_runs=25,
+        max_num_runs=parsed_args.runs,
+        final_model_output_path=parsed_args.output,
     )
 if __name__=="__main__":
     main()
