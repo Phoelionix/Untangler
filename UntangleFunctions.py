@@ -557,6 +557,8 @@ def parse_symmetries_from_pdb(pdb_file_path,return_remark_290_lines=False):
     remark_290_lines=[]        
     with open(pdb_file_path) as pdb_file:
         for line in pdb_file:
+            if line.startswith("REMARK 290"):
+                remark_290_lines.append(line)
             line = line.strip()
             # End data - Check if left section of data; flagged by the line containing solely "REMARK ###". 
             if len(line) <= 10: 
@@ -571,7 +573,6 @@ def parse_symmetries_from_pdb(pdb_file_path,return_remark_290_lines=False):
                 sym_labels.append(line[17:21]+": ("+line[21:].strip()+")")
             # Add each symmetry to target
             if at_symmetry_xformations:
-                remark_290_lines.append(line)
                 entries = line.split()[2:]
                 x = int(entries[0][-1]) - 1  
                 entries = [float(f) for f in entries[2:]]
