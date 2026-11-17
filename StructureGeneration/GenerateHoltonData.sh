@@ -1,11 +1,12 @@
 set -u 
 
-modelPDBPath=$1; shift 1
+modelPDBPath=$(realpath $1); shift 1 
 
 cd $(dirname "$0")
 
 cdl='true'
 # keep_hydrogens='true'
+const_shrink_donor_acceptor_override=0
 Rwork_override='false'
 Rfree_override='false'
 while getopts ":F:W:CH" flag; do
@@ -72,13 +73,9 @@ if $Rfree_override; then
 fi 
 
 
-args="${args} wxray=$wxray cdl=$cdl"
-
-
-#../../Measures/untangle_score.csh ../$modelPDBPath $args > "${out_handle}_log.txt" 
-../../Measures/untangle_score_weighted.csh ../$modelPDBPath $args > "${out_handle}_log.txt" 
-#../../Measures/untangle_score_quick.csh ../$modelPDBPath $args > "${out_handle}_log.txt" 
-
+args="${args} wxray=$wxray cdl=$cdl csda=$const_shrink_donor_acceptor_override"
+#../../Measures/untangle_score_weighted.csh ../$modelPDBPath $args > "${out_handle}_log.txt" 
+../../Measures/untangle_score_261116_weighted.csh $modelPDBPath $args > "${out_handle}_log.txt" 
 
 
 score=$(tail -1 "${out_handle}_log.txt" | head -1 | awk '{print $1}')

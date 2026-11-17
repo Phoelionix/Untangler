@@ -2143,8 +2143,7 @@ def main():
             RestraintsHandler.Dihedral: 0,
             RestraintsHandler.Planarity: 0,
         }
-    #end_loop_cycles=6
-    end_loop_cycles=10
+    end_loop_cycles=8 # 10
     if PHENIX_ORDERED_SOLVENT and not PHENIX_ORDERED_SOLVENT_APPLIED_ONCE:
         end_loop_cycles=12
     if UntangleFunctions.RAPIDMODE:

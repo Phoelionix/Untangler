@@ -14,7 +14,7 @@ import shutil
 import itertools
 from time import time
 
-NUM_THREADS=22
+NUM_THREADS=18
 
 RAPIDMODE=False # everything is separated by 1 macrocycle. Also reduces max solver time per round as of commenting
 
@@ -49,7 +49,14 @@ try:
         CPLX_CMD=pulp.CPLEX_CMD # NOTE Need to follow "Additional environment variables per solver" section in this guide: https://coin-or.github.io/pulp/guides/how_to_configure_solvers.html
     #UntangleFunctions.ILP_solver=Solver.CPLX_CMD
     #UntangleFunctions.ILP_solver = Solver.CPLX_PY
-    ILP_solver = Solver.COIN
+    try:
+        # TODO check this fails if CPLX isn't set up correctly
+        ILP_solver=Solver.CPLX_CMD
+        test=ILP_solver.value()
+    except:
+        print("CPLX not available. Switching to COIN.")
+        ILP_solver=Solver.COIN
+
 except:
     pass
 
@@ -170,7 +177,8 @@ def create_score_file(pdb_file_path,turn_off_cdl=False,reflections_for_R:str=Non
         i+=1 
         sleep(1)
         print("--==--")
-        rel_path = os.path.relpath(pdb_file_path,start=holton_folder_path)
+        #rel_path = os.path.relpath(pdb_file_path,start=holton_folder_path)
+        rel_path = os.path.abspath(pdb_file_path)
 
         args = ["bash", f"{generate_holton_data_shell_file}",f"{rel_path}"]
         if turn_off_cdl:
@@ -534,7 +542,7 @@ ACT CH3 H3  SING N N 6"""
                 assert False
         return parent_name
 
-def parse_symmetries_from_pdb(pdb_file_path):
+def parse_symmetries_from_pdb(pdb_file_path,return_remark_290_lines=False):
     '''
     Parses the symmetry transformations from the pdb file into ndarrays and adds each to the crystal.  
     No unit operations are performed.
@@ -545,7 +553,8 @@ def parse_symmetries_from_pdb(pdb_file_path):
     sym_factor = np.zeros((3,3))
     sym_trans = np.zeros((3))
     sym_labels = []
-    sym_mtces_parsed = []        
+    sym_mtces_parsed = []
+    remark_290_lines=[]        
     with open(pdb_file_path) as pdb_file:
         for line in pdb_file:
             line = line.strip()
@@ -562,6 +571,7 @@ def parse_symmetries_from_pdb(pdb_file_path):
                 sym_labels.append(line[17:21]+": ("+line[21:].strip()+")")
             # Add each symmetry to target
             if at_symmetry_xformations:
+                remark_290_lines.append(line)
                 entries = line.split()[2:]
                 x = int(entries[0][-1]) - 1  
                 entries = [float(f) for f in entries[2:]]
@@ -577,8 +587,10 @@ def parse_symmetries_from_pdb(pdb_file_path):
             if line == "REMARK 290 RELATED MOLECULES.":
                 at_symmetry_xformations = True
     assert len(sym_mtces_parsed)!=0, f"Remark 290 symmetries appear to be missing from {pdb_file_path}"
-    return sym_mtces_parsed
-
+    if return_remark_290_lines:
+        return sym_mtces_parsed, remark_290_lines
+    else:
+        return sym_mtces_parsed
 
 
 def get_supercell_symmetries(pdb_file_path,symmetry_factor,symmetry_translation,supercell_scale=3):
