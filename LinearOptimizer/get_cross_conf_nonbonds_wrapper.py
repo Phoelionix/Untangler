@@ -1,5 +1,6 @@
 import subprocess
 import os, sys, pathlib
+import UntangleFunctions
 sys.path.append(str(pathlib.Path(__file__).parent.parent))
 from UntangleFunctions import UNTANGLER_WORKING_DIRECTORY
 # Interface for phenix.python call
@@ -14,6 +15,8 @@ def get_cross_conf_nonbonds(pdb_file_path,use_previous=False,use_previous_nonbon
             os.remove(tmp_file_path)
         script_path=os.path.join(UNTANGLER_WORKING_DIRECTORY,"PhenixEnvScripts",f"cross_conformation_{kind}.py")
         args=["phenix.python",script_path,pdb_file_path,tmp_file_path]
+        if kind == 'clashes':
+            args.append(str(UntangleFunctions.cross_conf_clash_radius))
         print (f"$Running {' '.join(args)}")
         subprocess.run(args)#,stdout=log)
     else:

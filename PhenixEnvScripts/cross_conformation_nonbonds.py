@@ -40,7 +40,7 @@ def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
     
     params = mmtbx.model.manager.get_default_pdb_interpretation_params()
     params.pdb_interpretation.allow_polymer_cross_special_position=True
-    params.pdb_interpretation.clash_guard.nonbonded_distance_threshold = 12.5
+    params.pdb_interpretation.clash_guard.nonbonded_distance_threshold = 12.5 # contradicts cross_conformation_clashes.py?
     params.pdb_interpretation.nonbonded_distance_cutoff= 12.5
     params.pdb_interpretation.restraints_library.cdl = use_cdl
     if USE_HOLTON_CSDA:

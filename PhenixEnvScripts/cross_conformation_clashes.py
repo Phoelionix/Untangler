@@ -39,21 +39,26 @@ USE_HOLTON_CSDA=False #  csda used in scoring for untangle challenge
 
 holton_csda = 0.6
 
-def get_cross_conf_nonbonds(pdb_file_path,out_file,verbose,use_cdl):
+#TODO this should use the nonbonds method of cross_conformation_nonbonds (put everything in same file, read all nonbond interactions), 
+# then just convert to clash distances. Haven't done that because wanted to be sure using the right distances.
+def get_cross_conf_clashes(pdb_file_path,out_file,radius_considered=None,verbose=None,use_cdl=None):
     if verbose is None:
         verbose=False
     if use_cdl is None:
         use_cdl = False
 
     # TODO check for altlocs that are more than some distance apart, and treat those.  
-    radius_considered = 20
-    if UntangleFunctions.QUICK_TEST_MODE:
-        radius_considered = 5
+    if radius_considered is None:
+        radius_considered = UntangleFunctions.cross_conf_clash_radius  
+        if UntangleFunctions.QUICK_TEST_MODE:
+            radius_considered = 5
+    else:
+        radius_considered=float(radius_considered)
     
     params = mmtbx.model.manager.get_default_pdb_interpretation_params()
     params.pdb_interpretation.allow_polymer_cross_special_position=True
     #params.pdb_interpretation.clash_guard.nonbonded_distance_threshold = radius_considered
-    params.pdb_interpretation.clash_guard.nonbonded_distance_threshold = 0
+    params.pdb_interpretation.clash_guard.nonbonded_distance_threshold = 0 # contradicts cross_conformation_nonbonds.py?
     params.pdb_interpretation.nonbonded_distance_cutoff= radius_considered
     params.pdb_interpretation.restraints_library.cdl = use_cdl
     if USE_HOLTON_CSDA:
@@ -341,4 +346,4 @@ if __name__=="__main__":
     args = [sys.argv[1],None,None,None]
     for i, arg in enumerate(sys.argv[1:]):
         args[i]=arg
-    get_cross_conf_nonbonds(*args)
+    get_cross_conf_clashes(*args)

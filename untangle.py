@@ -89,13 +89,7 @@ assert not (DEBUG_FORCE_NEVER_RIDING_H_PHENIX and default_refine_water_occupanci
 DISABLE_UNTANGLE_FOR_CONTROL=False
 
 
-print(f"Unrestrained refinement step is {'disabled' if UntangleFunctions.NO_UNRESTRAINED else 'enabled'}")
-if DISABLE_UNTANGLE_FOR_CONTROL:
-    print("xXx ALTLOC OPTIMIZER DISABLED xXx")
-    print()
-else:
-    if ILP_IGNORES_WATERS:
-        print("Altloc optimizer will ignore waters")
+
 # TODO:
 # down-weight swaps that were previously made but need to be made again (i.e. cases where it's not tangled and the density is pushing it a different way.)
 
@@ -118,7 +112,6 @@ class Untangler():
     debug_always_accept_proposed_model=True
     debug_skip_holton_data_generation=False
     auto_group_waters=False
-    never_do_unrestrained=UntangleFunctions.NO_UNRESTRAINED # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
     always_allow_O_swaps=False
     always_forbid_O_swaps=FORBID_O_SWAPS
     main_chain_swaps_only_after_first_loop=False
@@ -176,12 +169,16 @@ class Untangler():
                  max_num_best_swaps_considered=100,num_refine_for_positions_macro_cycles_phenix=3,
                  num_loops_water_held=0,weight_factors=None,
                  max_bond_changes=None,altloc_subset_size=3,refine_for_positions_geo_weight=0.1,
-                 unrestrained_damp=0.5, solution_reference=None):
+                 unrestrained_damp=0.5, solution_reference=None,residue_selection=None,
+                 cmdln_num_rounds=None,cmdln_num_subset_runs=None,cmdln_max_altlocs=None,
+                 never_do_unrestrained=UntangleFunctions.NO_UNRESTRAINED):
         self.set_hyper_params(acceptance_temperature,max_wE_frac_increase,num_end_loop_refine_cycles,
                               default_wu, default_wc,endloop_wc,wc_anneal_start,wc_anneal_loops, starting_num_best_swaps_considered,
                               max_num_best_swaps_considered,num_refine_for_positions_macro_cycles_phenix, 
                               num_loops_water_held,max_bond_changes,altloc_subset_size,refine_for_positions_geo_weight,
-                              unrestrained_damp, solution_reference)
+                              unrestrained_damp, solution_reference,residue_selection,
+                              cmdln_num_rounds,cmdln_num_subset_runs,cmdln_max_altlocs,
+                              never_do_unrestrained)
         self.previously_swapped = []
         self.model_handle=None
         self.current_model=None
@@ -204,7 +201,9 @@ class Untangler():
                  max_num_best_swaps_considered=100,num_refine_for_positions_macro_cycles_phenix=3,
                  num_loops_water_held=0,
                  max_bond_changes=None,altloc_subset_size=3,refine_for_positions_geo_weight=0.1,
-                 unrestrained_damp=0.5,solution_reference=None):
+                 unrestrained_damp=0.5,solution_reference=None,residue_selection=None,
+                 cmdln_num_rounds=None,cmdln_num_subset_runs=None,cmdln_max_altlocs=None,
+                 never_do_unrestrained=UntangleFunctions.NO_UNRESTRAINED):
         # NOTE Currently max wE increase is percentage based, 
         # but TODO optimal method needs to be investigated.
         self.n_best_swap_start=starting_num_best_swaps_considered
@@ -224,6 +223,11 @@ class Untangler():
         self.refine_for_positions_geo_weight=refine_for_positions_geo_weight
         self.unrestrained_damp=unrestrained_damp
         self.solution_reference=solution_reference
+        self.residue_selection = residue_selection   # connections only changed that involve this residue.
+        self.cmdln_num_rounds=cmdln_num_rounds
+        self.cmdln_num_subset_runs=cmdln_num_subset_runs
+        self.cmdln_max_altlocs=cmdln_max_altlocs
+        self.never_do_unrestrained=never_do_unrestrained # Instead of unrestrained-swap-restrained... loop, just swap-restrained-swap...
 
         if wc_anneal_start is None:
             self.wc_anneal_start = 1 if self.wc_anneal_loops>0 else self.endloop_wc
@@ -282,6 +286,15 @@ class Untangler():
         self.protein_altlocs,self.solvent_altlocs = get_altlocs_from_pdb(pdb_path)
 
     def run(self,pdb_file_path,hkl_file_path,desired_score=18.6,max_num_runs=25,final_model_output_path=None):
+
+        print(f"Unrestrained refinement step is {'disabled' if self.never_do_unrestrained else 'enabled'}")
+        if DISABLE_UNTANGLE_FOR_CONTROL:
+            print("xXx ALTLOC OPTIMIZER DISABLED xXx")
+            print()
+        else:
+            if ILP_IGNORES_WATERS:
+                print("Altloc optimizer will ignore waters")
+
         # pdb_file_path: path to starting model
         # hkl_file_path: path to reflection data.
         # TODO Currently assume in data folder.
@@ -610,11 +623,15 @@ class Untangler():
                                             forbid_altloc_changes=dict(name=forbid_altloc_changes),
                                             forbidden_atom_bond_changes=dict(name=forbidden_atom_bond_changes),
                                             forbidden_atom_any_connection_changes=dict(name=forbidden_atom_any_connection_changes),
+                                            include_only=dict(name=[],resnum=self.residue_selection),
                                             MAIN_CHAIN_ONLY=MAIN_CHAIN_ONLY,SIDE_CHAIN_ONLY=SIDE_CHAIN_ONLY,NO_CB_CHANGES=NO_CB_CHANGES,
                                             N_AND_CB_ONLY=N_AND_CB_ONLY,
                                             max_bond_changes=self.max_bond_changes,
                                             NO_ISOLATED_O_BOND_CHANGES=self.no_isolated_O_bond_swaps(),
                                             reference_pdb_file=model_to_swap,
+                                            command_line_num_rounds=self.cmdln_num_rounds,
+                                            command_line_num_subset_runs=self.cmdln_num_subset_runs,
+                                            command_line_max_altlocs=self.cmdln_max_altlocs,
                                             #water_sites=False,
                                             )
         else:
@@ -670,6 +687,9 @@ class Untangler():
                                                         max_bond_changes=self.max_bond_changes,
                                                         NO_ISOLATED_O_BOND_CHANGES=self.no_isolated_O_bond_swaps(),
                                                         reference_pdb_file=model_to_swap,
+                                                        command_line_num_rounds=self.cmdln_num_rounds,
+                                                        command_line_num_subset_runs=self.cmdln_num_subset_runs,
+                                                        command_line_max_altlocs=self.cmdln_max_altlocs,
                                                         )
                 water_swapper = Swapper()
                 water_swapper.add_candidates(waters_swapped_path)
@@ -2102,9 +2122,50 @@ def main():
     ap.add_argument("solution_reference", nargs="?", default=None)
     ap.add_argument("--runs", type=int, default=5)
     ap.add_argument("--output", type=str, default=None)
+    ap.add_argument("--residue_selection", type=str, default=None)   #e.g.  "231" "22,122,44" . As of writing, uses residue numbers in order of appearance in pdb file, e.g. 2 chains of 10 have resnums 1,2,3...,19,20. 
+    ap.add_argument("--num_rounds",type=int,default=None)
+    ap.add_argument("--num_subset_runs",type=int,default=None)
+    ap.add_argument("--max_altlocs",type=int,default=None)  # Max altloc subset size at start of each ILP round
+    ap.add_argument("--cross_conf_clash_radius",type=float,default=None)
+    ap.add_argument("--skip_unrestrained",action=argparse.BooleanOptionalAction)
+    ap.add_argument("--skip_restrained",action=argparse.BooleanOptionalAction)
     parsed_args = ap.parse_args()
     starting_model, xray_data = parsed_args.starting_model, parsed_args.xray_data
     solution_reference = parsed_args.solution_reference
+
+    residue_selection=None
+    if parsed_args.residue_selection is not None:
+        residue_selection = [int(v.strip()) for v in parsed_args.residue_selection.split(',')]
+
+    if parsed_args.cross_conf_clash_radius is not None:
+        UntangleFunctions.cross_conf_clash_radius=parsed_args.cross_conf_clash_radius
+
+    optional_kwargs={}
+    if parsed_args.skip_unrestrained:
+        optional_kwargs["never_do_unrestrained"]=True
+
+    cmdln_num_rounds=parsed_args.num_rounds
+    cmdln_num_subset_runs=parsed_args.num_subset_runs
+    cmdln_max_altlocs=parsed_args.max_altlocs
+    if len(residue_selection) < 5:
+        print("-- Small residue selection mod start --")
+        if cmdln_num_rounds is None:
+            cmdln_num_rounds=1
+            print(f"ILP rounds set to {cmdln_num_rounds}")
+        if cmdln_num_subset_runs is None:
+            cmdln_num_subset_runs=1
+            print(f"num altloc subset runs per round set to {cmdln_num_rounds}")
+        if cmdln_max_altlocs is None:
+            cmdln_max_altlocs = 10
+            print(f"max altloc subset size set to {cmdln_max_altlocs}")
+        if parsed_args.cross_conf_clash_radius is not None:
+            UntangleFunctions.cross_conf_clash_radius=5
+            print(f"cross-conformation clash radius detection set to {UntangleFunctions.cross_conf_clash_radius} A")
+        if not parsed_args.skip_unrestrained:
+            print("Warning: --skip_unrestrained flag not passed")
+        if not parsed_args.skip_restrained:
+            print("Warning: --skip_restrained flag not passed")
+        print("-- Small residue selection mod end --")
 
     starting_model = sys.argv[1]
     xray_data = sys.argv[2]
@@ -2112,6 +2173,7 @@ def main():
         solution_reference=None
     if len(sys.argv)==4:
         solution_reference=sys.argv[3]
+        
 
     # Bond length RMSZ after unrestrained refinement is considerably higher than angle RMSZ (e.g. ~ 3.4 vs 2.2). 
     if UntangleFunctions.NO_INDIV_WEIGHTS:
@@ -2144,6 +2206,8 @@ def main():
             RestraintsHandler.Planarity: 0,
         }
     end_loop_cycles=8 # 10
+    if parsed_args.skip_restrained:
+        end_loop_cycles=0
     if PHENIX_ORDERED_SOLVENT and not PHENIX_ORDERED_SOLVENT_APPLIED_ONCE:
         end_loop_cycles=12
     if UntangleFunctions.RAPIDMODE:
@@ -2165,9 +2229,14 @@ def main():
         num_refine_for_positions_macro_cycles_phenix=1,
         #max_bond_changes=2,
         max_bond_changes=None,
+        residue_selection=residue_selection,
         weight_factors=weight_factors,
 
         solution_reference=solution_reference,
+        cmdln_num_subset_runs=cmdln_num_subset_runs,
+        cmdln_max_altlocs=cmdln_max_altlocs,
+        cmdln_num_rounds=cmdln_num_rounds,
+        **optional_kwargs,
         ).run(
         starting_model,
         xray_data,

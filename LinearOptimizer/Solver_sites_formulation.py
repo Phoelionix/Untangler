@@ -133,6 +133,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
           gapRel=0.005,
           #gapRel=0.03,
           forbid_altloc_changes={"name":[]}, forbidden_atom_bond_changes={"name":[]},forbidden_atom_any_connection_changes={"name":[]},
+          include_only:dict[str,list]={"name":None,"resnum":None},
           MAIN_CHAIN_ONLY=False,SIDE_CHAIN_ONLY=False,NO_CB_CHANGES=False,N_AND_CB_ONLY=False,NO_ISOLATED_O_BOND_CHANGES=False, # Forbids BOND changes that do not involve the specified atoms.
           #max_bond_changes=None):  
           #max_bond_changes=24):  
@@ -145,6 +146,9 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
           forbid_CECD12_changes=False, # Leaving true until fix bug from missing interchangability of C[E/D]1 and C[E/D]2 when reading geometry restraints 
           reference_pdb_file=None,
           force_one_round=False,
+          command_line_num_rounds:int=None,
+          command_line_num_subset_runs:int=None,
+          command_line_max_altlocs:int=None,
           ):  
           #max_bond_changes=None):  
     print("****************\nConstructing ILP problem\n****************")
@@ -304,6 +308,18 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         improvement_factors_to_tolerate=np.array([1])
         start_of_round_altloc_subset_size=len(all_altlocs)
 
+
+    if command_line_num_rounds is not None:
+        assert command_line_num_rounds>=1
+        max_val=10
+        improvement_factors_to_tolerate=np.array(list(reversed(np.linspace(1, max_val, command_line_num_rounds)))) # command_line_num_rounds=2 --> [10, 1]
+    if command_line_num_subset_runs is not None:
+        assert command_line_num_subset_runs>=1
+        num_subset_runs = command_line_num_subset_runs
+    if command_line_max_altlocs is not None:
+        assert command_line_max_altlocs>=2
+        start_of_round_altloc_subset_size = min(command_line_max_altlocs,len(all_altlocs))
+    
     start_of_round_altloc_subset_sizes=[start_of_round_altloc_subset_size,]*num_subset_runs
     ###################
     
@@ -615,6 +631,12 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
             #involves_main_chain=any(ch.name in MCH for ch in chunks)
             in_main_chain=all(ch.name in MCH for ch in chunks)
 
+            if include_only["name"] is not None:
+                if not any(ch.name for ch in chunks) not in include_only["name"]:
+                    return False
+            if include_only["resnum"] is not None:
+                if not any(ch.resnum for ch in chunks) not in include_only["name"]:
+                    return False 
             
             if forbid_CECD12_changes:
                 if constraint_type==VariableKind.Bond or constraint_type==VariableKind.Angle: 

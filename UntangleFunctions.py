@@ -14,10 +14,9 @@ import shutil
 import itertools
 from time import time
 
-NUM_THREADS=18
+NUM_THREADS=14
 
 RAPIDMODE=False # everything is separated by 1 macrocycle. Also reduces max solver time per round as of commenting
-
 
 
 
@@ -37,6 +36,10 @@ TEMP_TEST_CHILD_PARENT={}
 
 SINGLE_ALTLOC_SOLVENT=False
 
+# Global, can be changed by command line arg. Determines radius searched in conf. A for possible clashes. If two atom
+# altlocs in conformation A are within this radius, then check for clash geomections between all altlocs of the two
+# atoms. This is a very bad implementation. 
+cross_conf_clash_radius=20 
 
 
 ########### LP Solver options ###########
