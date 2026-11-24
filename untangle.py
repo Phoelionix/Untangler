@@ -2147,7 +2147,7 @@ def main():
     cmdln_num_rounds=parsed_args.num_rounds
     cmdln_num_subset_runs=parsed_args.num_subset_runs
     cmdln_max_altlocs=parsed_args.max_altlocs
-    if len(residue_selection) < 5:
+    if residue_selection is not None and len(residue_selection) < 5:
         print("-- Small residue selection mod start --")
         if cmdln_num_rounds is None:
             cmdln_num_rounds=1
@@ -2158,9 +2158,9 @@ def main():
         if cmdln_max_altlocs is None:
             cmdln_max_altlocs = 10
             print(f"max altloc subset size set to {cmdln_max_altlocs}")
-        if parsed_args.cross_conf_clash_radius is not None:
-            UntangleFunctions.cross_conf_clash_radius=5
-            print(f"cross-conformation clash radius detection set to {UntangleFunctions.cross_conf_clash_radius} A")
+        # if parsed_args.cross_conf_clash_radius is not None:
+        #     UntangleFunctions.cross_conf_clash_radius=5
+        #     print(f"cross-conformation clash radius detection set to {UntangleFunctions.cross_conf_clash_radius} A")
         if not parsed_args.skip_unrestrained:
             print("Warning: --skip_unrestrained flag not passed")
         if not parsed_args.skip_restrained:
