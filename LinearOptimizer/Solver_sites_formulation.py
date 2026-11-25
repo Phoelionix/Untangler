@@ -86,8 +86,8 @@ USE_DYNAMIC_ALTLOC_SUBSET_SIZE = True # Dynamically modify the number of conform
 #     MIN_ALTLOCS_TO_GLUE_GOOD_GEOMETRY_GROUPS=3
 #     MIN_ALTLOCS_TO_FIX_RANDOM=3
 
-PEPPER_FIXED_SITES=True
-PEPPER_FIXED_GEOMECTIONS=True
+PEPPER_FIXED_SITES=False
+PEPPER_FIXED_GEOMECTIONS=False
 CEMENT=False
 
 
@@ -214,10 +214,14 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     # def get(unique_id,key):
     #     return get_variables(unique_id)[key]
 
-    def site_being_considered(site:Union[VariableID,AtomChunk]):
+    waters_in_geomections:set[VariableID]=set()
+    def site_being_considered(site:VariableID):
+
         assert type(site) in [VariableID,AtomChunk]
         if DEBUG_FIRST_100_SITES and site.get_site_num()>100:
            return False
+        if site.is_water and site not in waters_in_geomections:
+            return False
         return (((protein_sites and not site.is_water)
             or (water_sites and site.is_water ))
             )
@@ -323,7 +327,12 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     start_of_round_altloc_subset_sizes=[start_of_round_altloc_subset_size,]*num_subset_runs
     ###################
     
-   
+    for i, (connection_id, ordered_connection_choices) in enumerate(disordered_connections.items()):
+        for conn in ordered_connection_choices:
+            for ch in conn.atom_chunks:
+                site = VariableID.Atom(ch)
+                if site.is_water:
+                    waters_in_geomections.add(site)
 
 
 
@@ -1510,7 +1519,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
     if change_punish_factor!=0:
         raise NotImplementedError()
-        num_conformers=len([site_being_considered(chunk) for chunk in chunk_sites])
+        num_conformers=len([site_being_considered(VariableID.Atom(chunk)) for chunk in chunk_sites])
         original_cost = lpSum([dist for dist in distance_vars]).value()
 
         
@@ -1554,7 +1563,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
     def update_swaps_file(distances, site_assignment_arrays,record_notable_improvements_threshold=None): # record_notable_improvements_threshold: fractional improvement required to record separately
         assert len(distances)==len(site_assignment_arrays)
     # Create json file that lists all the site *changes* that are required to meet the solution. 
-        out_dict = {"target": out_handle,"initial badness":initial_badness,"solutions":{}}
+        out_dict = {"target": out_handle,"initial badness":float(initial_badness),"solutions":{}}
         if record_notable_improvements_threshold is not None:
             assert 0 <= record_notable_improvements_threshold < 1
             sep_dict= deepcopy(out_dict)
@@ -1562,7 +1571,7 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
         else: 
             sep_dict=None
         for i, (distance, atom_assignments) in enumerate(zip(distances,site_assignment_arrays)):
-            solution_dict = {"badness": distance}
+            solution_dict = {"badness": float(distance)}
             out_dict["solutions"][f"solution {i+1}"] = solution_dict
             if record_notable_improvements_threshold is not None and 1-distance/initial_badness >= record_notable_improvements_threshold: 
                 best_improvement=max(best_improvement,1-distance/initial_badness)
