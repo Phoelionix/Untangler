@@ -623,7 +623,7 @@ class Untangler():
                                             forbid_altloc_changes=dict(name=forbid_altloc_changes),
                                             forbidden_atom_bond_changes=dict(name=forbidden_atom_bond_changes),
                                             forbidden_atom_any_connection_changes=dict(name=forbidden_atom_any_connection_changes),
-                                            include_only=dict(name=[],resnum=self.residue_selection),
+                                            include_only=dict(name=None,resnum=self.residue_selection),
                                             MAIN_CHAIN_ONLY=MAIN_CHAIN_ONLY,SIDE_CHAIN_ONLY=SIDE_CHAIN_ONLY,NO_CB_CHANGES=NO_CB_CHANGES,
                                             N_AND_CB_ONLY=N_AND_CB_ONLY,
                                             max_bond_changes=self.max_bond_changes,

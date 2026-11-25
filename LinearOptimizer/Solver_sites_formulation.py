@@ -642,10 +642,10 @@ def solve(chunk_sites: list[AtomChunk],disordered_connections:dict[str,list[LP_I
 
             if include_only["name"] is not None:
                 if not any(ch.name for ch in chunks) not in include_only["name"]:
-                    return False
+                    return True
             if include_only["resnum"] is not None:
-                if not any(ch.resnum for ch in chunks) not in include_only["name"]:
-                    return False 
+                if not any(ch.resnum for ch in chunks) not in include_only["resnum"]:
+                    return True 
             
             if forbid_CECD12_changes:
                 if constraint_type==VariableKind.Bond or constraint_type==VariableKind.Angle: 
